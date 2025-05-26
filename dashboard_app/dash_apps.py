@@ -32,7 +32,7 @@ SENSOR_SCRIPT_PATH = os.path.join(PROJECT_ROOT_DIR, SENSOR_SCRIPT_FILENAME)
 LOCK_FILE_PATH_FOR_DASH = '/tmp/sensor_scan_script.lock'
 PID_FILE_PATH_FOR_DASH = '/tmp/sensor_scan_script.pid'
 
-app = DjangoDash('RealtimeServoScannerDashboard', add_bootstrap_links=True)
+app = DjangoDash('RealtimeSensorDashboard', add_bootstrap_links=True)
 
 app.layout = html.Div([
     html.H1("Eş Zamanlı Servo Motorlu 2D Alan Tarama Paneli", style={'textAlign': 'center', 'marginBottom': '10px'}),
