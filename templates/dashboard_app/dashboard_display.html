@@ -1,0 +1,21 @@
+{% load plotly_dash %}
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
+    <title>Canlı Sensör Veri Paneli</title>
+    {% plotly_header %} {# Dash için gerekli CSS ve JS'leri yükler #}
+    <style>
+        body { font-family: sans-serif; margin: 0; padding: 20px; background-color: #f4f4f4; }
+        h1 { color: #333; }
+        /* Dash bileşenleri için ek stil tanımlamaları yapabilirsiniz */
+    </style>
+</head>
+<body>
+    <div class="container">
+        {% plotly_app name="RealtimeSensorDashboard" ratio=0.95 %} {# Dash uygulamanızın adı ve sayfa genişliğine oranı #}
+    </div>
+    {% plotly_footer %} {# Dash için gerekli scriptleri yükler #}
+</body>
+</html>
