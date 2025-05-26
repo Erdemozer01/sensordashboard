@@ -10,6 +10,7 @@ import os
 import sys
 import subprocess
 import time # Buton callback'inde kısa bir bekleme için
+import dash_bootstrap_components as dbc # En üste ekleyin
 
 # --- Sabitler ---
 # Projenin ana dizinini bulmaya çalışalım (manage.py'nin olduğu yer)
@@ -17,7 +18,7 @@ import time # Buton callback'inde kısa bir bekleme için
 # Django projesinin ana dizini (manage.py'nin olduğu yer)
 PROJECT_ROOT_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-DB_FILENAME = 'live_sensor_data.sqlite3'
+DB_FILENAME = 'db.sqlite3'
 DB_PATH = os.path.join(PROJECT_ROOT_DIR, DB_FILENAME)
 
 SENSOR_SCRIPT_FILENAME = 'sensor_script.py'
@@ -25,7 +26,10 @@ SENSOR_SCRIPT_PATH = os.path.join(PROJECT_ROOT_DIR, SENSOR_SCRIPT_FILENAME)
 
 LOCK_FILE_PATH_FOR_DASH = '/tmp/sensor_script.lock' # sensor_script.py'deki ile aynı olmalı
 
-app = DjangoDash('RealtimeSensorDashboard', add_bootstrap_links=True)
+app = DjangoDash(
+    'RealtimeSensorDashboard',
+    external_stylesheets=[dbc.themes.BOOTSTRAP] # add_bootstrap_links=True yerine bunu deneyin
+)
 
 app.layout = html.Div([
     html.H1("Eş Zamanlı Ultrasonik Sensör Veri Paneli", style={'textAlign': 'center', 'marginBottom': '10px'}),

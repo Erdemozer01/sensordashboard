@@ -20,7 +20,7 @@ YELLOW_LED_THRESHOLD_CM = 100.0
 TERMINATION_DISTANCE_CM = 10.0
 DELTA_T_SECONDS = 0.25  # İstenen örnekleme aralığı
 
-DB_NAME = 'live_sensor_data.sqlite3'  # Django projesi ile aynı dizinde olacak
+DB_NAME = 'db.sqlite3'  # Django projesi ile aynı dizinde olacak
 LOCK_FILE_PATH = '/tmp/sensor_script.lock'  # Kilit dosyası yolu (sistem genelinde tek olmalı)
 
 # --- Global Donanım Değişkenleri ---
