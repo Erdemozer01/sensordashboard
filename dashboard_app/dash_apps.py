@@ -12,13 +12,13 @@ import time
 import math  # Kutupsal -> Kartezyen dönüşümü için
 
 # --- Sabitler ---
-PROJECT_ROOT_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+PROJECT_ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DB_FILENAME = 'db.sqlite3'  # sensor_script.py ile aynı isimde olmalı
 DB_PATH = os.path.join(PROJECT_ROOT_DIR, DB_FILENAME)
 
 SENSOR_SCRIPT_FILENAME = 'sensor_script.py'  # sensor_script.py'nin adı
 SENSOR_SCRIPT_PATH = os.path.join(PROJECT_ROOT_DIR, SENSOR_SCRIPT_FILENAME)
-LOCK_FILE_PATH_FOR_DASH = '/tmp/sensor_scan_script.lock'  # sensor_script.py'deki ile aynı
+LOCK_FILE_PATH_FOR_DASH = '/tmp/sensor_scan_script.lock'
 
 app = DjangoDash('RealtimeSensorDashboard', add_bootstrap_links=True)
 
