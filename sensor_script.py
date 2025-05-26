@@ -32,7 +32,7 @@ SERVO_SETTLE_TIME = 0.3  # Servonun pozisyonuna gelmesi ve sensörün sabitlenme
 # Şimdilik bunu döngü içinde ayarlayacağız.
 LOOP_TARGET_INTERVAL_S = 0.5  # Her bir açı adımının yaklaşık ne kadar süreceği (servo hareketi dahil)
 
-DB_NAME = 'live_scan_data.sqlite3'
+DB_NAME = 'db.sqlite3'
 LOCK_FILE_PATH = '/tmp/sensor_scan_script.lock'
 PID_FILE_PATH = '/tmp/sensor_scan_script.pid'
 
