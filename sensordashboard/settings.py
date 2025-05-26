@@ -37,6 +37,7 @@ INSTALLED_APPS = [
     'django.contrib.staticfiles',
     'dashboard_app.apps.DashboardAppConfig',
     'django_plotly_dash.apps.DjangoPlotlyDashConfig',
+    'django_bootstrap5',
 ]
 
 MIDDLEWARE = [
