@@ -1,3 +1,4 @@
+import dash_bootstrap_components as dbc # En üste ekleyin
 from django_plotly_dash import DjangoDash
 import dash
 from dash import html
@@ -10,7 +11,7 @@ import os
 import sys
 import subprocess
 import time # Buton callback'inde kısa bir bekleme için
-import dash_bootstrap_components as dbc # En üste ekleyin
+
 
 # --- Sabitler ---
 # Projenin ana dizinini bulmaya çalışalım (manage.py'nin olduğu yer)
