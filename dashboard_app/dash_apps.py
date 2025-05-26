@@ -1,7 +1,7 @@
 from django_plotly_dash import DjangoDash
 import dash
-import dash_html_components as html # veya dash.html
-import dash_core_components as dcc  # veya dash.dcc
+from dash import html
+from dash import dcc
 from dash.dependencies import Input, Output, State
 import plotly.graph_objects as go
 import sqlite3
