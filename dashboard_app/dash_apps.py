@@ -17,7 +17,7 @@ import time # Buton callback'inde kısa bir bekleme için
 # Projenin ana dizinini bulmaya çalışalım (manage.py'nin olduğu yer)
 # Bu dosya dashboard_app içinde olduğu için iki seviye yukarı çıkmamız gerekebilir.
 # Django projesinin ana dizini (manage.py'nin olduğu yer)
-PROJECT_ROOT_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+PROJECT_ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 DB_FILENAME = 'db.sqlite3'
 DB_PATH = os.path.join(PROJECT_ROOT_DIR, DB_FILENAME)
@@ -25,7 +25,8 @@ DB_PATH = os.path.join(PROJECT_ROOT_DIR, DB_FILENAME)
 SENSOR_SCRIPT_FILENAME = 'sensor_script.py'
 SENSOR_SCRIPT_PATH = os.path.join(PROJECT_ROOT_DIR, SENSOR_SCRIPT_FILENAME)
 
-LOCK_FILE_PATH_FOR_DASH = '/tmp/sensor_script.lock' # sensor_script.py'deki ile aynı olmalı
+# Kilit dosyası yolu (sensor_script.py'deki ile aynı olmalı)
+LOCK_FILE_PATH_FOR_DASH = '/tmp/sensor_script.lock'
 
 app = DjangoDash(
     'RealtimeSensorDashboard',
