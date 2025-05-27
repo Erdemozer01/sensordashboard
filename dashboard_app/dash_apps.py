@@ -27,7 +27,7 @@ SENSOR_SCRIPT_PATH = os.path.join(PROJECT_ROOT_DIR, SENSOR_SCRIPT_FILENAME)
 LOCK_FILE_PATH_FOR_DASH = '/tmp/sensor_scan_script.lock'
 PID_FILE_PATH_FOR_DASH = '/tmp/sensor_scan_script.pid'
 
-app = DjangoDash('RealtimeSensorDashboard', add_bootstrap_links=True)
+app = DjangoDash('RealtimeSensorDashboard', add_bootstrap_links=True, external_stylesheets=[dbc.themes.BOOTSTRAP])
 
 app.layout = html.Div([
     html.H1("Eş Zamanlı Servo Motorlu 2D Alan Tarama Paneli", style={'textAlign': 'center', 'marginBottom': '10px'}),
@@ -35,28 +35,29 @@ app.layout = html.Div([
     html.Div([
         dbc.Row(
             [
-dbc.Col(
-                md=4,
-                children=[
-                    html.Button('2D Taramayı Başlat', id='start-scan-button', n_clicks=0,
-                                style={'marginRight': '10px', 'padding': '10px', 'fontSize': '16px',
-                                       'backgroundColor': '#4CAF50',
-                                       'color': 'white', 'border': 'none', 'cursor': 'pointer'}),
+                dbc.Col(
+                    md=4,
+                    children=[
 
-                    html.Span(id='scan-status-message', style={'marginLeft': '15px', 'fontSize': '16px'})
-                ]
-            ),
+                        html.Button('2D Taramayı Başlat', id='start-scan-button', n_clicks=0,
+                                    style={'marginRight': '10px', 'padding': '10px', 'fontSize': '16px',
+                                           'backgroundColor': '#4CAF50',
+                                           'color': 'white', 'border': 'none', 'cursor': 'pointer'}),
 
-            dbc.Col(
-                md=8,
-                children=[
-                    html.Div(id='graphs-container', children=[
-                        html.Div([dcc.Graph(id='scan-map-graph')],
-                                 style={'width': '100%', 'display': 'inline-block', 'marginBottom': '10px'}),
+                        html.Div(id='scan-status-message', style={'marginLeft': '15px', 'fontSize': '16px'})
+                    ]
+                ),
 
-                    ]),
-                ]
-            )
+                dbc.Col(
+                    md=8,
+                    children=[
+                        html.Div(id='graphs-container', children=[
+                            html.Div([dcc.Graph(id='scan-map-graph')],
+                                     style={'width': '100%', 'display': 'inline-block', 'marginBottom': '10px'}),
+
+                        ]),
+                    ]
+                )
             ]
 
         )
