@@ -29,7 +29,7 @@ LOOP_TARGET_INTERVAL_S = 0.5 # Her bir açı adımının yaklaşık süresi (ser
 
 # Proje ana dizinini al (bu betik ana dizinde ise)
 PROJECT_ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
-DB_NAME_ONLY = 'db.sqlite3'
+DB_NAME_ONLY = 'live_scan_data.sqlite3'
 DB_PATH = os.path.join(PROJECT_ROOT_DIR, DB_NAME_ONLY)
 
 LOCK_FILE_PATH = '/tmp/sensor_scan_script.lock'
