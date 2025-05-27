@@ -71,13 +71,45 @@ def init_db_for_scan():
         conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
         cursor.execute('''
-            CREATE TABLE IF NOT EXISTS servo_scans(
-                id INTEGER PRIMARY KEY AUTOINCREMENT, start_time REAL UNIQUE, status TEXT)''')
+                       CREATE TABLE IF NOT EXISTS servo_scans
+                       (
+                           id
+                           INTEGER
+                           PRIMARY
+                           KEY
+                           AUTOINCREMENT,
+                           start_time
+                           REAL
+                           UNIQUE,
+                           status
+                           TEXT
+                       )''')
         cursor.execute('''
-            CREATE TABLE IF NOT EXISTS scan_points (
-                id INTEGER PRIMARY KEY AUTOINCREMENT, scan_id INTEGER, angle_deg REAL, 
-                mesafe_cm REAL, hiz_cm_s REAL, timestamp REAL, 
-                FOREIGN KEY(scan_id) REFERENCES servo_scans(id))''')
+                       CREATE TABLE IF NOT EXISTS scan_points
+                       (
+                           id
+                           INTEGER
+                           PRIMARY
+                           KEY
+                           AUTOINCREMENT,
+                           scan_id
+                           INTEGER,
+                           angle_deg
+                           REAL,
+                           mesafe_cm
+                           REAL,
+                           hiz_cm_s
+                           REAL,
+                           timestamp
+                           REAL,
+                           FOREIGN
+                           KEY
+                       (
+                           scan_id
+                       ) REFERENCES servo_scans
+                       (
+                           id
+                       ))''')
 
         cursor.execute("UPDATE servo_scans SET status = 'interrupted_prior_run' WHERE status = 'running'")
 

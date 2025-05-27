@@ -24,7 +24,7 @@ import numpy as np
 PROJECT_ROOT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..')
 
 # sensor_script.py'deki DB_NAME_ONLY ile aynı olmalı!
-DB_FILENAME = 'db.sqlite3'
+DB_FILENAME = 'live_scan_data.sqlite3'
 DB_PATH = os.path.join(PROJECT_ROOT_DIR, DB_FILENAME)
 
 SENSOR_SCRIPT_FILENAME = 'sensor_script.py'
