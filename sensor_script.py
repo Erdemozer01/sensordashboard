@@ -369,7 +369,7 @@ if __name__ == "__main__":
             if lcd:
                 try:
                     lcd.cursor_pos = (0, 0)
-                    lcd.write_string(f"Aci:{angle_deg:<3} SnID:{current_scan_id_global:<3}".ljust(LCD_COLS)[:LCD_COLS])
+                    lcd.write_string(f"Aci:{angle_deg:<3} ID:{current_scan_id_global:<3}".ljust(LCD_COLS)[:LCD_COLS])
                     if LCD_ROWS > 1:
                         lcd.cursor_pos = (1, 0)
                         lcd.write_string(f"M:{distance_cm:5.1f} H:{hiz_cm_s:4.1f}".ljust(LCD_COLS)[:LCD_COLS])
