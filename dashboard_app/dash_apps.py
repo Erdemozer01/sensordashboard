@@ -12,15 +12,8 @@ import subprocess
 import time
 import math
 import numpy as np
+import dash_bootstrap_components as dbc
 
-# --- Sabitler ---
-# Django projesinin ana dizinini (manage.py'nin olduğu yer) bulmaya çalışır.
-# Bu dosya (dash_apps.py) dashboard_app klasöründe olduğu için,
-# ana dizin genellikle bir üst seviyededir.
-# Eğer Django proje yapınız farklıysa bu yolu ayarlamanız gerekebilir.
-# Örnek: manage.py ve dashboard_app klasörü aynı seviyedeyse:
-# PROJECT_ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
-# Eğer dashboard_app, manage.py'nin olduğu klasörün bir alt klasörüyse (tipik Django yapısı):
 PROJECT_ROOT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..')
 
 # sensor_script.py'deki DB_NAME_ONLY ile aynı olmalı!
@@ -40,22 +33,42 @@ app.layout = html.Div([
     html.H1("Eş Zamanlı Servo Motorlu 2D Alan Tarama Paneli", style={'textAlign': 'center', 'marginBottom': '10px'}),
 
     html.Div([
-        html.Button('2D Taramayı Başlat', id='start-scan-button', n_clicks=0,
-                    style={'marginRight': '10px', 'padding': '10px', 'fontSize': '16px', 'backgroundColor': '#4CAF50',
-                           'color': 'white', 'border': 'none', 'cursor': 'pointer'}),
-        html.Span(id='scan-status-message', style={'marginLeft': '15px', 'fontSize': '16px'})
-    ], style={'textAlign': 'center', 'marginBottom': '20px'}),
+        dbc.Row(
+            [
+dbc.Col(
+                md=4,
+                children=[
+                    html.Button('2D Taramayı Başlat', id='start-scan-button', n_clicks=0,
+                                style={'marginRight': '10px', 'padding': '10px', 'fontSize': '16px',
+                                       'backgroundColor': '#4CAF50',
+                                       'color': 'white', 'border': 'none', 'cursor': 'pointer'}),
+
+                    html.Span(id='scan-status-message', style={'marginLeft': '15px', 'fontSize': '16px'})
+                ]
+            ),
+
+            dbc.Col(
+                md=8,
+                children=[
+                    html.Div(id='graphs-container', children=[
+                        html.Div([dcc.Graph(id='scan-map-graph')],
+                                 style={'width': '100%', 'display': 'inline-block', 'marginBottom': '10px'}),
+
+                    ]),
+                ]
+            )
+            ]
+
+        )
+
+    ]),
 
     dcc.Interval(
         id='interval-component-scan',
-        interval=1000,  # Her 1.2 saniyede bir güncelle
+        interval=1200,
         n_intervals=0
     ),
-    html.Div(id='graphs-container', children=[
-        html.Div([dcc.Graph(id='scan-map-graph')],
-                 style={'width': '100%', 'display': 'inline-block', 'marginBottom': '10px'}),
-        # ...
-    ]),
+
     html.Div(id='scan-summary-realtime',
              style={'padding': '20px', 'fontSize': '16px', 'marginTop': '20px', 'border': '1px solid #ddd',
                     'borderRadius': '5px', 'backgroundColor': '#f9f9f9'})
