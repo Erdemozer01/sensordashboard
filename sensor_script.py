@@ -93,6 +93,9 @@ def init_hardware():
                           cols=LCD_COLS, rows=LCD_ROWS, dotsize=8, charmap='A02',
                           auto_linebreaks=False)
             lcd.clear()
+            lcd.cursor_pos = (0, 0)
+            lcd.write_string("Merhaba")
+            lcd.cursor_pos = (1, 0)
             lcd.write_string("Dream Pi Hazir!")
             time.sleep(1)
             print(f"[{os.getpid()}] LCD Ekran (Adres: {hex(LCD_I2C_ADDRESS)}) başarıyla başlatıldı.")
@@ -260,7 +263,7 @@ def release_resources_on_exit():
         try:
             lcd.clear()
             lcd.cursor_pos = (0, 0)
-            lcd.write_string("Dream Pi Kapatildi")
+            lcd.write_string("Tarama tamamlandı")
             print(f"[{pid}] LCD temizlendi ve mesaj yazıldı.")
         except Exception as e_lcd_clear:
             print(f"[{pid}] LCD temizlenirken hata: {e_lcd_clear}")
