@@ -1,5 +1,5 @@
 # sensor_script.py
-
+from RPLCD.i2c import CharLCD
 
 from gpiozero import AngularServo, DistanceSensor, LED
 import time
