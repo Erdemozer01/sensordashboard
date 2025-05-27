@@ -29,32 +29,48 @@ PID_FILE_PATH_FOR_DASH = '/tmp/sensor_scan_script.pid'
 
 app = DjangoDash('RealtimeSensorDashboard', external_stylesheets=[dbc.themes.BOOTSTRAP])
 
-app.layout = dbc.Container(fluid=True, children=[  # dbc.Container ve fluid=True
-    html.H1("Eş Zamanlı Servo Motorlu 2D Alan Tarama Paneli", className="text-center my-4"),  # Bootstrap class'ları
+app.layout = dbc.Container(fluid=True, children=[
+    dbc.Row([
+        dbc.Col(html.H1("Eş Zamanlı Servo Motorlu 2D Alan Tarama Paneli",
+                        className="text-center my-3"),  # my-3: üst ve alt margin
+                width=12)
+    ]),
 
-    dbc.Row([  # Buton ve durum mesajı için satır
+    dbc.Row([
+        # --- Sol Kolon (Başlatıcı ve Özet) ---
         dbc.Col([
-            html.Button('2D Taramayı Başlat', id='start-scan-button', n_clicks=0,
-                        className="btn btn-success btn-lg me-2"),  # Bootstrap class'ları ve margin
-            html.Span(id='scan-status-message', style={'fontSize': '16px'})
-        ], className="text-center mb-4"),
+            html.Div([
+                html.Button('2D Taramayı Başlat',
+                            id='start-scan-button',
+                            n_clicks=0,
+                            className="btn btn-success btn-lg w-100 mb-3"),
+                # w-100: kolonun tamamını kapla, mb-3: alt margin
+            ]),
+            html.Div(
+                html.Span(id='scan-status-message',
+                          style={'fontSize': '16px', 'display': 'block', 'marginBottom': '20px', 'minHeight': '20px'}),
+                # minHeight eklendi
+                className="text-center"
+            ),
+            html.Div(
+                id='scan-summary-realtime',
+                style={'padding': '15px', 'fontSize': '15px',
+                       'border': '1px solid #ddd', 'borderRadius': '5px',
+                       'backgroundColor': '#f9f9f9', 'minHeight': '150px'}  # minHeight eklendi
+            )
+        ], md=4),  # Orta ve büyük ekranlarda 4 kolon, küçük ekranlarda alta geçer
 
-        dbc.Col(dcc.Graph(id='scan-map-graph'), md=12)
+        # --- Sağ Kolon (Grafik) ---
+        dbc.Col([
+            dcc.Graph(id='scan-map-graph', style={'height': '75vh'})  # Yüksekliği viewport'a göre ayarla
+        ], md=8)  # Orta ve büyük ekranlarda 8 kolon
     ]),
 
     dcc.Interval(
         id='interval-component-scan',
-        interval=1200,
+        interval=1200,  # Her 1.2 saniyede bir güncelle
         n_intervals=0
-    ),
-
-    dbc.Row([  # Özet için satır
-        dbc.Col(html.Div(id='scan-summary-realtime',
-                         style={'padding': '20px', 'fontSize': '16px', 'marginTop': '20px',
-                                'border': '1px solid #ddd', 'borderRadius': '5px',
-                                'backgroundColor': '#f9f9f9'}),
-                width=12)
-    ])
+    )
 ])
 
 
@@ -87,7 +103,7 @@ def handle_start_scan_script(n_clicks):
             try:
                 with open(PID_FILE_PATH_FOR_DASH, 'r') as pf:
                     pid_str = pf.read().strip()
-                    if pid_str:  # PID dosyası boş değilse
+                    if pid_str:
                         current_pid = int(pid_str)
             except (FileNotFoundError, ValueError, TypeError) as e:  # Olası hatalar eklendi
                 print(f"Dash: PID dosyası ({PID_FILE_PATH_FOR_DASH}) okunamadı veya geçersiz: {e}")
