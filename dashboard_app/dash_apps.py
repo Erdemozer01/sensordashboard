@@ -46,14 +46,14 @@ app.layout = dbc.Container(fluid=True, children=[  # dbc.Container ve fluid=True
         n_intervals=0
     ),
     dbc.Row([  # Grafik için satır
-        dbc.Col(dcc.Graph(id='scan-map-graph'), width=12)  # Grafik tam 12 sütunu kaplar
+        dbc.Col(dcc.Graph(id='scan-map-graph'), md=12)
     ]),
     dbc.Row([  # Özet için satır
         dbc.Col(html.Div(id='scan-summary-realtime',
                          style={'padding': '20px', 'fontSize': '16px', 'marginTop': '20px',
                                 'border': '1px solid #ddd', 'borderRadius': '5px',
                                 'backgroundColor': '#f9f9f9'}),
-                width=12)  # Özet tam 12 sütunu kaplar
+                width=12)
     ])
 ])
 
