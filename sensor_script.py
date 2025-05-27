@@ -97,7 +97,7 @@ def init_hardware():
             lcd.write_string("Merhaba")
             lcd.cursor_pos = (1, 0)
             lcd.write_string("Dream Pi Hazir!")
-            time.sleep(1)
+            time.sleep(3)
             print(f"[{os.getpid()}] LCD Ekran (Adres: {hex(LCD_I2C_ADDRESS)}) başarıyla başlatıldı.")
         except Exception as e_lcd_init:
             print(f"[{os.getpid()}] UYARI: LCD başlatma hatası: {e_lcd_init}. LCD olmadan devam edilecek.")
