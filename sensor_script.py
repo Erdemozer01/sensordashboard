@@ -94,6 +94,7 @@ def init_hardware():
                           auto_linebreaks=False)
             lcd.clear()
             lcd.write_string("Dream Pi Hazir!")
+            time.sleep(1)
             print(f"[{os.getpid()}] LCD Ekran (Adres: {hex(LCD_I2C_ADDRESS)}) başarıyla başlatıldı.")
         except Exception as e_lcd_init:
             print(f"[{os.getpid()}] UYARI: LCD başlatma hatası: {e_lcd_init}. LCD olmadan devam edilecek.")
@@ -429,8 +430,3 @@ if __name__ == "__main__":
         print(f"[{os.getpid()}] Tarama sırasında ana döngüde beklenmedik bir hata: {e_main_loop}")
         script_exit_status_global = 'error_in_loop'
         if lcd: lcd.clear(); lcd.cursor_pos = (0, 0); lcd.write_string("HATA OLUSTU!")
-
-    # `atexit` fonksiyonu, script_exit_status_global'in en son değerini kullanarak
-    # gerekli temizlik işlemlerini ve DB durum güncellemesini yapacaktır.
-    # Normal çıkışta veya bir exception durumunda sys.exit() ile çıkmaya gerek yok,
-    # betik sonlandığında atexit zaten devreye girer.
