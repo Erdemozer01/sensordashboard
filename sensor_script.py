@@ -1,4 +1,3 @@
-# sensor_script.py (Buzzer Çıkarıldı)
 from gpiozero import AngularServo, DistanceSensor, LED
 import time
 import sqlite3
@@ -7,17 +6,15 @@ import sys
 import fcntl  # Dosya kilitleme için
 import atexit  # Temiz çıkış işlemleri için
 
-# --- Pin Tanımlamaları ---
 TRIG_PIN = 23
 ECHO_PIN = 24
-SERVO_PIN = 12  # Servo motorunuzu bağladığınız GPIO pini (KENDİNİZE GÖRE DEĞİŞTİRİN!)
+SERVO_PIN = 12
 
 RED_LED_PIN = 17
 GREEN_LED_PIN = 18
 YELLOW_LED_PIN = 27
-# BUZZER_PIN = 22 # Buzzer pini çıkarıldı
 
-# --- Eşik Değerleri ve Sabitler ---
+# --- Eşik Değerler ---
 OBJECT_THRESHOLD_CM = 20.0
 YELLOW_LED_THRESHOLD_CM = 100.0
 TERMINATION_DISTANCE_CM = 10.0
@@ -41,7 +38,6 @@ red_led = None
 green_led = None
 yellow_led = None
 servo = None
-# buzzer = None # Buzzer değişkeni çıkarıldı
 lock_file_handle = None
 current_scan_id_global = None
 db_conn_main_script_global = None
@@ -49,23 +45,28 @@ script_exit_status_global = 'interrupted_unexpectedly'
 
 
 def init_hardware():
-    global sensor, red_led, green_led, yellow_led, servo  # buzzer çıkarıldı
+    global sensor, red_led, green_led, yellow_led, servo
+
     try:
+
         sensor = DistanceSensor(echo=ECHO_PIN, trigger=TRIG_PIN, max_distance=2.0, queue_len=2)
+
         red_led = LED(RED_LED_PIN)
         green_led = LED(GREEN_LED_PIN)
         yellow_led = LED(YELLOW_LED_PIN)
+
         servo = AngularServo(SERVO_PIN, min_angle=0, max_angle=180,
                              min_pulse_width=0.0005, max_pulse_width=0.0025)
-        # buzzer = Buzzer(BUZZER_PIN) # Buzzer başlatma çıkarıldı
 
         print(f"[{os.getpid()}] Donanım başarıyla başlatıldı.")
-        red_led.off();
-        green_led.off();
-        yellow_led.off()  # buzzer.off() çıkarıldı
+
+        red_led.off()
+        green_led.off()
+        yellow_led.off()
         servo.angle = (SCAN_START_ANGLE + SCAN_END_ANGLE) / 2
         time.sleep(0.5)
         return True
+
     except Exception as e:
         print(f"[{os.getpid()}] Donanım başlatma hatası: {e}")
         return False
@@ -73,7 +74,9 @@ def init_hardware():
 
 def init_db_for_scan():
     global current_scan_id_global
+
     conn = None
+
     try:
         conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
@@ -125,8 +128,9 @@ def init_db_for_scan():
         current_scan_id_global = cursor.lastrowid
         conn.commit()
         print(f"[{os.getpid()}] Veritabanı '{DB_PATH}' hazırlandı. Yeni tarama ID: {current_scan_id_global}")
+
     except sqlite3.Error as e_db_init:
-        print(f"[{os.getpid()}] Veritabanı başlatma/tarama kaydı oluşturma hatası: {e_db_init}")
+        print(f"[{os.getpid()}] Veritabanı hatası: {e_db_init}")
         current_scan_id_global = None
     finally:
         if conn:
@@ -156,12 +160,14 @@ def acquire_lock_and_pid():
 
 def release_resources_on_exit():
     global lock_file_handle, current_scan_id_global, db_conn_main_script_global, script_exit_status_global
-    global sensor, red_led, green_led, yellow_led, servo  # buzzer çıkarıldı
+    global sensor, red_led, green_led, yellow_led, servo
 
     pid = os.getpid()
+
     print(f"[{pid}] `release_resources_on_exit` çağrıldı. Çıkış durumu: {script_exit_status_global}")
 
     if db_conn_main_script_global:
+
         try:
             db_conn_main_script_global.close();
             print(f"[{pid}] Ana DB bağlantısı kapatıldı.")
@@ -169,50 +175,74 @@ def release_resources_on_exit():
             print(f"[{pid}] Ana DB bağlantısı kapatılırken hata: {e_db_close}")
 
     if current_scan_id_global:
+
         conn_exit = None
+
         try:
+
             conn_exit = sqlite3.connect(DB_PATH)
+
             cursor_exit = conn_exit.cursor()
+
             cursor_exit.execute("UPDATE servo_scans SET status = ? WHERE id = ? AND status = 'running'",
                                 (script_exit_status_global, current_scan_id_global))
             conn_exit.commit()
+
             print(
                 f"[{pid}] Tarama ID {current_scan_id_global} durumu '{script_exit_status_global}' olarak güncellendi.")
+
         except Exception as e_db_update_exit:
             print(f"[{pid}] Çıkışta DB durumu güncellenirken hata: {e_db_update_exit}")
         finally:
             if conn_exit: conn_exit.close()
 
     print(f"[{pid}] Donanım kapatılıyor...")
+
     if servo and hasattr(servo, 'detach'):
+
         try:
-            servo.angle = (SCAN_START_ANGLE + SCAN_END_ANGLE) / 2;
+            servo.angle = (SCAN_START_ANGLE + SCAN_END_ANGLE) / 2
+
             time.sleep(0.2)
-            servo.detach();
+
+            servo.detach()
+
             servo.close()
+
             print(f"[{pid}] Servo kapatıldı.")
+
         except Exception as e_servo:
             print(f"[{pid}] Servo kapatılırken hata: {e_servo}")
 
-    # Buzzer listeden çıkarıldı
     for dev_obj in [red_led, green_led, yellow_led, sensor]:
+
         if dev_obj and hasattr(dev_obj, 'close'):
+
             if hasattr(dev_obj, 'is_active') and dev_obj.is_active:
+
                 if hasattr(dev_obj, 'off'): dev_obj.off()
+
             dev_obj.close()
+
     print(f"[{pid}] LED'ler ve sensör kapatıldı.")  # Mesaj güncellendi
 
     if lock_file_handle:
+
         try:
-            fcntl.flock(lock_file_handle.fileno(), fcntl.LOCK_UN);
+
+            fcntl.flock(lock_file_handle.fileno(), fcntl.LOCK_UN)
             lock_file_handle.close()
             print(f"[{pid}] Kilit ({LOCK_FILE_PATH}) serbest bırakıldı.")
+
         except Exception as e_lock:
             print(f"[{pid}] Kilit serbest bırakılırken hata: {e_lock}")
 
     for f_path in [PID_FILE_PATH, LOCK_FILE_PATH]:
+
         try:
+
             if os.path.exists(f_path):
+
                 if f_path == PID_FILE_PATH:
                     can_delete_pid = False
                     try:
@@ -221,7 +251,8 @@ def release_resources_on_exit():
                     except:
                         pass
                     if can_delete_pid:
-                        os.remove(f_path); print(f"[{pid}] Dosya silindi: {f_path}")
+                        os.remove(f_path);
+                        print(f"[{pid}] Dosya silindi: {f_path}")
                     else:
                         print(f"[{pid}] PID dosyası ({f_path}) başka processe ait veya okunamadı, silinmedi.")
                 elif f_path == LOCK_FILE_PATH:
@@ -234,6 +265,7 @@ def release_resources_on_exit():
 
 
 if __name__ == "__main__":
+
     atexit.register(release_resources_on_exit)
 
     if not acquire_lock_and_pid():
@@ -250,15 +282,20 @@ if __name__ == "__main__":
     ölçüm_tamponu_hız_için_yerel = []
     ornek_sayaci_yerel = 0
 
-    print(f"[{os.getpid()}] Servo ile 2D Tarama Başlıyor (Tarama ID: {current_scan_id_global})...")
+    print(f"Tarama Başlıyor (Tarama ID: {current_scan_id_global})...")
 
     scan_completed_successfully = False
+
     try:
+
         db_conn_main_script_global = sqlite3.connect(DB_PATH, timeout=10)
+
         cursor_main = db_conn_main_script_global.cursor()
 
         servo.angle = SCAN_START_ANGLE
+
         print(f"[{os.getpid()}] Servo başlangıç açısına ({SCAN_START_ANGLE}°) getirildi...")
+
         time.sleep(1.0)
 
         for angle_deg in range(SCAN_START_ANGLE, SCAN_END_ANGLE + SCAN_STEP_ANGLE, SCAN_STEP_ANGLE):
@@ -279,7 +316,6 @@ if __name__ == "__main__":
                 if delta_zaman > 0.001:
                     hiz_cm_s = delta_mesafe / delta_zaman
 
-            # LED Mantığı (Debug printleri ve buzzer çıkarıldı)
             if distance_cm > YELLOW_LED_THRESHOLD_CM:
                 yellow_led.on()
             else:
@@ -290,16 +326,15 @@ if __name__ == "__main__":
 
             if is_reading_valid:
                 if distance_cm <= OBJECT_THRESHOLD_CM:
-                    red_led.on();
+                    red_led.on()
                     green_led.off()
                 else:
-                    green_led.on();
+                    green_led.on()
                     red_led.off()
             else:
-                red_led.off();
+                red_led.off()
                 green_led.off()
 
-            # Çok Yakın Engel Durumu (Buzzer çıkarıldı, sadece LED ve sonlandırma)
             if distance_cm < TERMINATION_DISTANCE_CM:
                 print(f"[{os.getpid()}] DİKKAT: NESNE ÇOK YAKIN ({distance_cm:.2f}cm)! Tarama durduruluyor.")
                 red_led.on();
@@ -311,15 +346,21 @@ if __name__ == "__main__":
 
                 # Veritabanına Kaydet
             try:
+
                 cursor_main.execute('''
                                     INSERT INTO scan_points (scan_id, angle_deg, mesafe_cm, hiz_cm_s, timestamp)
                                     VALUES (?, ?, ?, ?, ?)
                                     ''', (current_scan_id_global, angle_deg, distance_cm, hiz_cm_s, current_timestamp))
+
                 db_conn_main_script_global.commit()
+
             except Exception as e_db_insert:
                 print(f"[{os.getpid()}] DB Ekleme Hatası: {e_db_insert}")
 
             ölçüm_tamponu_hız_için_yerel = [{'mesafe_cm': distance_cm, 'zaman_s': current_timestamp}]
+
+            print(ölçüm_tamponu_hız_için_yerel)
+
             ornek_sayaci_yerel += 1
 
             loop_processing_time = time.time() - loop_iteration_start_time
@@ -329,7 +370,7 @@ if __name__ == "__main__":
 
         else:
             scan_completed_successfully = True
-            script_exit_status_global = 'completed'
+            script_exit_status_global = 'tamamlandı'
             print(f"[{os.getpid()}] Tarama normal şekilde tamamlandı.")
 
     except KeyboardInterrupt:
