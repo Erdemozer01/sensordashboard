@@ -1,6 +1,11 @@
 # sensor_script.py
 from gpiozero import AngularServo, DistanceSensor, LED
-from RPLCD.i2c import CharLCD  # LCD kütüphanesi eklendi
+from gpiozero.pins.pigpio import PiGPIOFactory # Eklenecek import
+from gpiozero import Device # Varsayılan pin fabrikasını ayarlamak için
+
+Device.pin_factory = PiGPIOFactory() # Varsayılan pin fabrikasını pigpio yap
+
+from gpiozero import AngularServo, DistanceSensor, LED
 import time
 import sqlite3
 import os
