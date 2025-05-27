@@ -27,41 +27,17 @@ SENSOR_SCRIPT_PATH = os.path.join(PROJECT_ROOT_DIR, SENSOR_SCRIPT_FILENAME)
 LOCK_FILE_PATH_FOR_DASH = '/tmp/sensor_scan_script.lock'
 PID_FILE_PATH_FOR_DASH = '/tmp/sensor_scan_script.pid'
 
-app = DjangoDash('RealtimeSensorDashboard', add_bootstrap_links=True, external_stylesheets=[dbc.themes.BOOTSTRAP])
+app = DjangoDash('RealtimeSensorDashboard',external_stylesheets=[dbc.themes.BOOTSTRAP])
 
-app.layout = html.Div([
-    html.H1("Eş Zamanlı Servo Motorlu 2D Alan Tarama Paneli", style={'textAlign': 'center', 'marginBottom': '10px'}),
+app.layout = dbc.Container(fluid=True, children=[  # dbc.Container ve fluid=True
+    html.H1("Eş Zamanlı Servo Motorlu 2D Alan Tarama Paneli", className="text-center my-4"),  # Bootstrap class'ları
 
-    html.Div([
-        dbc.Row(
-            [
-                dbc.Col(
-                    md=4,
-                    children=[
-
-                        html.Button('2D Taramayı Başlat', id='start-scan-button', n_clicks=0,
-                                    style={'marginRight': '10px', 'padding': '10px', 'fontSize': '16px',
-                                           'backgroundColor': '#4CAF50',
-                                           'color': 'white', 'border': 'none', 'cursor': 'pointer'}),
-
-                        html.Div(id='scan-status-message', style={'marginLeft': '15px', 'fontSize': '16px'})
-                    ]
-                ),
-
-                dbc.Col(
-                    md=8,
-                    children=[
-                        html.Div(id='graphs-container', children=[
-                            html.Div([dcc.Graph(id='scan-map-graph')],
-                                     style={'width': '100%', 'display': 'inline-block', 'marginBottom': '10px'}),
-
-                        ]),
-                    ]
-                )
-            ]
-
-        )
-
+    dbc.Row([  # Buton ve durum mesajı için satır
+        dbc.Col([
+            html.Button('2D Taramayı Başlat', id='start-scan-button', n_clicks=0,
+                        className="btn btn-success btn-lg me-2"),  # Bootstrap class'ları ve margin
+            html.Span(id='scan-status-message', style={'fontSize': '16px'})
+        ], className="text-center mb-4")
     ]),
 
     dcc.Interval(
@@ -69,10 +45,16 @@ app.layout = html.Div([
         interval=1200,
         n_intervals=0
     ),
-
-    html.Div(id='scan-summary-realtime',
-             style={'padding': '20px', 'fontSize': '16px', 'marginTop': '20px', 'border': '1px solid #ddd',
-                    'borderRadius': '5px', 'backgroundColor': '#f9f9f9'})
+    dbc.Row([  # Grafik için satır
+        dbc.Col(dcc.Graph(id='scan-map-graph'), width=12)  # Grafik tam 12 sütunu kaplar
+    ]),
+    dbc.Row([  # Özet için satır
+        dbc.Col(html.Div(id='scan-summary-realtime',
+                         style={'padding': '20px', 'fontSize': '16px', 'marginTop': '20px',
+                                'border': '1px solid #ddd', 'borderRadius': '5px',
+                                'backgroundColor': '#f9f9f9'}),
+                width=12)  # Özet tam 12 sütunu kaplar
+    ])
 ])
 
 
