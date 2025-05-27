@@ -1,9 +1,5 @@
 # sensor_script.py
-from gpiozero import AngularServo, DistanceSensor, LED
-from gpiozero.pins.pigpio import PiGPIOFactory # Eklenecek import
-from gpiozero import Device # Varsayılan pin fabrikasını ayarlamak için
 
-Device.pin_factory = PiGPIOFactory() # Varsayılan pin fabrikasını pigpio yap
 
 from gpiozero import AngularServo, DistanceSensor, LED
 import time
