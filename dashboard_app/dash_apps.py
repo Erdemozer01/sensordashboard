@@ -29,49 +29,51 @@ PID_FILE_PATH_FOR_DASH = '/tmp/sensor_scan_script.pid'
 
 app = DjangoDash('RealtimeSensorDashboard', external_stylesheets=[dbc.themes.BOOTSTRAP])
 
-app.layout = dbc.Container(fluid=True, children=[
-    dbc.Row([
-        dbc.Col(html.H1("Eş Zamanlı Servo Motorlu 2D Alan Tarama Paneli",
-                        className="text-center my-3"),  # my-3: üst ve alt margin
-                width=12)
-    ]),
+app.layout = html.Div(
+    children=[
+        dbc.Row([
+            dbc.Col(html.H1("Eş Zamanlı Servo Motorlu 2D Alan Tarama Paneli",
+                            className="text-center my-3"),  # my-3: üst ve alt margin
+                    width=12)
+        ]),
 
-    dbc.Row([
-        # --- Sol Kolon (Başlatıcı ve Özet) ---
-        dbc.Col([
-            html.Div([
-                html.Button('2D Taramayı Başlat',
-                            id='start-scan-button',
-                            n_clicks=0,
-                            className="btn btn-success btn-lg w-100 mb-3"),
-                # w-100: kolonun tamamını kapla, mb-3: alt margin
-            ]),
-            html.Div(
-                html.Span(id='scan-status-message',
-                          style={'fontSize': '16px', 'display': 'block', 'marginBottom': '20px', 'minHeight': '20px'}),
-                # minHeight eklendi
-                className="text-center"
-            ),
-            html.Div(
-                id='scan-summary-realtime',
-                style={'padding': '15px', 'fontSize': '15px',
-                       'border': '1px solid #ddd', 'borderRadius': '5px',
-                       'backgroundColor': '#f9f9f9', 'minHeight': '150px'}  # minHeight eklendi
-            )
-        ], md=4),  # Orta ve büyük ekranlarda 4 kolon, küçük ekranlarda alta geçer
+        dbc.Row([
+            # --- Sol Kolon (Başlatıcı ve Özet) ---
+            dbc.Col([
+                html.Div([
+                    html.Button('2D Taramayı Başlat',
+                                id='start-scan-button',
+                                n_clicks=0,
+                                className="btn btn-success btn-lg w-100 mb-3"),
+                    # w-100: kolonun tamamını kapla, mb-3: alt margin
+                ]),
+                html.Div(
+                    html.Span(id='scan-status-message',
+                              style={'fontSize': '16px', 'display': 'block', 'marginBottom': '20px',
+                                     'minHeight': '20px'}),
+                    # minHeight eklendi
+                    className="text-center"
+                ),
+                html.Div(
+                    id='scan-summary-realtime',
+                    style={'padding': '15px', 'fontSize': '15px',
+                           'border': '1px solid #ddd', 'borderRadius': '5px',
+                           'backgroundColor': '#f9f9f9', 'minHeight': '150px'}  # minHeight eklendi
+                )
+            ], md=4),  # Orta ve büyük ekranlarda 4 kolon, küçük ekranlarda alta geçer
 
-        # --- Sağ Kolon (Grafik) ---
-        dbc.Col([
-            dcc.Graph(id='scan-map-graph', style={'height': '75vh'})  # Yüksekliği viewport'a göre ayarla
-        ], md=8)  # Orta ve büyük ekranlarda 8 kolon
-    ]),
+            # --- Sağ Kolon (Grafik) ---
+            dbc.Col([
+                dcc.Graph(id='scan-map-graph', style={'height': '75vh'})  # Yüksekliği viewport'a göre ayarla
+            ], md=8)  # Orta ve büyük ekranlarda 8 kolon
+        ]),
 
-    dcc.Interval(
-        id='interval-component-scan',
-        interval=1200,  # Her 1.2 saniyede bir güncelle
-        n_intervals=0
-    )
-])
+        dcc.Interval(
+            id='interval-component-scan',
+            interval=1200,  # Her 1.2 saniyede bir güncelle
+            n_intervals=0
+        )
+    ])
 
 
 def is_process_running(pid):
@@ -129,7 +131,6 @@ def handle_start_scan_script(n_clicks):
                 return f"HATA: Sensör betiği bulunamadı: {SENSOR_SCRIPT_PATH}. Lütfen Django projenizin ana dizininde olduğundan emin olun."
 
             print(f"Dash: '{SENSOR_SCRIPT_PATH}' betiği '{python_executable}' ile başlatılıyor...")
-
 
             process = subprocess.Popen(
                 [python_executable, SENSOR_SCRIPT_PATH],
