@@ -263,7 +263,9 @@ def release_resources_on_exit():
         try:
             lcd.clear()
             lcd.cursor_pos = (0, 0)
-            lcd.write_string("Tarama tamamlandı")
+            lcd.write_string("Dream Pi")
+            lcd.cursor_pos = (1, 0)
+            lcd.write_string("Taramayı yaptı")
             print(f"[{pid}] LCD temizlendi ve mesaj yazıldı.")
         except Exception as e_lcd_clear:
             print(f"[{pid}] LCD temizlenirken hata: {e_lcd_clear}")
