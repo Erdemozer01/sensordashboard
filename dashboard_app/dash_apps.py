@@ -48,11 +48,13 @@ app.layout = html.Div([
 
     dcc.Interval(
         id='interval-component-scan',
-        interval=1200,  # Her 1.2 saniyede bir güncelle
+        interval=1000,  # Her 1.2 saniyede bir güncelle
         n_intervals=0
     ),
     html.Div(id='graphs-container', children=[
-        dcc.Graph(id='scan-map-graph')
+        html.Div([dcc.Graph(id='scan-map-graph')],
+                 style={'width': '100%', 'display': 'inline-block', 'marginBottom': '10px'}),
+        # ...
     ]),
     html.Div(id='scan-summary-realtime',
              style={'padding': '20px', 'fontSize': '16px', 'marginTop': '20px', 'border': '1px solid #ddd',
