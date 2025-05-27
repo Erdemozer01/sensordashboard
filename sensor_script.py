@@ -185,91 +185,118 @@ def release_resources_on_exit():
     global sensor, red_led, green_led, yellow_led, servo, lcd
 
     pid = os.getpid()
-    print(f"[{pid}] `release_resources_on_exit` çağrıldı. Çıkış durumu: {script_exit_status_global}")
+    print(f"[{pid}] `release_resources_on_exit` çağrılıyor. Çıkış durumu: {script_exit_status_global}")
 
+    # 1. Ana Veritabanı Bağlantısını Kapat
     if db_conn_main_script_global:
         try:
-            db_conn_main_script_global.close();
+            db_conn_main_script_global.close()
             print(f"[{pid}] Ana DB bağlantısı kapatıldı.")
+            db_conn_main_script_global = None  # Kapatıldığını işaretle
         except Exception as e_db_close:
             print(f"[{pid}] Ana DB bağlantısı kapatılırken hata: {e_db_close}")
 
+    # 2. Tarama Durumunu Güncelle
     if current_scan_id_global:
         conn_exit = None
         try:
-            conn_exit = sqlite3.connect(DB_PATH)
+            conn_exit = sqlite3.connect(DB_PATH)  # Yeni bağlantı aç
             cursor_exit = conn_exit.cursor()
-            # Sadece 'running' durumundakini güncelle
-            cursor_exit.execute("UPDATE servo_scans SET status = ? WHERE id = ? AND status = 'running'",
-                                (script_exit_status_global, current_scan_id_global))
+            # Sadece 'running' durumundakini güncelle, zaten tamamlanmışsa veya farklı bir hata durumu varsa elleme
+            # Eğer script_exit_status_global 'completed' ise ve DB'de 'running' ise bu doğru bir güncelleme olur.
+            # Eğer betik bir hata ile sonlandıysa ve status 'running' ise, bu da doğru bir güncelleme olur.
+            cursor_exit.execute(
+                "UPDATE servo_scans SET status = ? WHERE id = ? AND (status = 'running' OR status = 'interrupted_during_scan')",
+                (script_exit_status_global, current_scan_id_global))
             conn_exit.commit()
             print(
-                f"[{pid}] Tarama ID {current_scan_id_global} durumu '{script_exit_status_global}' olarak güncellendi.")
+                f"[{pid}] Tarama ID {current_scan_id_global} durumu '{script_exit_status_global}' olarak güncellendi (eğer 'running' veya 'interrupted_during_scan' idiyse).")
         except Exception as e_db_update_exit:
             print(f"[{pid}] Çıkışta DB durumu güncellenirken hata: {e_db_update_exit}")
         finally:
-            if conn_exit: conn_exit.close()
+            if conn_exit:
+                conn_exit.close()
 
+    # 3. LCD'yi Kapat
     if lcd and hasattr(lcd, 'clear'):
         try:
             lcd.clear()
-            lcd.write_string(f"Sonlaniyor...")
+            lcd.write_string(f"Cikis: {pid}")
             time.sleep(0.5)
             lcd.backlight_enabled = False
+            # lcd.close() # RPLCD'nin bazı implementasyonlarında bu gerekli olmayabilir veya sorun çıkarabilir
             print(f"[{pid}] LCD ekran temizlendi ve ışığı kapatıldı.")
         except Exception as e_lcd_close:
             print(f"[{pid}] LCD kapatılırken hata: {e_lcd_close}")
 
-    print(f"[{pid}] Donanım kapatılıyor...")
-    if servo and hasattr(servo, 'detach'):
+    # 4. Donanım Pinlerini Kapat
+    print(f"[{pid}] Diğer donanımlar kapatılıyor...")
+    if servo and hasattr(servo, 'detach') and hasattr(servo, 'close'):
         try:
-            servo.angle = (SCAN_START_ANGLE + SCAN_END_ANGLE) / 2;
-            time.sleep(0.2)
-            servo.detach();
+            if servo.value is not None:  # Servo bir değere ayarlıysa ortaya almayı dene
+                servo.angle = (SCAN_START_ANGLE + SCAN_END_ANGLE) / 2
+                time.sleep(0.1)  # Çok kısa bekleme
+            servo.detach()
             servo.close()
             print(f"[{pid}] Servo kapatıldı.")
         except Exception as e_servo:
             print(f"[{pid}] Servo kapatılırken hata: {e_servo}")
 
-    for led_obj in [red_led, green_led, yellow_led]:
-        if led_obj and hasattr(led_obj, 'is_active') and led_obj.is_active: led_obj.off()
-        if led_obj and hasattr(led_obj, 'close'): led_obj.close()
-    if sensor and hasattr(sensor, 'close'): sensor.close()
+    for led_name, led_obj in [("Kirmizi LED", red_led), ("Yesil LED", green_led), ("Sari LED", yellow_led)]:
+        if led_obj and hasattr(led_obj, 'close'):
+            try:
+                if hasattr(led_obj, 'is_active') and led_obj.is_active:
+                    led_obj.off()
+                led_obj.close()
+            except Exception as e_led:
+                print(f"[{pid}] {led_name} kapatılırken hata: {e_led}")
+
+    if sensor and hasattr(sensor, 'close'):
+        try:
+            sensor.close()
+        except Exception as e_sensor:
+            print(f"[{pid}] Sensör kapatılırken hata: {e_sensor}")
     print(f"[{pid}] LED'ler ve sensör kapatıldı.")
 
-    if lock_file_handle:
+    # 5. Kilit ve PID Dosyalarını Temizle
+    if lock_file_handle:  # Bu process tarafından açılan kilitse
         try:
-            fcntl.flock(lock_file_handle.fileno(), fcntl.LOCK_UN);
+            fcntl.flock(lock_file_handle.fileno(), fcntl.LOCK_UN)
             lock_file_handle.close()
             print(f"[{pid}] Kilit ({LOCK_FILE_PATH}) serbest bırakıldı.")
+            # lock_file_handle kapatıldığı için artık fiziksel dosyayı silebiliriz
+            if os.path.exists(LOCK_FILE_PATH):
+                try:
+                    os.remove(LOCK_FILE_PATH)
+                    print(f"[{pid}] Kilit fiziksel dosyası ({LOCK_FILE_PATH}) silindi.")
+                except OSError as e_rm_lock_phys:
+                    print(f"[{pid}] Kilit fiziksel dosyası silinirken hata: {e_rm_lock_phys}")
         except Exception as e_lock:
             print(f"[{pid}] Kilit serbest bırakılırken hata: {e_lock}")
+    elif os.path.exists(LOCK_FILE_PATH):  # Handle yok ama dosya var (kalıntı olabilir)
+        try:
+            os.remove(LOCK_FILE_PATH)
+            print(f"[{pid}] Kalıntı kilit dosyası ({LOCK_FILE_PATH}) silindi.")
+        except OSError as e_rm_stale_lock:
+            print(f"[{pid}] Kalıntı kilit dosyası silinirken hata: {e_rm_stale_lock}")
 
-    # PID ve Kilit dosyalarını sil
-    # PID dosyasını sadece bu process oluşturduysa sil
-    current_pid_matches = False
     if os.path.exists(PID_FILE_PATH):
+        can_delete_pid = False
         try:
             with open(PID_FILE_PATH, 'r') as pf_check:
                 if int(pf_check.read().strip()) == pid:
-                    current_pid_matches = True
-        except:
-            pass  # Okuma hatası olursa önemli değil
-        if current_pid_matches:
+                    can_delete_pid = True
+        except:  # Okuma hatası veya dosya yoksa (race condition)
+            pass
+
+        if can_delete_pid:
             try:
-                os.remove(PID_FILE_PATH); print(f"[{pid}] Dosya silindi: {PID_FILE_PATH}")
+                os.remove(PID_FILE_PATH)
+                print(f"[{pid}] PID dosyası ({PID_FILE_PATH}) silindi.")
             except OSError as e_rm_pid:
                 print(f"[{pid}] PID dosyası ({PID_FILE_PATH}) silinirken hata: {e_rm_pid}")
         else:
-            print(f"[{pid}] PID dosyası ({PID_FILE_PATH}) başka processe ait veya okunamadı, silinmedi.")
-
-    # Kilit dosyası, eğer handle bu process tarafından açıldıysa (lock_file_handle is not None)
-    # ve kapatıldıysa, fiziksel dosyayı da sil. Ya da her zaman silmeyi dene (eğer kalıntıysa).
-    if os.path.exists(LOCK_FILE_PATH):
-        try:
-            os.remove(LOCK_FILE_PATH); print(f"[{pid}] Kilit fiziksel dosyası ({LOCK_FILE_PATH}) silindi.")
-        except OSError as e_rm_lock:
-            print(f"[{pid}] Kilit dosyası ({LOCK_FILE_PATH}) silinirken hata: {e_rm_lock}")
+            print(f"[{pid}] PID dosyası ({PID_FILE_PATH}) bu processe ait değil veya okunamadı, silinmedi.")
 
     print(f"[{pid}] Temizleme fonksiyonu tamamlandı.")
 
