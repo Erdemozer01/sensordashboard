@@ -27,7 +27,7 @@ SENSOR_SCRIPT_PATH = os.path.join(PROJECT_ROOT_DIR, SENSOR_SCRIPT_FILENAME)
 LOCK_FILE_PATH_FOR_DASH = '/tmp/sensor_scan_script.lock'
 PID_FILE_PATH_FOR_DASH = '/tmp/sensor_scan_script.pid'
 
-app = DjangoDash('RealtimeSensorDashboard',external_stylesheets=[dbc.themes.BOOTSTRAP])
+app = DjangoDash('RealtimeSensorDashboard', external_stylesheets=[dbc.themes.BOOTSTRAP])
 
 app.layout = dbc.Container(fluid=True, children=[  # dbc.Container ve fluid=True
     html.H1("Eş Zamanlı Servo Motorlu 2D Alan Tarama Paneli", className="text-center my-4"),  # Bootstrap class'ları
@@ -37,7 +37,9 @@ app.layout = dbc.Container(fluid=True, children=[  # dbc.Container ve fluid=True
             html.Button('2D Taramayı Başlat', id='start-scan-button', n_clicks=0,
                         className="btn btn-success btn-lg me-2"),  # Bootstrap class'ları ve margin
             html.Span(id='scan-status-message', style={'fontSize': '16px'})
-        ], className="text-center mb-4")
+        ], className="text-center mb-4"),
+
+        dbc.Col(dcc.Graph(id='scan-map-graph'), md=12)
     ]),
 
     dcc.Interval(
@@ -45,9 +47,7 @@ app.layout = dbc.Container(fluid=True, children=[  # dbc.Container ve fluid=True
         interval=1200,
         n_intervals=0
     ),
-    dbc.Row([  # Grafik için satır
-        dbc.Col(dcc.Graph(id='scan-map-graph'), md=12)
-    ]),
+
     dbc.Row([  # Özet için satır
         dbc.Col(html.Div(id='scan-summary-realtime',
                          style={'padding': '20px', 'fontSize': '16px', 'marginTop': '20px',
@@ -108,29 +108,31 @@ def handle_start_scan_script(n_clicks):
 
         try:
             python_executable = sys.executable
+
             if not os.path.exists(SENSOR_SCRIPT_PATH):
                 return f"HATA: Sensör betiği bulunamadı: {SENSOR_SCRIPT_PATH}. Lütfen Django projenizin ana dizininde olduğundan emin olun."
 
             print(f"Dash: '{SENSOR_SCRIPT_PATH}' betiği '{python_executable}' ile başlatılıyor...")
-            # Betiği arka planda ve yeni bir session'da başlat
+
+
             process = subprocess.Popen(
                 [python_executable, SENSOR_SCRIPT_PATH],
-                start_new_session=True,  # Django sunucusundan bağımsız çalışması için
-                # Geliştirme sırasında logları görmek için stdout/stderr yönlendirmesini kaldırabilirsiniz
-                # stdout=subprocess.PIPE, 
-                # stderr=subprocess.PIPE
+                start_new_session=True,
             )
 
-            time.sleep(2.5)  # Betiğin başlaması, kilit ve PID dosyalarını oluşturması için biraz daha süre
+            time.sleep(2.5)
 
             if os.path.exists(PID_FILE_PATH_FOR_DASH):
                 new_pid = None
+
                 try:
                     with open(PID_FILE_PATH_FOR_DASH, 'r') as pf_new:
+
                         pid_str_new = pf_new.read().strip()
                         if pid_str_new: new_pid = int(pid_str_new)
+
                     if new_pid and is_process_running(new_pid):
-                        return f"Sensör betiği başlatıldı (Yeni PID: {new_pid}). Veriler güncellenmeye başlayacak."
+                        return f"Sensör okuması başlatıldı. ID : {new_pid}"
                     else:
                         return f"Sensör betiği başlatıldı ancak PID ({new_pid}) ile çalışan bir process bulunamadı veya PID dosyası boş/hatalı."
                 except Exception as e_pid_read:
