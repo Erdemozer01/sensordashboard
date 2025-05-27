@@ -1,11 +1,6 @@
 # sensor_script.py
 from gpiozero import AngularServo, DistanceSensor, LED
-from RPLCD.i2c import CharLCD  # LCD kütüphanesi eklendi
-# from gpiozero.pins.pigpio import PiGPIOFactory # PIGPIO KULLANIMI ŞİMDİLİK KALDIRILDI
-# from gpiozero import Device                     # PIGPIO KULLANIMI ŞİMDİLİK KALDIRILDI
-
-# Device.pin_factory = PiGPIOFactory() # PIGPIO KULLANIMI ŞİMDİLİK KALDIRILDI
-
+from RPLCD.i2c import CharLCD  # LCD kütüphanesi
 import time
 import sqlite3
 import os
@@ -31,11 +26,10 @@ SCAN_START_ANGLE = 0
 SCAN_END_ANGLE = 180
 SCAN_STEP_ANGLE = 10
 SERVO_SETTLE_TIME = 0.3
-LOOP_TARGET_INTERVAL_S = 0.6  # Her bir açı adımının yaklaşık süresi (LCD yazma dahil)
+LOOP_TARGET_INTERVAL_S = 0.6  # Her bir açı adımının yaklaşık süresi
 
-# Proje ana dizinini al (bu betik ana dizinde ise)
 PROJECT_ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
-DB_NAME_ONLY = 'live_scan_data.sqlite3'  # dash_apps.py ile aynı olmalı!
+DB_NAME_ONLY = 'live_scan_data.sqlite3'
 DB_PATH = os.path.join(PROJECT_ROOT_DIR, DB_NAME_ONLY)
 
 LOCK_FILE_PATH = '/tmp/sensor_scan_script.lock'
@@ -51,7 +45,7 @@ lcd = None
 lock_file_handle = None
 current_scan_id_global = None
 db_conn_main_script_global = None
-script_exit_status_global = 'interrupted_unexpectedly'
+script_exit_status_global = 'interrupted_unexpectedly'  # atexit için varsayılan durum
 
 
 def init_hardware():
@@ -65,14 +59,11 @@ def init_hardware():
         servo = AngularServo(SERVO_PIN, min_angle=0, max_angle=180,
                              min_pulse_width=0.0005, max_pulse_width=0.0025)
 
-        # LCD Başlatma
-        # I2C adresini (örn: 0x27) `sudo i2cdetect -y 1` ile bulduğunuz adresle değiştirin.
-        # PCF8574, yaygın bir I2C genişletici çipidir.
         lcd = CharLCD(i2c_expander='PCF8574', address=0x27, port=1,
                       cols=16, rows=2, backlight_enabled=True)
         lcd.clear()
         lcd.write_string("Sistem Hazir...")
-        print(f"[{os.getpid()}] LCD Ekran (Adres: 0x27, Exp: PCF8574) başarıyla başlatıldı.")
+        print(f"[{os.getpid()}] LCD Ekran (Adres: 0x27) başarıyla başlatıldı.")
 
         print(f"[{os.getpid()}] Tüm donanımlar başarıyla başlatıldı.")
         red_led.off();
@@ -82,11 +73,10 @@ def init_hardware():
         time.sleep(0.5)
         return True
     except Exception as e:
-        print(f"[{os.getpid()}] Donanım başlatma hatası (LCD dahil olabilir): {e}")
-        if lcd and hasattr(lcd, 'clear'):  # Sadece clear metodu varsa çağır
+        print(f"[{os.getpid()}] Donanım başlatma hatası: {e}")
+        if lcd and hasattr(lcd, 'clear'):
             try:
-                lcd.clear()
-                lcd.backlight_enabled = False
+                lcd.clear(); lcd.backlight_enabled = False
             except:
                 pass
         return False
@@ -140,116 +130,110 @@ def init_db_for_scan():
                        ))''')
 
         cursor.execute("UPDATE servo_scans SET status = 'interrupted_prior_run' WHERE status = 'running'")
-
         scan_start_time = time.time()
         cursor.execute("INSERT INTO servo_scans (start_time, status) VALUES (?, ?)", (scan_start_time, 'running'))
         current_scan_id_global = cursor.lastrowid
         conn.commit()
         print(f"[{os.getpid()}] Veritabanı '{DB_PATH}' hazırlandı. Yeni tarama ID: {current_scan_id_global}")
     except sqlite3.Error as e_db_init:
-        print(f"[{os.getpid()}] Veritabanı başlatma/tarama kaydı oluşturma hatası: {e_db_init}")
+        print(f"[{os.getpid()}] Veritabanı başlatma/tarama kaydı hatası: {e_db_init}")
         current_scan_id_global = None
     finally:
-        if conn:
-            conn.close()
+        if conn: conn.close()
 
 
 def acquire_lock_and_pid():
     global lock_file_handle
     try:
-        if os.path.exists(PID_FILE_PATH): os.remove(PID_FILE_PATH)  # Önce eski PID'i sil (eğer varsa)
+        if os.path.exists(PID_FILE_PATH): os.remove(PID_FILE_PATH)
     except OSError:
         pass
-
     try:
         lock_file_handle = open(LOCK_FILE_PATH, 'w')
         fcntl.flock(lock_file_handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
         with open(PID_FILE_PATH, 'w') as pf:
             pf.write(str(os.getpid()))
-        print(f"[{os.getpid()}] Betik kilidi ({LOCK_FILE_PATH}) ve PID ({PID_FILE_PATH}) başarıyla oluşturuldu.")
+        print(f"[{os.getpid()}] Kilit ({LOCK_FILE_PATH}) ve PID ({PID_FILE_PATH}) oluşturuldu.")
         return True
     except BlockingIOError:
-        print(f"[{os.getpid()}] '{LOCK_FILE_PATH}' kilitli. Sensör betiği zaten çalışıyor olabilir.")
+        print(f"[{os.getpid()}] '{LOCK_FILE_PATH}' kilitli. Betik zaten çalışıyor olabilir.")
         if lock_file_handle: lock_file_handle.close()
         lock_file_handle = None
         return False
     except Exception as e:
-        print(f"[{os.getpid()}] Kilit/PID alınırken beklenmedik bir hata: {e}")
+        print(f"[{os.getpid()}] Kilit/PID alınırken hata: {e}")
         if lock_file_handle: lock_file_handle.close()
         lock_file_handle = None
         return False
 
 
-def release_resources_on_exit():
+def release_resources_on_exit():  # Argüman almayacak şekilde düzeltildi
     global lock_file_handle, current_scan_id_global, db_conn_main_script_global, script_exit_status_global
     global sensor, red_led, green_led, yellow_led, servo, lcd
 
     pid = os.getpid()
-    print(f"[{pid}] `release_resources_on_exit` çağrılıyor. Çıkış durumu: {script_exit_status_global}")
+    print(f"[{pid}] `release_resources_on_exit` çağrıldı. Planlanan çıkış durumu: {script_exit_status_global}")
 
-    # 1. Ana Veritabanı Bağlantısını Kapat
     if db_conn_main_script_global:
         try:
-            db_conn_main_script_global.close()
+            db_conn_main_script_global.close();
             print(f"[{pid}] Ana DB bağlantısı kapatıldı.")
-            db_conn_main_script_global = None  # Kapatıldığını işaretle
         except Exception as e_db_close:
-            print(f"[{pid}] Ana DB bağlantısı kapatılırken hata: {e_db_close}")
+            print(f"[{pid}] Ana DB kapatılırken hata: {e_db_close}")
 
-    # 2. Tarama Durumunu Güncelle
     if current_scan_id_global:
         conn_exit = None
         try:
-            conn_exit = sqlite3.connect(DB_PATH)  # Yeni bağlantı aç
+            conn_exit = sqlite3.connect(DB_PATH)
             cursor_exit = conn_exit.cursor()
-            # Sadece 'running' durumundakini güncelle, zaten tamamlanmışsa veya farklı bir hata durumu varsa elleme
-            # Eğer script_exit_status_global 'completed' ise ve DB'de 'running' ise bu doğru bir güncelleme olur.
-            # Eğer betik bir hata ile sonlandıysa ve status 'running' ise, bu da doğru bir güncelleme olur.
             cursor_exit.execute(
-                "UPDATE servo_scans SET status = ? WHERE id = ? AND (status = 'running' OR status = 'interrupted_during_scan')",
+                "UPDATE servo_scans SET status = ? WHERE id = ? AND (status = 'running' OR status LIKE 'interrupted%')",
                 (script_exit_status_global, current_scan_id_global))
             conn_exit.commit()
             print(
-                f"[{pid}] Tarama ID {current_scan_id_global} durumu '{script_exit_status_global}' olarak güncellendi (eğer 'running' veya 'interrupted_during_scan' idiyse).")
+                f"[{pid}] Tarama ID {current_scan_id_global} durumu '{script_exit_status_global}' olarak güncellendi.")
         except Exception as e_db_update_exit:
             print(f"[{pid}] Çıkışta DB durumu güncellenirken hata: {e_db_update_exit}")
         finally:
-            if conn_exit:
-                conn_exit.close()
+            if conn_exit: conn_exit.close()
 
-    # 3. LCD'yi Kapat
     if lcd and hasattr(lcd, 'clear'):
         try:
             lcd.clear()
-            lcd.write_string(f"Cikis: {pid}")
-            time.sleep(0.5)
+            lcd.write_string(f"Kapanis [{pid}]")
+            time.sleep(0.3)
             lcd.backlight_enabled = False
-            # lcd.close() # RPLCD'nin bazı implementasyonlarında bu gerekli olmayabilir veya sorun çıkarabilir
-            print(f"[{pid}] LCD ekran temizlendi ve ışığı kapatıldı.")
+            print(f"[{pid}] LCD temizlendi ve ışığı kapatıldı.")
         except Exception as e_lcd_close:
             print(f"[{pid}] LCD kapatılırken hata: {e_lcd_close}")
 
-    # 4. Donanım Pinlerini Kapat
     print(f"[{pid}] Diğer donanımlar kapatılıyor...")
-    if servo and hasattr(servo, 'detach') and hasattr(servo, 'close'):
+    if servo:  # Servo nesnesi None değilse
         try:
-            if servo.value is not None:  # Servo bir değere ayarlıysa ortaya almayı dene
-                servo.angle = (SCAN_START_ANGLE + SCAN_END_ANGLE) / 2
-                time.sleep(0.1)  # Çok kısa bekleme
-            servo.detach()
-            servo.close()
+            print(f"[{pid}] Servo son pozisyona getiriliyor ve kapatılıyor...")
+            if servo.value is not None:  # Detach edilmemişse
+                target_angle = (SCAN_START_ANGLE + SCAN_END_ANGLE) / 2
+                print(f"[{pid}] Servo ortaya ({target_angle:.0f} derece) ayarlanıyor...")
+                servo.angle = target_angle
+                time.sleep(0.5)  # Pozisyon alması için süre
+            else:
+                print(f"[{pid}] Servo zaten detach edilmiş veya değeri None, pozisyon ayarlanamıyor.")
+
+            if hasattr(servo, 'detach'): servo.detach()
+            if hasattr(servo, 'close'): servo.close()
             print(f"[{pid}] Servo kapatıldı.")
         except Exception as e_servo:
-            print(f"[{pid}] Servo kapatılırken hata: {e_servo}")
+            print(f"[{pid}] Servo kapatılırken/pozisyonlanırken hata: {e_servo}")
+    else:
+        print(f"[{pid}] Servo nesnesi bulunamadı veya başlatılmamış.")
 
-    for led_name, led_obj in [("Kirmizi LED", red_led), ("Yesil LED", green_led), ("Sari LED", yellow_led)]:
+    for led_obj in [red_led, green_led, yellow_led]:
         if led_obj and hasattr(led_obj, 'close'):
             try:
-                if hasattr(led_obj, 'is_active') and led_obj.is_active:
-                    led_obj.off()
+                if hasattr(led_obj, 'is_active') and led_obj.is_active: led_obj.off()
                 led_obj.close()
             except Exception as e_led:
-                print(f"[{pid}] {led_name} kapatılırken hata: {e_led}")
+                print(f"[{pid}] LED kapatılırken hata: {e_led}")
 
     if sensor and hasattr(sensor, 'close'):
         try:
@@ -258,51 +242,36 @@ def release_resources_on_exit():
             print(f"[{pid}] Sensör kapatılırken hata: {e_sensor}")
     print(f"[{pid}] LED'ler ve sensör kapatıldı.")
 
-    # 5. Kilit ve PID Dosyalarını Temizle
-    if lock_file_handle:  # Bu process tarafından açılan kilitse
+    if lock_file_handle:
         try:
-            fcntl.flock(lock_file_handle.fileno(), fcntl.LOCK_UN)
+            fcntl.flock(lock_file_handle.fileno(), fcntl.LOCK_UN);
             lock_file_handle.close()
             print(f"[{pid}] Kilit ({LOCK_FILE_PATH}) serbest bırakıldı.")
-            # lock_file_handle kapatıldığı için artık fiziksel dosyayı silebiliriz
-            if os.path.exists(LOCK_FILE_PATH):
-                try:
-                    os.remove(LOCK_FILE_PATH)
-                    print(f"[{pid}] Kilit fiziksel dosyası ({LOCK_FILE_PATH}) silindi.")
-                except OSError as e_rm_lock_phys:
-                    print(f"[{pid}] Kilit fiziksel dosyası silinirken hata: {e_rm_lock_phys}")
         except Exception as e_lock:
             print(f"[{pid}] Kilit serbest bırakılırken hata: {e_lock}")
-    elif os.path.exists(LOCK_FILE_PATH):  # Handle yok ama dosya var (kalıntı olabilir)
-        try:
-            os.remove(LOCK_FILE_PATH)
-            print(f"[{pid}] Kalıntı kilit dosyası ({LOCK_FILE_PATH}) silindi.")
-        except OSError as e_rm_stale_lock:
-            print(f"[{pid}] Kalıntı kilit dosyası silinirken hata: {e_rm_stale_lock}")
 
-    if os.path.exists(PID_FILE_PATH):
-        can_delete_pid = False
+    for f_path in [PID_FILE_PATH, LOCK_FILE_PATH]:
         try:
-            with open(PID_FILE_PATH, 'r') as pf_check:
-                if int(pf_check.read().strip()) == pid:
-                    can_delete_pid = True
-        except:  # Okuma hatası veya dosya yoksa (race condition)
-            pass
-
-        if can_delete_pid:
-            try:
-                os.remove(PID_FILE_PATH)
-                print(f"[{pid}] PID dosyası ({PID_FILE_PATH}) silindi.")
-            except OSError as e_rm_pid:
-                print(f"[{pid}] PID dosyası ({PID_FILE_PATH}) silinirken hata: {e_rm_pid}")
-        else:
-            print(f"[{pid}] PID dosyası ({PID_FILE_PATH}) bu processe ait değil veya okunamadı, silinmedi.")
+            if os.path.exists(f_path):
+                if f_path == PID_FILE_PATH:
+                    can_delete_pid = False
+                    try:
+                        with open(f_path, 'r') as pf_check:
+                            if int(pf_check.read().strip()) == pid: can_delete_pid = True
+                    except:
+                        pass
+                    if can_delete_pid: os.remove(f_path); print(f"[{pid}] Dosya silindi: {f_path}")
+                elif f_path == LOCK_FILE_PATH:
+                    if os.path.exists(f_path): os.remove(f_path); print(
+                        f"[{pid}] Kilit fiziksel dosyası ({LOCK_FILE_PATH}) silindi.")
+        except OSError as e_rm:
+            print(f"[{pid}] Dosya ({f_path}) silinirken hata: {e_rm}")
 
     print(f"[{pid}] Temizleme fonksiyonu tamamlandı.")
 
 
 if __name__ == "__main__":
-    atexit.register(release_resources_on_exit)
+    atexit.register(release_resources_on_exit)  # Sadece bir kez, argümansız
 
     if not acquire_lock_and_pid():
         script_exit_status_global = "already_running_exit"
@@ -317,9 +286,6 @@ if __name__ == "__main__":
         script_exit_status_global = "db_init_fail_exit"
         sys.exit(1)
 
-    atexit.unregister(release_resources_on_exit)
-    atexit.register(release_resources_on_exit, script_exit_status_global='interrupted_during_scan')
-
     ölçüm_tamponu_hız_için_yerel = []
     ornek_sayaci_yerel = 0
 
@@ -329,9 +295,8 @@ if __name__ == "__main__":
         lcd.cursor_pos = (0, 0)
         lcd.write_string(f"Tarama Basliyor")
         lcd.cursor_pos = (1, 0)
-        lcd.write_string(f"ID: {current_scan_id_global:<13}")  # 16 karakterlik alana sığdır
+        lcd.write_string(f"ID: {current_scan_id_global:<13}")
 
-    scan_completed_successfully = False
     try:
         db_conn_main_script_global = sqlite3.connect(DB_PATH, timeout=10)
         cursor_main = db_conn_main_script_global.cursor()
@@ -358,7 +323,6 @@ if __name__ == "__main__":
                 if delta_zaman > 0.001:
                     hiz_cm_s = delta_mesafe / delta_zaman
 
-            # LCD'ye Yazdırma
             if lcd:
                 lcd.cursor_pos = (0, 0)
                 lcd.write_string(f"Aci: {angle_deg:<3} Deg     ")
@@ -372,15 +336,12 @@ if __name__ == "__main__":
                     lcd_mesafe_str = f"Mesafe: {distance_cm:5.1f}cm "
                 lcd.write_string(lcd_mesafe_str.ljust(16))
 
-            # LED Mantığı
             if distance_cm > YELLOW_LED_THRESHOLD_CM:
                 yellow_led.on()
             else:
                 yellow_led.toggle()
-
             max_dist_cm = sensor.max_distance * 100
             is_valid_reading = (distance_cm > 0.0) and (distance_cm < max_dist_cm)
-
             if is_valid_reading:
                 if distance_cm <= OBJECT_THRESHOLD_CM:
                     red_led.on();
@@ -396,7 +357,7 @@ if __name__ == "__main__":
                 print(f"[{os.getpid()}] DİKKAT: Nesne çok yakın ({distance_cm:.2f}cm)! Tarama durduruluyor.")
                 script_exit_status_global = 'terminated_close_object'
                 if lcd: lcd.clear(); lcd.write_string(f"COK YAKIN! DUR!\n{distance_cm:.1f}cm"); time.sleep(1)
-                break
+                break  # Döngüden çık, atexit temizliği ve DB güncellemesini yapacak
 
             try:
                 cursor_main.execute('''
@@ -415,9 +376,8 @@ if __name__ == "__main__":
             if sleep_duration > 0 and (angle_deg < SCAN_END_ANGLE):
                 time.sleep(sleep_duration)
 
-        else:  # Döngü `break` ile değil de normal tamamlanırsa
-            scan_completed_successfully = True
-            script_exit_status_global = 'completed'  # atexit'in doğru durumu kaydetmesi için
+        else:
+            script_exit_status_global = 'completed'
             if lcd: lcd.clear(); lcd.write_string("Tarama Bitti :) "); time.sleep(1)
             print(f"[{os.getpid()}] Tarama normal şekilde tamamlandı.")
 
@@ -426,12 +386,7 @@ if __name__ == "__main__":
         script_exit_status_global = 'interrupted_ctrl_c'
     except Exception as e_main_loop:
         print(f"[{os.getpid()}] Tarama sırasında ana döngüde beklenmedik bir hata: {e_main_loop}")
-        script_exit_status_global = 'error_in_loop'
+        script_exit_status_global = f'error_in_loop'
     finally:
-        # script_exit_status_global'in son değeri atexit tarafından kullanılacak.
-        # Eğer normal tamamlandıysa (scan_completed_successfully True ise) ve status 'completed' değilse,
-        # atexit'e gitmeden önce burada 'completed' olarak ayarla.
-        if scan_completed_successfully and script_exit_status_global != 'completed':
-            script_exit_status_global = 'completed'
         print(
-            f"[{os.getpid()}] Ana `finally` bloğu çalıştı. atexit temizliği devralacak (status: {script_exit_status_global}).")
+            f"[{os.getpid()}] Ana `finally` bloğu çalıştı. atexit temizliği devralacak (planlanan status: {script_exit_status_global}).")
