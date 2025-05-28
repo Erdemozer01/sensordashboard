@@ -260,7 +260,7 @@ def update_scan_map_graph(n):
                            name='Sensör Konumu'))
 
             fig_map.update_layout(
-                title_text=f'Canlı 2D Tarama Haritası (ID: {latest_scan_id}, Başlangıç: {latest_scan_start_time_str}, Durum: {latest_scan_status})',
+                title_text=f'Canlı 2D Tarama Haritası',
                 xaxis_title="Yatay Yayılım (cm)", yaxis_title="İleri Mesafe (cm)",
                 yaxis_scaleanchor="x", yaxis_scaleratio=1,
                 width=None,  # Otomatik genişlik için None veya dbc.Col ile yönetiliyorsa
@@ -282,7 +282,7 @@ def update_scan_map_graph(n):
         summary_children = [html.H4("Tarama Özeti:", style={'marginTop': '0px', 'marginBottom': '10px'})]
         if latest_scan_id is not None:
             summary_children.append(html.P(
-                f"Aktif/Son Tarama ID: {latest_scan_id} (Başlangıç: {latest_scan_start_time_str}, Durum: {latest_scan_status})"))
+                f"Aktif/Son Tarama ID: {latest_scan_id}"))
         summary_children.append(html.P(f"Toplam Okunan Nokta Sayısı: {len(df_points)}"))
         if not df_points_valid.empty:
             summary_children.append(html.P(f"Grafiğe Çizilen Geçerli Nokta Sayısı: {len(df_points_valid)}"))
