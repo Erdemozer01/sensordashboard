@@ -155,10 +155,10 @@ def init_db_for_scan():
                            id
                        ))''')
 
-        cursor.execute("UPDATE servo_scans SET status = 'interrupted_prior_run' WHERE status = 'running'")
+        cursor.execute("UPDATE servo_scans SET status = 'interrupted_prior_run' WHERE status = 'Calisiyor'")
 
         scan_start_time = time.time()
-        cursor.execute("INSERT INTO servo_scans (start_time, status) VALUES (?, ?)", (scan_start_time, 'running'))
+        cursor.execute("INSERT INTO servo_scans (start_time, status) VALUES (?, ?)", (scan_start_time, 'Calisiyor'))
         current_scan_id_global = cursor.lastrowid
         conn.commit()
         print(f"[{os.getpid()}] Veritabanı '{DB_PATH}' hazırlandı. Yeni tarama ID: {current_scan_id_global}")
@@ -427,7 +427,7 @@ if __name__ == "__main__":
 
         else:  # `for` döngüsü `break` olmadan tamamlanırsa
             scan_completed_successfully = True
-            script_exit_status_global = 'completed'
+            script_exit_status_global = 'Tamamlandi'
             print(f"[{os.getpid()}] Tarama normal şekilde tamamlandı.")
             if lcd:
                 lcd.clear();
