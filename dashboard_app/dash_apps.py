@@ -44,7 +44,7 @@ app.layout = html.Div(
         dbc.Row(
             [
                 dbc.Col(
-                    html.H1("Eş Zamanlı Servo Motorlu 2D Alan Tarama Paneli",
+                    html.H1("2D Alan Tarama Paneli",
                             className="text-center my-3"),  # my-3: üst ve alt margin
                     width=12),
 
