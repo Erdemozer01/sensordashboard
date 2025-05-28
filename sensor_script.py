@@ -5,13 +5,13 @@ import time
 import sqlite3
 import os
 import sys
-import fcntl  # Dosya kilitleme için (Linux/Unix tabanlı sistemlerde)
-import atexit  # Temiz çıkış işlemleri için
+import fcntl
+import atexit
 
 # --- Pin Tanımlamaları ---
 TRIG_PIN = 23
 ECHO_PIN = 24
-SERVO_PIN = 12  # Servo motorunuzu bağladığınız GPIO pini (KENDİNİZE GÖRE DEĞİŞTİRİN!)
+SERVO_PIN = 12
 
 RED_LED_PIN = 17
 GREEN_LED_PIN = 18
@@ -20,11 +20,11 @@ YELLOW_LED_PIN = 27
 # --- LCD Ayarları ---
 LCD_I2C_ADDRESS = 0x27  # `sudo i2cdetect -y 1` komutuyla bulduğunuz adres
 LCD_PORT_EXPANDER = 'PCF8574'
-LCD_COLS = 16  # LCD'nizin sütun sayısı (16x2 için 16, 20x4 için 20)
-LCD_ROWS = 2  # LCD'nizin satır sayısı (16x2 için 2, 20x4 için 4)
+LCD_COLS = 16  # LCD sütun sayısı (16x2 için 16, 20x4 için 20)
+LCD_ROWS = 2  # LCD satır sayısı (16x2 için 2, 20x4 için 4)
 I2C_PORT = 1
 
-# --- Eşik Değerleri ve Sabitler ---
+# --- Eşik Değerleri ---
 OBJECT_THRESHOLD_CM = 20.0
 YELLOW_LED_THRESHOLD_CM = 100.0
 TERMINATION_DISTANCE_CM = 10.0
@@ -401,6 +401,9 @@ if __name__ == "__main__":
                     lcd.clear();
                     lcd.cursor_pos = (0, 0);
                     lcd.write_string("COK YAKIN! DUR!")
+                    lcd.cursor_pos = (1, 0);
+                    lcd.write_string("DUR!")
+                    time.sleep(4.0)
                     if LCD_ROWS > 1: lcd.cursor_pos = (1, 0); lcd.write_string(f"{distance_cm:.1f} cm")
                 red_led.blink(on_time=0.1, off_time=0.1, n=5, background=False)  # Hızlı yanıp sönsün
                 script_exit_status_global = 'terminated_close_object'
