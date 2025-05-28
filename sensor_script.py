@@ -280,6 +280,7 @@ if __name__ == "__main__":
         lcd.cursor_pos = (0, 0)
         lcd.write_string("Dream Pi Hazir!")
         time.sleep(1.0)
+        lcd.clear()
         if LCD_ROWS > 1: lcd.cursor_pos = (1, 0); lcd.write_string("Aci: -- Mes: --".ljust(LCD_COLS)[:LCD_COLS])
 
     scan_completed_successfully = False
