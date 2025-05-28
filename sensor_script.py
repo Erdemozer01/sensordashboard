@@ -225,8 +225,16 @@ def release_resources_on_exit():  # Bu fonksiyon buzzer kısmı hariç aynı kal
     if lcd:
         try:
             lcd.clear()
-            lcd.cursor_pos = (0, 0);
-            lcd.write_string("Dream Pi Kapatildi".ljust(LCD_COLS)[:LCD_COLS])
+            lcd.cursor_pos = (0, 0)
+            lcd.write_string("Tarama Bitti")
+            lcd.cursor_pos = (1, 0)
+            lcd.write_string("Hoscakalın")
+            time.sleep(1.0)
+            lcd.clear()
+            lcd.cursor_pos = (0, 0)
+            lcd.write_string("Mehmet Erdem")
+            lcd.cursor_pos = (1, 0)
+            lcd.write_string("OZER (PhD.)")
         except:
             pass
     print(f"[{pid}] Kalan donanımlar ve LCD kapatıldı.")
@@ -266,11 +274,12 @@ if __name__ == "__main__":
     ölçüm_tamponu_hız_için_yerel = []
     ornek_sayaci_yerel = 0
 
-    print(f"[{os.getpid()}] Servo ile 2D Tarama Başlıyor (Tarama ID: {current_scan_id_global})...")
+
     if lcd:
         lcd.clear()
-        lcd.cursor_pos = (0, 0);
-        lcd.write_string(f"ScanID:{current_scan_id_global} Basladi".ljust(LCD_COLS)[:LCD_COLS])
+        lcd.cursor_pos = (0, 0)
+        lcd.write_string("Dream Pi Hazir!")
+        time.sleep(1.0)
         if LCD_ROWS > 1: lcd.cursor_pos = (1, 0); lcd.write_string("Aci: -- Mes: --".ljust(LCD_COLS)[:LCD_COLS])
 
     scan_completed_successfully = False
@@ -278,7 +287,7 @@ if __name__ == "__main__":
         db_conn_main_script_global = sqlite3.connect(DB_PATH, timeout=10)
         cursor_main = db_conn_main_script_global.cursor()
 
-        print(f"[{os.getpid()}] Servo başlangıç açısına ({SCAN_START_ANGLE}°) ayarlanıyor...")
+
         servo.angle = SCAN_START_ANGLE
         time.sleep(1.0)
 
@@ -302,7 +311,7 @@ if __name__ == "__main__":
             if lcd:
                 try:
                     lcd.cursor_pos = (0, 0)
-                    lcd.write_string(f"Aci:{angle_deg:<3} SnID:{current_scan_id_global:<3}".ljust(LCD_COLS)[:LCD_COLS])
+                    lcd.write_string(f"Aci:{angle_deg:<3}")
                     if LCD_ROWS > 1:
                         lcd.cursor_pos = (1, 0)
                         lcd.write_string(f"M:{distance_cm:5.1f} H:{hiz_cm_s:4.1f}".ljust(LCD_COLS)[:LCD_COLS])
