@@ -313,8 +313,7 @@ def release_resources_on_exit():
 
 
 if __name__ == "__main__":
-    atexit.register(lambda: release_resources_on_exit())  # lambda ile sarmalayarak argüman sorununu çözebiliriz
-    # script_exit_status_global'ı doğrudan kullanır
+    atexit.register(lambda: release_resources_on_exit())
 
     if not acquire_lock_and_pid():
         sys.exit(1)
@@ -330,10 +329,13 @@ if __name__ == "__main__":
     ölçüm_tamponu_hız_için_yerel = []
     ornek_sayaci_yerel = 0
 
-    print(f"[{os.getpid()}] Servo ile 2D Tarama Başlıyor (Tarama ID: {current_scan_id_global})...")
+    print(f"[{os.getpid()}] Servo ile 2D Tarama Başlıyor...")
+
     if lcd:
+
         lcd.clear()
         lcd.cursor_pos = (0, 0)
+
         lcd.write_string(f"ScanID:{current_scan_id_global} Basladi")
         if LCD_ROWS > 1:
             lcd.cursor_pos = (1, 0)
@@ -382,6 +384,7 @@ if __name__ == "__main__":
                 yellow_led.toggle()
 
             max_distance_cm = sensor.max_distance * 100
+
             is_reading_valid = (distance_cm > 0.0) and (distance_cm < max_distance_cm)
 
             if is_reading_valid:
