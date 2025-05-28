@@ -401,11 +401,10 @@ if __name__ == "__main__":
                     lcd.clear();
                     lcd.cursor_pos = (0, 0);
                     lcd.write_string("COK YAKIN! DUR!")
-                    lcd.cursor_pos = (1, 0);
-                    lcd.write_string("DUR!")
-                    time.sleep(4.0)
+
                     if LCD_ROWS > 1: lcd.cursor_pos = (1, 0); lcd.write_string(f"{distance_cm:.1f} cm")
                 red_led.blink(on_time=0.1, off_time=0.1, n=5, background=False)  # Hızlı yanıp sönsün
+                time.sleep(4.0)
                 script_exit_status_global = 'terminated_close_object'
                 break
 

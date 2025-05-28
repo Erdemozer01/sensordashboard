@@ -31,11 +31,25 @@ app = DjangoDash('RealtimeSensorDashboard', external_stylesheets=[dbc.themes.BOO
 
 app.layout = html.Div(
     children=[
-        dbc.Row([
-            dbc.Col(html.H1("Eş Zamanlı Servo Motorlu 2D Alan Tarama Paneli",
+        dbc.Row(
+            [
+                dbc.Col(
+                    html.H1("Dream Pi",
+                            className="text-center my-3"),
+                    width=12),
+
+            ]
+        ),
+
+        dbc.Row(
+            [
+                dbc.Col(
+                    html.H1("Eş Zamanlı Servo Motorlu 2D Alan Tarama Paneli",
                             className="text-center my-3"),  # my-3: üst ve alt margin
-                    width=12)
-        ]),
+                    width=12),
+
+            ]
+        ),
 
         dbc.Row([
             # --- Sol Kolon (Başlatıcı ve Özet) ---
@@ -77,7 +91,6 @@ app.layout = html.Div(
 
 
 def is_process_running(pid):
-
     if pid is None:
         return False
     try:
