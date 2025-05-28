@@ -1,4 +1,4 @@
-# sensor_script.py (Sarı LED güncellendi)
+# sensor_script.py (Kırmızı/Yeşil LED'ler çıkarıldı, Sarı LED sürekli yanıp söner)
 from gpiozero import AngularServo, DistanceSensor, LED
 from RPLCD.i2c import CharLCD
 import time
@@ -13,8 +13,9 @@ TRIG_PIN = 23
 ECHO_PIN = 24
 SERVO_PIN = 12  # Servo motorunuzu bağladığınız GPIO pini (KENDİNİZE GÖRE DEĞİŞTİRİN!)
 
-YELLOW_LED_PIN = 27
-# RED_LED_PIN ve GREEN_LED_PIN çıkarılmıştı.
+# RED_LED_PIN = 17 # Çıkarıldı
+# GREEN_LED_PIN = 18 # Çıkarıldı
+YELLOW_LED_PIN = 27  # Sadece sarı LED kaldı
 
 # --- LCD Ayarları ---
 LCD_I2C_ADDRESS = 0x27
@@ -24,15 +25,15 @@ LCD_ROWS = 2
 I2C_PORT = 1
 
 # --- Eşik Değerleri ve Sabitler ---
-# OBJECT_THRESHOLD_CM çıkarılmıştı.
-# YELLOW_LED_THRESHOLD_CM artık mesafeye bağlı olmayacağı için bu da gereksiz.
+# OBJECT_THRESHOLD_CM çıkarıldı.
+# YELLOW_LED_THRESHOLD_CM çıkarıldı (artık mesafeye bağlı değil).
 TERMINATION_DISTANCE_CM = 10.0
 
 SCAN_START_ANGLE = 0
 SCAN_END_ANGLE = 180
 SCAN_STEP_ANGLE = 10
 SERVO_SETTLE_TIME = 0.3
-LOOP_TARGET_INTERVAL_S = 0.5  # Her bir açı adımının yaklaşık süresi (yanıp sönme hızını etkiler)
+LOOP_TARGET_INTERVAL_S = 0.5  # Yanıp sönme hızını da etkiler
 
 PROJECT_ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
 DB_NAME_ONLY = 'live_scan_data.sqlite3'
@@ -53,7 +54,7 @@ script_exit_status_global = 'interrupted_unexpectedly'
 
 
 def init_hardware():
-    global sensor, yellow_led, servo, lcd
+    global sensor, yellow_led, servo, lcd  # Sadece yellow_led
     hardware_ok = True
     try:
         print(f"[{os.getpid()}] Donanımlar başlatılıyor...")
@@ -82,7 +83,12 @@ def init_hardware():
                           cols=LCD_COLS, rows=LCD_ROWS, dotsize=8, charmap='A02',
                           auto_linebreaks=False)
             lcd.clear()
-            lcd.write_string("Dream Pi Hazir!")
+            lcd.cursor_pos = (0, 0)
+            lcd.write_string("Dream Pi".ljust(LCD_COLS)[:LCD_COLS])  # LCD formatlama
+            if LCD_ROWS > 1:
+                lcd.cursor_pos = (1, 0)
+                lcd.write_string("Hazirlaniyor...".ljust(LCD_COLS)[:LCD_COLS])
+            time.sleep(1.5)  # Mesajın okunması için bekle
             print(f"[{os.getpid()}] LCD Ekran (Adres: {hex(LCD_I2C_ADDRESS)}) başarıyla başlatıldı.")
         except Exception as e_lcd_init:
             print(f"[{os.getpid()}] UYARI: LCD başlatma hatası: {e_lcd_init}. LCD olmadan devam edilecek.")
@@ -94,7 +100,6 @@ def init_hardware():
 
 def init_db_for_scan():  # Bu fonksiyon aynı kalabilir
     global current_scan_id_global
-    # ... (Önceki cevaptaki init_db_for_scan fonksiyonunun içeriği buraya gelecek - değişiklik yok) ...
     conn = None
     try:
         conn = sqlite3.connect(DB_PATH)
@@ -154,7 +159,6 @@ def init_db_for_scan():  # Bu fonksiyon aynı kalabilir
 
 def acquire_lock_and_pid():  # Bu fonksiyon aynı kalabilir
     global lock_file_handle
-    # ... (Önceki cevaptaki acquire_lock_and_pid fonksiyonunun içeriği buraya gelecek - değişiklik yok) ...
     try:
         if os.path.exists(PID_FILE_PATH): os.remove(PID_FILE_PATH)
     except OSError:
@@ -178,19 +182,16 @@ def acquire_lock_and_pid():  # Bu fonksiyon aynı kalabilir
         return False
 
 
-def release_resources_on_exit():  # Bu fonksiyon buzzer kısmı hariç aynı kalabilir
+def release_resources_on_exit():
     global lock_file_handle, current_scan_id_global, db_conn_main_script_global, script_exit_status_global
-    global sensor, yellow_led, servo, lcd  # Sadece yellow_led kaldı
+    global sensor, yellow_led, servo, lcd  # Sadece yellow_led
 
-    # ... (Önceki cevaptaki release_resources_on_exit fonksiyonunun içeriği,
-    #      kırmızı ve yeşil LED ile ilgili kısımlar ve buzzer çıkarılarak buraya gelecek) ...
     pid = os.getpid()
     print(f"[{pid}] `release_resources_on_exit` çağrıldı. Çıkış durumu: {script_exit_status_global}")
 
     if db_conn_main_script_global:
         try:
-            db_conn_main_script_global.close();
-            print(f"[{pid}] Ana DB bağlantısı kapatıldı.")
+            db_conn_main_script_global.close(); print(f"[{pid}] Ana DB bağlantısı kapatıldı.")
         except:
             pass
 
@@ -217,7 +218,7 @@ def release_resources_on_exit():  # Bu fonksiyon buzzer kısmı hariç aynı kal
         except:
             pass
 
-    if yellow_led and hasattr(yellow_led, 'close'):
+    if yellow_led and hasattr(yellow_led, 'close'):  # Sadece Sarı LED
         if hasattr(yellow_led, 'is_active') and yellow_led.is_active: yellow_led.off()
         yellow_led.close()
     if sensor and hasattr(sensor, 'close'): sensor.close()
@@ -225,16 +226,9 @@ def release_resources_on_exit():  # Bu fonksiyon buzzer kısmı hariç aynı kal
     if lcd:
         try:
             lcd.clear()
-            lcd.cursor_pos = (0, 0)
-            lcd.write_string("Tarama Bitti")
-            lcd.cursor_pos = (1, 0)
-            lcd.write_string("Hoscakalın")
-            time.sleep(1.0)
-            lcd.clear()
-            lcd.cursor_pos = (0, 0)
-            lcd.write_string("Mehmet Erdem")
-            lcd.cursor_pos = (1, 0)
-            lcd.write_string("OZER (PhD.)")
+            lcd.cursor_pos = (0, 0);
+            lcd.write_string("Dream Pi Gidiyor".ljust(LCD_COLS)[:LCD_COLS])
+            if LCD_ROWS > 1: lcd.cursor_pos = (1, 0); lcd.write_string("Gorusuruz!".ljust(LCD_COLS)[:LCD_COLS])
         except:
             pass
     print(f"[{pid}] Kalan donanımlar ve LCD kapatıldı.")
@@ -274,13 +268,11 @@ if __name__ == "__main__":
     ölçüm_tamponu_hız_için_yerel = []
     ornek_sayaci_yerel = 0
 
-
+    print(f"[{os.getpid()}] Servo ile 2D Tarama Başlıyor (Tarama ID: {current_scan_id_global})...")
     if lcd:
         lcd.clear()
-        lcd.cursor_pos = (0, 0)
-        lcd.write_string("Dream Pi Hazir!")
-        time.sleep(1.0)
-        lcd.clear()
+        lcd.cursor_pos = (0, 0);
+        lcd.write_string(f"ScanID:{current_scan_id_global} Basladi".ljust(LCD_COLS)[:LCD_COLS])
         if LCD_ROWS > 1: lcd.cursor_pos = (1, 0); lcd.write_string("Aci: -- Mes: --".ljust(LCD_COLS)[:LCD_COLS])
 
     scan_completed_successfully = False
@@ -288,12 +280,17 @@ if __name__ == "__main__":
         db_conn_main_script_global = sqlite3.connect(DB_PATH, timeout=10)
         cursor_main = db_conn_main_script_global.cursor()
 
-
+        print(f"[{os.getpid()}] Servo başlangıç açısına ({SCAN_START_ANGLE}°) ayarlanıyor...")
         servo.angle = SCAN_START_ANGLE
         time.sleep(1.0)
 
         for angle_deg in range(SCAN_START_ANGLE, SCAN_END_ANGLE + SCAN_STEP_ANGLE, SCAN_STEP_ANGLE):
             loop_iteration_start_time = time.time()
+
+            # --- SARI LED SÜREKLİ YANIP SÖNSÜN ---
+            if yellow_led:
+                yellow_led.toggle()
+            # --- ---
 
             servo.angle = angle_deg
             time.sleep(SERVO_SETTLE_TIME)
@@ -312,17 +309,14 @@ if __name__ == "__main__":
             if lcd:
                 try:
                     lcd.cursor_pos = (0, 0)
-                    lcd.write_string(f"Aci:{angle_deg:<3}")
+                    lcd.write_string(f"Aci:{angle_deg:<3} ID:{current_scan_id_global:<3}".ljust(LCD_COLS)[:LCD_COLS])
                     if LCD_ROWS > 1:
                         lcd.cursor_pos = (1, 0)
                         lcd.write_string(f"M:{distance_cm:5.1f} H:{hiz_cm_s:4.1f}".ljust(LCD_COLS)[:LCD_COLS])
                 except Exception as e_lcd_write:
                     print(f"LCD Yazma Hatası: {e_lcd_write}")
 
-            # --- YENİ SARI LED MANTIĞI ---
-            if yellow_led:
-                yellow_led.toggle()  # Program çalıştığı sürece yanıp söner
-            # --- ESKİ KIRMIZI/YEŞİL LED MANTIĞI ÇIKARILDI ---
+            # Kırmızı ve Yeşil LED mantığı çıkarıldı.
 
             # Çok Yakın Engel Durumu
             if distance_cm < TERMINATION_DISTANCE_CM:
@@ -337,7 +331,7 @@ if __name__ == "__main__":
                 if yellow_led: yellow_led.on()  # Tehlike anında sarı LED sabit yansın
 
                 script_exit_status_global = 'terminated_close_object'
-                time.sleep(1.5)  # Alarmın fark edilmesi için (sarı LED sabit yanarken)
+                time.sleep(1.5)  # Alarmın fark edilmesi için
                 break
 
             try:
