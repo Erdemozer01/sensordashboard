@@ -77,7 +77,7 @@ def handle_start_scan_script(n_clicks):
             if pid_str: current_pid = int(pid_str)
         except:
             current_pid = None
-    if current_pid and is_process_running(current_pid): return "Sensör zaten çalışıyor..."
+    if current_pid and is_process_running(current_pid): return f"Sensör betiği zaten çalışıyor (PID: {current_pid})."
     if os.path.exists(LOCK_FILE_PATH_FOR_DASH) and (not current_pid or not is_process_running(current_pid)):
         try:
             if os.path.exists(PID_FILE_PATH_FOR_DASH): os.remove(PID_FILE_PATH_FOR_DASH)
@@ -96,7 +96,7 @@ def handle_start_scan_script(n_clicks):
                     pid_str_new = pf_new.read().strip();
                 if pid_str_new: new_pid = int(pid_str_new)
                 if new_pid and is_process_running(new_pid):
-                    return f"Tarama Başlatıldı"
+                    return f"Sensör betiği başlatıldı (PID: {new_pid})."
                 else:
                     return f"Sensör betiği başlatıldı ama PID ({new_pid}) ile process bulunamadı."
             except Exception as e:
@@ -226,7 +226,8 @@ def update_scan_map_graph(n_intervals):
 
         summary_children = [html.H4("Tarama Özeti:", style={'marginTop': '0px', 'marginBottom': '10px'})]
         if latest_scan_id is not None:
-            summary_children.append(html.P([f"Son Tarama ID: {latest_scan_id}"]))
+            summary_children.append(html.P(
+                f"Aktif/Son Tarama ID: {latest_scan_id} (Başl.: {latest_scan_start_time_str}, Durum: {latest_scan_status})"))
             summary_children.append(html.P(f"Hesaplanan Sektör Alanı: {hesaplanan_alan_cm2_str}"))  # Alanı göster
         summary_children.append(html.P(f"Toplam Okunan Nokta Sayısı: {len(df_points)}"))
         if not df_points_valid.empty:
@@ -236,10 +237,8 @@ def update_scan_map_graph(n_intervals):
     else:
         fig_map.update_layout(title_text='2D Tarama Haritası (Veri Bekleniyor)')
         if latest_scan_id is not None:
-            summary_children = [
-                html.P(
-                "Bu tarama için henüz nokta bulunamadı.")
-            ]
+            summary_children = [html.P(
+                f"Tarama ID: {latest_scan_id} (Durum: {latest_scan_status}). Bu tarama için henüz nokta bulunamadı.")]
         else:
             summary_children = [html.P("Aktif tarama veya görüntülenecek veri yok.")]
 
