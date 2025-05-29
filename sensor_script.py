@@ -12,7 +12,7 @@ import math
 # --- Pin Tanımlamaları ---
 TRIG_PIN = 23
 ECHO_PIN = 24
-SERVO_PIN = 12  # KENDİNİZE GÖRE DEĞİŞTİRİN!
+SERVO_PIN = 12  # Servo motorunuzu bağladığınız GPIO pini (KENDİNİZE GÖRE DEĞİŞTİRİN!)
 YELLOW_LED_PIN = 27
 
 # --- LCD Ayarları ---
@@ -31,7 +31,7 @@ SERVO_SETTLE_TIME = 0.3
 LOOP_TARGET_INTERVAL_S = 0.6
 
 PROJECT_ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
-DB_NAME_ONLY = 'live_scan_data.sqlite3'
+DB_NAME_ONLY = 'live_scan_data.sqlite3'  # dash_apps.py ile aynı olmalı!
 DB_PATH = os.path.join(PROJECT_ROOT_DIR, DB_NAME_ONLY)
 LOCK_FILE_PATH = '/tmp/sensor_scan_script.lock'
 PID_FILE_PATH = '/tmp/sensor_scan_script.pid'
@@ -87,6 +87,7 @@ def init_db_for_scan():
     try:
         conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
+        # servo_scans tablosu: hesaplanan_alan_cm2 sütununu içerir
         cursor.execute('''
                        CREATE TABLE IF NOT EXISTS servo_scans
                        (
@@ -104,7 +105,8 @@ def init_db_for_scan():
                            REAL
                            DEFAULT
                            NULL
-                       )''')  # Alan sütunu eklendi
+                       )''')
+        # scan_points tablosu: x_cm ve y_cm sütunlarını içerir
         cursor.execute('''
                        CREATE TABLE IF NOT EXISTS scan_points
                        (
@@ -134,7 +136,8 @@ def init_db_for_scan():
                        ) REFERENCES servo_scans
                        (
                            id
-                       ))''')  # x,y sütunları eklendi
+                       )
+                           )''')
         cursor.execute("UPDATE servo_scans SET status = 'interrupted_prior_run' WHERE status = 'running'")
         scan_start_time = time.time()
         cursor.execute("INSERT INTO servo_scans (start_time, status) VALUES (?, ?)", (scan_start_time, 'running'))
@@ -188,7 +191,7 @@ def release_resources_on_exit():
     global lock_file_handle, current_scan_id_global, db_conn_main_script_global, script_exit_status_global
     global sensor, yellow_led, servo, lcd
     pid = os.getpid()
-    print(f"[{pid}] `release_resources_on_exit` çağrıldı. Çıkış durumu: {script_exit_status_global}")
+    print(f"[{pid}] `release_resources_on_exit` çağrıldı. Betik çıkış durumu: {script_exit_status_global}")
     if db_conn_main_script_global:
         try:
             db_conn_main_script_global.close()
@@ -259,7 +262,7 @@ if __name__ == "__main__":
     if not current_scan_id_global: sys.exit(1)
 
     ölçüm_tamponu_hız_için_yerel = []
-    collected_cartesian_points_for_area = []  # Alan hesabı için (x,y) noktalarını tut
+    collected_cartesian_points_for_area = []
 
     print(f"[{os.getpid()}] Servo ile 2D Tarama ve Alan Hesabı Başlıyor (Tarama ID: {current_scan_id_global})...")
     if lcd:
@@ -292,8 +295,8 @@ if __name__ == "__main__":
             angle_rad = math.radians(angle_deg)
             x_cm = distance_cm * math.cos(angle_rad)
             y_cm = distance_cm * math.sin(angle_rad)
-            # Sadece geçerli mesafeleri alan hesabına dahil et (isteğe bağlı filtreleme)
-            if 0 < distance_cm < (sensor.max_distance * 100):
+
+            if 0 < distance_cm < (sensor.max_distance * 100):  # Alan hesabı için geçerli noktaları topla
                 collected_cartesian_points_for_area.append((x_cm, y_cm))
 
             hiz_cm_s = 0.0
@@ -309,12 +312,11 @@ if __name__ == "__main__":
                     lcd.write_string(f"A:{angle_deg:<3} M:{distance_cm:5.1f}cm".ljust(LCD_COLS)[:LCD_COLS])
                     if LCD_ROWS > 1:
                         lcd.cursor_pos = (1, 0)
-                        lcd.write_string(f"X:{x_cm:4.0f} Y:{y_cm:4.0f} H:{hiz_cm_s:3.0f}".ljust(LCD_COLS)[:LCD_COLS])
+                        # x_cm ve y_cm'i LCD'de göstermek yerine hızı göstermek daha anlamlı olabilir veya sadece mesafe
+                        lcd.write_string(f"Hiz:{hiz_cm_s:5.1f}cm/s".ljust(LCD_COLS)[:LCD_COLS])
                 except Exception as e_lcd_write:
                     print(f"LCD Yazma Hatası: {e_lcd_write}")
 
-            # Kırmızı/Yeşil LED'ler çıkarıldı. Sarı LED zaten yukarıda toggle ediliyor.
-            # Çok Yakın Engel Durumu
             if distance_cm < TERMINATION_DISTANCE_CM:
                 print(f"[{os.getpid()}] DİKKAT: NESNE ÇOK YAKIN ({distance_cm:.2f}cm)!")
                 if lcd:
@@ -323,7 +325,7 @@ if __name__ == "__main__":
                     lcd.write_string("COK YAKIN! DUR!".ljust(LCD_COLS)[:LCD_COLS])
                     if LCD_ROWS > 1: lcd.cursor_pos = (1, 0); lcd.write_string(
                         f"{distance_cm:.1f} cm".ljust(LCD_COLS)[:LCD_COLS])
-                if yellow_led: yellow_led.on()  # Tehlike anında sabit yan
+                if yellow_led: yellow_led.on()
                 script_exit_status_global = 'terminated_close_object'
                 time.sleep(1.5);
                 break
@@ -346,15 +348,16 @@ if __name__ == "__main__":
             if sleep_duration > 0 and (angle_deg < SCAN_END_ANGLE): time.sleep(sleep_duration)
 
         else:  # for döngüsü normal biterse
-            if len(collected_cartesian_points_for_area) >= 2:  # Orijin ile birlikte en az 3 nokta eder
-                polygon_vertices = [(0.0, 0.0)] + collected_cartesian_points_for_area
-                # Eğer tarama tam daire değilse ve son nokta ile orijin arasında bir çizgi olmasını istiyorsak,
-                # Shoelace bunu (0,0) başa eklendiği için zaten bir nevi yapar.
-                # Alternatif olarak, son noktadan orijine bir çizgi ekleyip (eğer açı 180 ise x_son,y_son -> 0,0)
-                # ve ilk noktadan orijine (0,0 -> x_ilk,y_ilk) olan çizgileri de dahil edebiliriz.
-                # Mevcut haliyle, (0,0) ve taranan noktaların oluşturduğu fan şeklindeki alan hesaplanır.
+            if len(collected_cartesian_points_for_area) >= 2:
+                polygon_vertices_for_area = [(0.0, 0.0)] + collected_cartesian_points_for_area
+                # Eğer tarama 0-180 ise ve son nokta ile (0,0) arasında bir çizgi istiyorsak
+                # ve ilk nokta ile (0,0) arasında, Shoelace bunu (0,0) başa eklendiği için zaten yapar.
+                # Ancak, eğer açık bir fan şeklinin iç alanını değil de, noktaların çevrelediği
+                # (ve orijini içeren) bir poligon alanı isteniyorsa, bu yaklaşım doğrudur.
+                # Tarama 0-180 derece olduğu için, son nokta ile ilk nokta arasında bir bağlantı yoktur.
+                # Bu yüzden (0,0) eklemek, sensörden çıkan ışınların oluşturduğu bir "dilimin" alanını verir.
 
-                hesaplanan_alan_cm2 = calculate_polygon_area_shoelace(polygon_vertices)
+                hesaplanan_alan_cm2 = calculate_polygon_area_shoelace(polygon_vertices_for_area)
                 print(f"\n[{os.getpid()}] TARANAN SEKTÖR ALANI: {hesaplanan_alan_cm2:.2f} cm^2")
                 if lcd:
                     lcd.clear();
@@ -386,4 +389,6 @@ if __name__ == "__main__":
     except Exception as e_main_loop:
         print(f"[{os.getpid()}] Tarama sırasında ana döngüde beklenmedik bir hata: {e_main_loop}")
         script_exit_status_global = 'error_in_loop'
-        if lcd: lcd.clear(); lcd.cursor_pos = (0, 0); lcd.write_string("HATA OLUSTU!".ljust(LCD_COLS)[:LCD_COLS])
+        if lcd: lcd.clear(); lcd.cursor_pos=(0,0); lcd.write_string("HATA OLUSTU!".ljust(LCD_COLS)[:LCD_COLS])
+
+    # atexit, script_exit_status_global'in son değerini kullanarak temizliği yapacak.
