@@ -227,6 +227,12 @@ def release_resources_on_exit():
             lcd.clear();
             lcd.cursor_pos = (0, 0);
             lcd.write_string("Dream Pi Kapandi".ljust(LCD_COLS)[:LCD_COLS])
+            time.sleep(1.5)
+            lcd.clear()
+            lcd.cursor_pos = (0, 0);
+            lcd.write_string("Mehmet Erdem".ljust(LCD_COLS)[:LCD_COLS])
+            lcd.cursor_pos = (1, 0);
+            lcd.write_string("OZER (PhD.)".ljust(LCD_COLS)[:LCD_COLS])
         except:
             pass
     print(f"[{pid}] Kalan donanımlar ve LCD kapatıldı.")
