@@ -1,12 +1,5 @@
 import os
 import sqlite3
-
-import dash
-import plotly.graph_objects as go
-import dash_bootstrap_components as dbc
-from dash import html, dcc, Output, Input, State
-from django_plotly_dash import DjangoDash
-
 import time
 import pandas as pd
 import numpy as np
@@ -15,6 +8,12 @@ import sys
 import signal
 import subprocess
 import io
+
+import dash
+import plotly.graph_objects as go
+import dash_bootstrap_components as dbc
+from dash import html, dcc, Output, Input, State
+from django_plotly_dash import DjangoDash
 
 # --- Sabitler ---
 PROJECT_ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -71,6 +70,7 @@ control_panel = dbc.Card([
                             className="btn btn-success btn-lg w-100 mb-3"),
                 html.Button('Taramayı Durdur', id='stop-scan-button',
                             className="btn btn-danger btn-lg w-100 mb-3"),
+                html.Div(id='scan-status-message', style={'marginTop': '10px', 'color': 'blue'}),
             ], width=12)
         ]),
         dbc.Row([
@@ -244,9 +244,8 @@ app.layout = dbc.Container(fluid=True, children=[
     dcc.Interval(id='interval-component-system', interval=5000, n_intervals=0),
     dcc.Download(id='download-csv'),
     dcc.Download(id='download-excel'),
-    html.Div(id='current-scan-id', style={'display': 'none'}, children="1"),
-    html.Div(id='scan-status-message', style={'marginTop': '10px', 'color': 'blue'}),
     dcc.Download(id='download-image'),
+    html.Div(id='current-scan-id', style={'display': 'none'}, children="1")
 ])
 
 
@@ -278,6 +277,34 @@ def update_scan_dropdowns(n_intervals):
     return options, options
 
 
+# Anlık sensör değerlerini güncellemek için callback
+@app.callback(
+    [Output('current-angle', 'children'),
+     Output('current-distance', 'children'),
+     Output('current-speed', 'children')],
+    [Input('interval-component-scan', 'n_intervals')]
+)
+def update_realtime_values(n_intervals):
+    conn = None
+    try:
+        conn = sqlite3.connect(f'file:{DB_PATH}?mode=ro', uri=True)
+        df = pd.read_sql_query(
+            "SELECT angle_deg, mesafe_cm, hiz_cm_s FROM scan_points ORDER BY id DESC LIMIT 1",
+            conn
+        )
+        if not df.empty:
+            angle = f"{df['angle_deg'].iloc[0]:.1f}°"
+            distance = f"{df['mesafe_cm'].iloc[0]:.2f} cm"
+            speed = f"{df['hiz_cm_s'].iloc[0]:.2f} cm/s"
+            return angle, distance, speed
+    except Exception as e:
+        print(f"Gerçek zamanlı değerler alınırken hata: {e}")
+    finally:
+        if conn: conn.close()
+
+    return "--°", "-- cm", "-- cm/s"
+
+
 # CSV dışa aktarma callback'i
 @app.callback(
     Output('download-csv', 'data'),
@@ -299,6 +326,47 @@ def export_csv(n_clicks, scan_id):
         return dcc.send_data_frame(df.to_csv, f"tarama_{scan_id}.csv", index=False)
     except Exception as e:
         print(f"CSV dışa aktarma hatası: {e}")
+        return dash.no_update
+    finally:
+        if conn: conn.close()
+
+
+# Excel dışa aktarma callback'i
+@app.callback(
+    Output('download-excel', 'data'),
+    [Input('export-excel-button', 'n_clicks')],
+    [State('primary-scan-dropdown', 'value')],
+    prevent_initial_call=True
+)
+def export_excel(n_clicks, scan_id):
+    if not scan_id:
+        return dash.no_update
+
+    conn = None
+    try:
+        conn = sqlite3.connect(f'file:{DB_PATH}?mode=ro', uri=True)
+        df = pd.read_sql_query(
+            f"SELECT angle_deg, mesafe_cm, hiz_cm_s, x_cm, y_cm, timestamp FROM scan_points WHERE scan_id = {scan_id}",
+            conn
+        )
+
+        # Excel dosyasını oluştur
+        excel_buffer = io.BytesIO()
+        with pd.ExcelWriter(excel_buffer, engine='xlsxwriter') as writer:
+            df.to_excel(writer, sheet_name='Tarama Verileri', index=False)
+
+            # Tarama bilgilerini ekle
+            df_scan = pd.read_sql_query(
+                f"SELECT start_time, status, hesaplanan_alan_cm2 FROM servo_scans WHERE id = {scan_id}",
+                conn
+            )
+            if not df_scan.empty:
+                df_scan.to_excel(writer, sheet_name='Tarama Bilgileri', index=False)
+
+        excel_buffer.seek(0)
+        return dcc.send_bytes(excel_buffer.read(), f"tarama_{scan_id}.xlsx")
+    except Exception as e:
+        print(f"Excel dışa aktarma hatası: {e}")
         return dash.no_update
     finally:
         if conn: conn.close()
@@ -375,7 +443,7 @@ def update_analysis(n_intervals, selected_scan_id):
     [Output('script-status', 'children'),
      Output('script-status', 'className'),
      Output('servo-position', 'children')],
-    [Input('interval-component-scan', 'n_intervals')]
+    [Input('interval-component-system', 'n_intervals')]
 )
 def update_system_status(n_intervals):
     # Sensör betik durumunu kontrol et
@@ -414,6 +482,7 @@ def update_system_status(n_intervals):
     return script_status, status_class, servo_position
 
 
+# Sistem metrikleri güncelleme callback'i
 @app.callback(
     [Output('cpu-usage', 'value'),
      Output('ram-usage', 'value')],
@@ -460,98 +529,210 @@ def update_system_metrics(n_intervals):
         return 0, 0
 
 
+# 2D Harita güncelleme callback'i
 @app.callback(
     Output('scan-map-graph', 'figure'),
-    [Input('interval-component-scan', 'n_intervals')],
-    [State('primary-scan-dropdown', 'value')],
-    prevent_initial_call=True
+    [Input('interval-component-scan', 'n_intervals'),
+     Input('primary-scan-dropdown', 'value')]
 )
 def update_scan_map_graph(n_intervals, selected_scan_id):
-    # Karşılaştırma butonu basıldığında çalışmamasını sağla
-    ctx = dash.callback_context
-    if ctx.triggered and ctx.triggered[0]['prop_id'] == 'compare-button.n_clicks':
-        return dash.no_update
-
+    # Bu fonksiyon scan-map-graph'i günceller
     conn = None
     fig_map = go.Figure()
 
     try:
-        if not os.path.exists(DB_PATH):
-            raise FileNotFoundError(f"Veritabanı dosyası bulunamadı.")
-
-        conn = sqlite3.connect(f'file:{DB_PATH}?mode=ro', uri=True, timeout=5)
-
         # Seçilen bir tarama yoksa, en son taramayı kullan
         if not selected_scan_id:
+            try:
+                conn = sqlite3.connect(f'file:{DB_PATH}?mode=ro', uri=True)
+                df_scan_info = pd.read_sql_query(
+                    "SELECT id FROM servo_scans ORDER BY start_time DESC LIMIT 1", conn
+                )
+                if not df_scan_info.empty:
+                    selected_scan_id = int(df_scan_info['id'].iloc[0])
+                else:
+                    fig_map.update_layout(title_text='2D Tarama Haritası (Tarama Bulunamadı)')
+                    return fig_map
+            except Exception as e:
+                print(f"En son tarama alınırken hata: {e}")
+                fig_map.update_layout(title_text=f'2D Tarama Haritası (Hata: {str(e)})')
+                return fig_map
+
+        # Seçilen taramanın verilerini al
+        conn = sqlite3.connect(f'file:{DB_PATH}?mode=ro', uri=True)
+        df_points = pd.read_sql_query(
+            f"SELECT angle_deg, mesafe_cm, x_cm, y_cm FROM scan_points WHERE scan_id = {selected_scan_id} ORDER BY angle_deg ASC",
+            conn
+        )
+
+        if df_points.empty:
+            fig_map.update_layout(title_text=f'2D Tarama Haritası - Tarama #{selected_scan_id} (Veri Yok)')
+            return fig_map
+
+        # Noktaları çizdir
+        fig_map.add_trace(go.Scatter(
+            x=df_points['y_cm'],
+            y=df_points['x_cm'],
+            mode='lines+markers',
+            name='Taranan Sınır',
+            line=dict(color='rgba(0,100,80,0.7)', width=2),
+            marker=dict(size=5, color=df_points['mesafe_cm'], colorscale='Viridis', showscale=True)
+        ))
+
+        # Sensör konumu
+        fig_map.add_trace(go.Scatter(
+            x=[0], y=[0], mode='markers',
+            marker=dict(size=10, symbol='diamond', color='red'),
+            name='Sensör Konumu'
+        ))
+
+        fig_map.update_layout(
+            title_text=f'2D Tarama Haritası - Tarama #{selected_scan_id}',
+            xaxis_title="Yatay Yayılım (cm)",
+            yaxis_title="İleri Mesafe (cm)",
+            yaxis_scaleanchor="x",
+            yaxis_scaleratio=1,
+            width=None,
+            height=650,
+            margin=dict(l=50, r=50, b=50, t=80),
+            plot_bgcolor='rgba(248,248,248,1)',
+            legend=dict(yanchor="top", y=0.99, xanchor="center", x=0.01)
+        )
+    except Exception as e:
+        print(f"Tarama haritası oluşturma hatası: {e}")
+        fig_map.update_layout(title_text=f'2D Tarama Haritası (Hata: {str(e)})')
+    finally:
+        if conn: conn.close()
+
+    return fig_map
+
+
+# Polar grafik güncelleme callback'i
+@app.callback(
+    Output('polar-graph', 'figure'),
+    [Input('interval-component-scan', 'n_intervals'),
+     Input('primary-scan-dropdown', 'value')]
+)
+def update_polar_graph(n_intervals, selected_scan_id):
+    conn = None
+    fig_polar = go.Figure()
+
+    try:
+        # Seçilen bir tarama yoksa, en son taramayı kullan
+        if not selected_scan_id:
+            conn = sqlite3.connect(f'file:{DB_PATH}?mode=ro', uri=True)
             df_scan_info = pd.read_sql_query(
                 "SELECT id FROM servo_scans ORDER BY start_time DESC LIMIT 1", conn
             )
             if not df_scan_info.empty:
                 selected_scan_id = int(df_scan_info['id'].iloc[0])
             else:
-                fig_map.update_layout(title_text='2D Tarama Haritası (Tarama Bulunamadı)')
-                return fig_map
+                fig_polar.update_layout(title_text='Polar Grafik (Tarama Bulunamadı)')
+                return fig_polar
 
         # Seçilen taramanın verilerini al
+        conn = sqlite3.connect(f'file:{DB_PATH}?mode=ro', uri=True)
         df_points = pd.read_sql_query(
-            f"SELECT angle_deg, mesafe_cm, x_cm, y_cm FROM scan_points WHERE scan_id = {selected_scan_id} ORDER BY id ASC",
+            f"SELECT angle_deg, mesafe_cm FROM scan_points WHERE scan_id = {selected_scan_id} ORDER BY angle_deg ASC",
             conn
         )
 
-        if not df_points.empty and 'x_cm' in df_points.columns and 'y_cm' in df_points.columns:
-            # Noktaları çizdir
-            fig_map.add_trace(go.Scatter(
-                x=df_points['y_cm'],
-                y=df_points['x_cm'],
+        if not df_points.empty:
+            # Polar grafik çiz
+            fig_polar.add_trace(go.Scatterpolar(
+                r=df_points['mesafe_cm'],
+                theta=df_points['angle_deg'],
                 mode='lines+markers',
-                name='Taranan Sınır',
-                line=dict(color='rgba(0,100,80,0.7)', width=2),
-                marker=dict(size=5, color=df_points['mesafe_cm'], colorscale='Viridis', showscale=True,
-                            colorbar_title_text="Mesafe (cm)")
+                name='Mesafe Profili',
+                marker=dict(size=8, color=df_points['mesafe_cm'], colorscale='Viridis', showscale=True)
             ))
 
-            # Alan dolgusu için
-            polygon_plot_x = [0] + list(df_points['y_cm'])
-            polygon_plot_y = [0] + list(df_points['x_cm'])
-
-            fig_map.add_trace(go.Scatter(
-                x=polygon_plot_x,
-                y=polygon_plot_y,
-                fill="toself",
-                fillcolor='rgba(0,176,246,0.2)',
-                line=dict(color='rgba(255,255,255,0)'),
-                hoverinfo="skip",
-                showlegend=False,
-                name='Taranan Alan'
-            ))
-
-            # Sensör konumu
-            fig_map.add_trace(
-                go.Scatter(x=[0], y=[0], mode='markers', marker=dict(size=10, symbol='diamond', color='red'),
-                           name='Sensör Konumu')
-            )
-
-            fig_map.update_layout(
-                title_text=f'Alan Tarama #{selected_scan_id}',
-                xaxis_title="Yatay Yayılım (cm)",
-                yaxis_title="İleri Mesafe (cm)",
-                yaxis_scaleanchor="x",
-                yaxis_scaleratio=1,
-                width=None,
-                height=650,
-                margin=dict(l=50, r=50, b=50, t=80),
-                plot_bgcolor='rgba(248,248,248,1)',
-                legend=dict(yanchor="top", y=0.99, xanchor="center", x=0.01)
+            fig_polar.update_layout(
+                title_text=f'Polar Mesafe Grafiği - Tarama #{selected_scan_id}',
+                polar=dict(
+                    radialaxis=dict(
+                        visible=True,
+                        range=[0, max(df_points['mesafe_cm']) * 1.1]
+                    )
+                ),
+                showlegend=True
             )
         else:
-            fig_map.update_layout(title_text=f'Çizilecek geçerli nokta yok')
+            fig_polar.update_layout(title_text='Polar Grafik (Veri Bekleniyor)')
     except Exception as e:
-        print(f"Tarama haritası oluşturma hatası: {e}")
-        fig_map.update_layout(title_text='2D Tarama Haritası (Hata/Veri Yok)')
+        print(f"Polar grafik oluşturma hatası: {e}")
+        fig_polar.update_layout(title_text='Polar Grafik (Hata)')
     finally:
         if conn: conn.close()
 
-    return fig_map
+    return fig_polar
+
+
+# Zaman serisi grafik güncelleme callback'i
+@app.callback(
+    Output('time-series-graph', 'figure'),
+    [Input('interval-component-scan', 'n_intervals'),
+     Input('primary-scan-dropdown', 'value')]
+)
+def update_time_series_graph(n_intervals, selected_scan_id):
+    conn = None
+    fig_time = go.Figure()
+
+    try:
+        # Seçilen bir tarama yoksa, en son taramayı kullan
+        if not selected_scan_id:
+            conn = sqlite3.connect(f'file:{DB_PATH}?mode=ro', uri=True)
+            df_scan_info = pd.read_sql_query(
+                "SELECT id FROM servo_scans ORDER BY start_time DESC LIMIT 1", conn
+            )
+            if not df_scan_info.empty:
+                selected_scan_id = int(df_scan_info['id'].iloc[0])
+            else:
+                fig_time.update_layout(title_text='Zaman Serisi Grafiği (Tarama Bulunamadı)')
+                return fig_time
+
+        # Seçilen taramanın verilerini al
+        conn = sqlite3.connect(f'file:{DB_PATH}?mode=ro', uri=True)
+        df_points = pd.read_sql_query(
+            f"SELECT angle_deg, mesafe_cm, timestamp FROM scan_points WHERE scan_id = {selected_scan_id} ORDER BY timestamp ASC",
+            conn
+        )
+
+        if not df_points.empty:
+            # Zaman serisi grafiği çiz
+            fig_time.add_trace(go.Scatter(
+                x=df_points['timestamp'],
+                y=df_points['mesafe_cm'],
+                mode='lines+markers',
+                name='Mesafe (cm)',
+                marker=dict(size=6)
+            ))
+
+            # X ekseni için zaman formatı ayarla
+            if len(df_points) > 0:
+                time_labels = [time.strftime('%H:%M:%S', time.localtime(ts)) for ts in df_points['timestamp']]
+                fig_time.update_xaxes(
+                    title_text="Zaman",
+                    tickvals=df_points['timestamp'],
+                    ticktext=time_labels
+                )
+
+            fig_time.update_layout(
+                title_text=f'Zaman Serisi Grafiği - Tarama #{selected_scan_id}',
+                yaxis_title="Mesafe (cm)",
+                height=650,
+                margin=dict(l=50, r=50, b=50, t=80),
+                plot_bgcolor='rgba(248,248,248,1)'
+            )
+        else:
+            fig_time.update_layout(title_text='Zaman Serisi Grafiği (Veri Bekleniyor)')
+    except Exception as e:
+        print(f"Zaman serisi grafiği oluşturma hatası: {e}")
+        fig_time.update_layout(title_text='Zaman Serisi Grafiği (Hata)')
+    finally:
+        if conn: conn.close()
+
+    return fig_time
 
 
 @app.callback(
@@ -666,162 +847,3 @@ def handle_stop_scan_script(n_clicks):
             return f"Taramayı durdurma hatası: {e}"
     else:
         return "Durdurulacak aktif tarama bulunamadı."
-
-
-@app.callback(
-    [Output('current-angle', 'children'),
-     Output('current-distance', 'children'),
-     Output('current-speed', 'children')],
-    [Input('interval-component-scan', 'n_intervals')]
-)
-def update_realtime_values(n_intervals):
-    conn = None
-    try:
-        conn = sqlite3.connect(f'file:{DB_PATH}?mode=ro', uri=True)
-        df = pd.read_sql_query(
-            "SELECT angle_deg, mesafe_cm, hiz_cm_s FROM scan_points ORDER BY id DESC LIMIT 1",
-            conn
-        )
-        if not df.empty:
-            angle = f"{df['angle_deg'].iloc[0]:.1f}°"
-            distance = f"{df['mesafe_cm'].iloc[0]:.2f} cm"
-            speed = f"{df['hiz_cm_s'].iloc[0]:.2f} cm/s"
-            return angle, distance, speed
-    except Exception as e:
-        print(f"Gerçek zamanlı değerler alınırken hata: {e}")
-    finally:
-        if conn: conn.close()
-
-    return "--°", "-- cm", "-- cm/s"
-
-
-@app.callback(
-    Output('time-series-graph', 'figure'),
-    [Input('interval-component-scan', 'n_intervals')],
-    [State('primary-scan-dropdown', 'value')]
-)
-def update_time_series_graph(n_intervals, selected_scan_id):
-    conn = None
-    fig_time = go.Figure()
-
-    try:
-        if not os.path.exists(DB_PATH):
-            raise FileNotFoundError(f"Veritabanı dosyası bulunamadı.")
-
-        conn = sqlite3.connect(f'file:{DB_PATH}?mode=ro', uri=True, timeout=5)
-
-        # Seçilen bir tarama yoksa, en son taramayı kullan
-        if not selected_scan_id:
-            df_scan_info = pd.read_sql_query(
-                "SELECT id FROM servo_scans ORDER BY start_time DESC LIMIT 1", conn
-            )
-            if not df_scan_info.empty:
-                selected_scan_id = int(df_scan_info['id'].iloc[0])
-            else:
-                fig_time.update_layout(title_text='Zaman Serisi Grafiği (Tarama Bulunamadı)')
-                return fig_time
-
-        # Seçilen taramanın verilerini al
-        df_points = pd.read_sql_query(
-            f"SELECT angle_deg, mesafe_cm, timestamp FROM scan_points WHERE scan_id = {selected_scan_id} ORDER BY timestamp ASC",
-            conn
-        )
-
-        if not df_points.empty:
-            # Zaman serisi grafiği çiz
-            fig_time.add_trace(go.Scatter(
-                x=df_points['timestamp'],
-                y=df_points['mesafe_cm'],
-                mode='lines+markers',
-                name='Mesafe (cm)',
-                marker=dict(size=6)
-            ))
-
-            # X ekseni için zaman formatı ayarla
-            fig_time.update_xaxes(
-                title_text="Zaman",
-                tickformat="%H:%M:%S",
-                tickvals=df_points['timestamp'],
-                ticktext=[time.strftime('%H:%M:%S', time.localtime(ts)) for ts in df_points['timestamp']]
-            )
-
-            fig_time.update_layout(
-                title_text=f'Zaman Serisi Grafiği - Tarama #{selected_scan_id}',
-                yaxis_title="Mesafe (cm)",
-                height=650,
-                margin=dict(l=50, r=50, b=50, t=80),
-                plot_bgcolor='rgba(248,248,248,1)'
-            )
-        else:
-            fig_time.update_layout(title_text='Zaman Serisi Grafiği (Veri Bekleniyor)')
-    except Exception as e:
-        print(f"Zaman serisi grafiği oluşturma hatası: {e}")
-        fig_time.update_layout(title_text='Zaman Serisi Grafiği (Hata)')
-    finally:
-        if conn: conn.close()
-
-    return fig_time
-
-
-@app.callback(
-    Output('polar-graph', 'figure'),
-    [Input('interval-component-scan', 'n_intervals')],
-    [State('primary-scan-dropdown', 'value')]
-)
-def update_polar_graph(n_intervals, selected_scan_id):
-    conn = None
-    fig_polar = go.Figure()
-
-    try:
-        if not os.path.exists(DB_PATH):
-            raise FileNotFoundError(f"Veritabanı dosyası bulunamadı.")
-
-        conn = sqlite3.connect(f'file:{DB_PATH}?mode=ro', uri=True, timeout=5)
-
-        # Seçilen bir tarama yoksa, en son taramayı kullan
-        if not selected_scan_id:
-            df_scan_info = pd.read_sql_query(
-                "SELECT id FROM servo_scans ORDER BY start_time DESC LIMIT 1", conn
-            )
-            if not df_scan_info.empty:
-                selected_scan_id = int(df_scan_info['id'].iloc[0])
-            else:
-                fig_polar.update_layout(title_text='Polar Grafik (Tarama Bulunamadı)')
-                return fig_polar
-
-        # Seçilen taramanın verilerini al
-        df_points = pd.read_sql_query(
-            f"SELECT angle_deg, mesafe_cm FROM scan_points WHERE scan_id = {selected_scan_id} ORDER BY angle_deg ASC",
-            conn
-        )
-
-        if not df_points.empty:
-            # Polar grafik çiz
-            fig_polar.add_trace(go.Scatterpolar(
-                r=df_points['mesafe_cm'],
-                theta=df_points['angle_deg'],
-                mode='lines+markers',
-                name='Mesafe Profili',
-                marker=dict(size=8, color=df_points['mesafe_cm'], colorscale='Viridis', showscale=True,
-                            colorbar_title_text="Mesafe (cm)")
-            ))
-
-            fig_polar.update_layout(
-                title_text=f'Polar Mesafe Grafiği - Tarama #{selected_scan_id}',
-                polar=dict(
-                    radialaxis=dict(
-                        visible=True,
-                        range=[0, max(df_points['mesafe_cm']) * 1.1]
-                    )
-                ),
-                showlegend=True
-            )
-        else:
-            fig_polar.update_layout(title_text='Polar Grafik (Veri Bekleniyor)')
-    except Exception as e:
-        print(f"Polar grafik oluşturma hatası: {e}")
-        fig_polar.update_layout(title_text='Polar Grafik (Hata)')
-    finally:
-        if conn: conn.close()
-
-    return fig_polar
