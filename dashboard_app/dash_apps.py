@@ -27,8 +27,17 @@ app = DjangoDash('RealtimeSensorDashboard', external_stylesheets=[dbc.themes.BOO
 
 app.layout = dbc.Container(fluid=True, children=[
     dbc.Row(
-        [dbc.Col(html.H1("Eş Zamanlı Servo Motorlu 2D Alan Tarama ve Alan Hesabı Paneli", className="text-center my-3"),
-                 width=12)]),
+        [
+            dbc.Col(html.H1("Dream Pi", className="text-center my-3"),
+                    width=12)
+        ]
+    ),
+    dbc.Row(
+        [
+            dbc.Col(html.H1("2D Alan Tarama", className="text-center my-3 mb-1"),
+                    width=12)
+        ]
+    ),
     dbc.Row([
         dbc.Col([
             html.Div([html.Button('2D Taramayı Başlat', id='start-scan-button', n_clicks=0,
@@ -149,11 +158,14 @@ def update_scan_map_graph(n_intervals):
             error_message_div = [html.P(f"Veritabanında hiç tarama kaydı bulunamadı.", style={'color': 'orange'})]
 
     except sqlite3.OperationalError as e_sql:
-        msg = f"Veritabanı okuma hatası: {e_sql}."; error_message_div = [html.P(msg, style={'color': 'red'})]
+        msg = f"Veritabanı okuma hatası: {e_sql}.";
+        error_message_div = [html.P(msg, style={'color': 'red'})]
     except FileNotFoundError as e_fnf:
-        msg = str(e_fnf); error_message_div = [html.P(msg, style={'color': 'orange'})]
+        msg = str(e_fnf);
+        error_message_div = [html.P(msg, style={'color': 'orange'})]
     except Exception as e_gen:
-        msg = f"Veri okunurken bilinmeyen bir hata: {e_gen}"; error_message_div = [html.P(msg, style={'color': 'red'})]
+        msg = f"Veri okunurken bilinmeyen bir hata: {e_gen}";
+        error_message_div = [html.P(msg, style={'color': 'red'})]
     finally:
         if conn: conn.close()
 
@@ -207,15 +219,15 @@ def update_scan_map_graph(n_intervals):
                            name='Sensör Konumu'))
 
             fig_map.update_layout(
-                title_text=f'Canlı 2D Tarama (ID: {latest_scan_id}, Başl.: {latest_scan_start_time_str}, Durum: {latest_scan_status})',
+                title_text=f'Alan Tarama',
                 xaxis_title="Yatay Yayılım (cm)", yaxis_title="İleri Mesafe (cm)",
                 yaxis_scaleanchor="x", yaxis_scaleratio=1,
                 width=None, height=650,
                 margin=dict(l=50, r=50, b=50, t=80), plot_bgcolor='rgba(248,248,248,1)',
-                legend=dict(yanchor="top", y=0.99, xanchor="left", x=0.01)
+                legend=dict(yanchor="top", y=0.99, xanchor="center", x=0.01)
             )
         else:
-            fig_map.update_layout(title_text=f'2D Tarama (ID: {latest_scan_id} - Çizilecek geçerli nokta yok)')
+            fig_map.update_layout(title_text=f'Çizilecek geçerli nokta yok')
 
         summary_children = [html.H4("Tarama Özeti:", style={'marginTop': '0px', 'marginBottom': '10px'})]
         if latest_scan_id is not None:
