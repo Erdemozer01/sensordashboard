@@ -142,6 +142,44 @@ def get_db_connection():  # Aynı
         return None, f"DB Bağlantı Hatası: {e}"
 
 
+def get_latest_scan_id_from_db(conn_param=None):
+    """ Veritabanından en son (önce 'running', sonra herhangi bir durumdaki) tarama ID'sini alır. """
+    internal_conn = False
+    conn_to_use = conn_param
+    latest_id = None
+
+    if not conn_to_use:  # Eğer dışarıdan bağlantı verilmediyse, yenisini aç
+        conn_to_use, error = get_db_connection()
+        if error:
+            print(f"DB Hatası (get_latest_scan_id_from_db içinde get_db_connection): {error}")
+            return None  # Bağlantı hatası varsa None dön
+        internal_conn = True
+
+    if conn_to_use:
+        try:
+            # Önce 'running' durumundaki en son taramayı dene
+            df_scan = pd.read_sql_query(
+                "SELECT id FROM servo_scans WHERE status = 'running' ORDER BY start_time DESC LIMIT 1",
+                conn_to_use
+            )
+            if df_scan.empty:  # Çalışan yoksa, herhangi bir durumdaki en son taramayı al
+                df_scan = pd.read_sql_query(
+                    "SELECT id FROM servo_scans ORDER BY start_time DESC LIMIT 1",
+                    conn_to_use
+                )
+
+            if not df_scan.empty:
+                latest_id = int(df_scan['id'].iloc[0])
+            else:
+                print("DB'de hiç tarama kaydı bulunamadı (get_latest_scan_id_from_db).")
+        except Exception as e:
+            print(f"Son tarama ID alınırken hata (get_latest_scan_id_from_db): {e}")
+        finally:
+            # Sadece bu fonksiyon içinde açıldıysa bağlantıyı kapat
+            if internal_conn and conn_to_use:
+                conn_to_use.close()
+    return latest_id
+
 # --- CALLBACK FONKSİYONLARI ---
 # handle_start_scan_script ve handle_stop_scan_script (Yanıt #49'daki gibi, değişiklik yok)
 # ... (Bu fonksiyonları bir önceki cevaptan (#49) buraya kopyalayın)
