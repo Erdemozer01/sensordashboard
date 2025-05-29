@@ -11,12 +11,13 @@ import os
 import sys
 import subprocess
 import time
-import psutil # En üste ekleyin
-
+import math
+import numpy as np
 import signal
 import io
+import psutil  # Sistem bilgilerini almak için eklendi
 
-# --- Sabitler ---
+# --- Sabitler (Bir önceki cevaptaki gibi) ---
 try:
     PROJECT_ROOT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..')
 except NameError:
@@ -34,7 +35,11 @@ DEFAULT_UI_SCAN_STEP_ANGLE = 10
 
 app = DjangoDash('RealtimeSensorDashboard', external_stylesheets=[dbc.themes.BOOTSTRAP])
 
-# --- LAYOUT BİLEŞENLERİ (Dropdown kaldırıldı) ---
+# --- LAYOUT BİLEŞENLERİ (Yanıt #48'deki gibi) ---
+# title_card, control_panel, stats_panel, system_card,
+# export_card, analysis_card, visualization_tabs (scan_selector_card çıkarılmıştı)
+# Bu bileşenlerin tanımları bir önceki cevaptaki (#48) gibi kalacak.
+# Sadece ana app.layout'u örnek olarak tekrar ekliyorum, içleri aynı varsayılır.
 title_card = dbc.Row([dbc.Col(html.H1("Dream Pi - 2D Alan Tarama Sistemi", className="text-center my-3"), width=12)])
 control_panel = dbc.Card([
     dbc.CardHeader("Tarama Kontrol ve Ayarları", className="bg-primary text-white"),
@@ -60,18 +65,39 @@ control_panel = dbc.Card([
                                   step=1)], className="mb-2"),
     ])
 ])
-stats_panel = dbc.Card([dbc.CardHeader("Anlık Sensör Değerleri", className="bg-info text-white"),
-                        dbc.CardBody([html.Div(id='realtime-values')])], className="mb-3")
-system_card = dbc.Card([dbc.CardHeader("Sistem Durumu", className="bg-secondary text-white"),
-                        dbc.CardBody([html.Div(id='system-status-values')])], className="mb-3")
-# scan_selector_card KALDIRILDI
+stats_panel = dbc.Card([
+    dbc.CardHeader("Anlık Sensör Değerleri", className="bg-info text-white"),
+    dbc.CardBody([html.Div(id='realtime-values', children=[  # ID Düzeltmesi: real-time-values -> realtime-values
+        dbc.Row([
+            dbc.Col(html.Div([html.H6("Mevcut Açı:"), html.H4(id='current-angle', children="--°")]), width=4,
+                    className="text-center"),
+            dbc.Col(html.Div([html.H6("Mevcut Mesafe:"), html.H4(id='current-distance', children="-- cm")]), width=4,
+                    className="text-center"),
+            dbc.Col(html.Div([html.H6("Anlık Hız:"), html.H4(id='current-speed', children="-- cm/s")]), width=4,
+                    className="text-center")
+        ])])])
+], className="mb-3")
+system_card = dbc.Card([
+    dbc.CardHeader("Sistem Durumu", className="bg-secondary text-white"),
+    dbc.CardBody([html.Div(id='system-status-values', children=[  # ID Düzeltmesi
+        dbc.Row([dbc.Col(html.Div([html.H6("Sensör Betiği:"), html.H5(id='script-status', children="Beklemede")]))],
+                className="mb-2"),
+        dbc.Row([
+            dbc.Col(html.Div([html.H6("Pi CPU Kullanımı:"),
+                              dbc.Progress(id='cpu-usage', value=0, color="success", style={"height": "20px"},
+                                           className="mb-1", label="0%")])),
+            dbc.Col(html.Div([html.H6("Pi RAM Kullanımı:"),
+                              dbc.Progress(id='ram-usage', value=0, color="info", style={"height": "20px"},
+                                           className="mb-1", label="0%")]))
+        ])])])
+], className="mb-3")
 export_card = dbc.Card([dbc.CardHeader("Veri Dışa Aktarma (En Son Tarama)", className="bg-light"), dbc.CardBody(
     [dbc.Button('En Son Taramayı CSV İndir', id='export-csv-button', color="primary", className="w-100 mb-2"),
      dcc.Download(id='download-csv'),
      dbc.Button('En Son Taramayı Excel İndir', id='export-excel-button', color="success", className="w-100"),
      dcc.Download(id='download-excel')])], className="mb-3")
 analysis_card = dbc.Card([dbc.CardHeader("Tarama Analizi (En Son Tarama)", className="bg-dark text-white"),
-                          dbc.CardBody(html.Div(id='analysis-output'))])
+                          dbc.CardBody(html.Div(id='analysis-output'))])  # İçerik callback ile dolacak
 visualization_tabs = dbc.Tabs([dbc.Tab(dcc.Graph(id='scan-map-graph', style={'height': '75vh'}), label="2D Harita"),
                                dbc.Tab(dcc.Graph(id='polar-graph', style={'height': '75vh'}), label="Polar Grafik"),
                                dbc.Tab(dcc.Graph(id='time-series-graph', style={'height': '75vh'}),
@@ -82,7 +108,7 @@ app.layout = dbc.Container(fluid=True, children=[
     dbc.Row([
         dbc.Col([control_panel, dbc.Row(html.Div(style={"height": "15px"})), stats_panel,
                  dbc.Row(html.Div(style={"height": "15px"})), system_card, dbc.Row(html.Div(style={"height": "15px"})),
-                 export_card], md=4, className="mb-3"),  # scan_selector_card kaldırıldı
+                 export_card], md=4, className="mb-3"),
         dbc.Col([visualization_tabs, dbc.Row(html.Div(style={"height": "15px"})), analysis_card], md=8)
     ]),
     dcc.Interval(id='interval-component-main', interval=1500, n_intervals=0),
@@ -91,7 +117,7 @@ app.layout = dbc.Container(fluid=True, children=[
 
 
 # --- HELPER FONKSİYONLAR ---
-def is_process_running(pid):  # Aynı
+def is_process_running(pid):
     if pid is None: return False
     try:
         os.kill(pid, 0)
@@ -101,7 +127,7 @@ def is_process_running(pid):  # Aynı
         return True
 
 
-def get_db_connection():  # Aynı
+def get_db_connection():
     try:
         if not os.path.exists(DB_PATH): return None, f"Veritabanı dosyası ({DB_PATH}) bulunamadı."
         conn = sqlite3.connect(f'file:{DB_PATH}?mode=ro', uri=True, timeout=5)
@@ -112,7 +138,7 @@ def get_db_connection():  # Aynı
         return None, f"DB Bağlantı Hatası: {e}"
 
 
-def get_latest_scan_id_from_db(conn_param=None):  # Aynı
+def get_latest_scan_id_from_db(conn_param=None):
     internal_conn = False;
     conn_to_use = conn_param;
     latest_id = None
@@ -126,7 +152,10 @@ def get_latest_scan_id_from_db(conn_param=None):  # Aynı
                 "SELECT id FROM servo_scans WHERE status = 'running' ORDER BY start_time DESC LIMIT 1", conn_to_use)
             if df_scan.empty: df_scan = pd.read_sql_query("SELECT id FROM servo_scans ORDER BY start_time DESC LIMIT 1",
                                                           conn_to_use)
-            if not df_scan.empty: latest_id = int(df_scan['id'].iloc[0])
+            if not df_scan.empty:
+                latest_id = int(df_scan['id'].iloc[0])
+            else:
+                print("DB'de hiç tarama kaydı bulunamadı (get_latest_scan_id).")
         except Exception as e:
             print(f"Son tarama ID alınırken hata: {e}")
         finally:
@@ -135,11 +164,12 @@ def get_latest_scan_id_from_db(conn_param=None):  # Aynı
 
 
 # --- CALLBACK FONKSİYONLARI ---
-# handle_start_scan_script ve handle_stop_scan_script (Yanıt #43'teki gibi)
+
 @app.callback(Output('scan-status-message', 'children'), [Input('start-scan-button', 'n_clicks')],
               [State('start-angle-input', 'value'), State('end-angle-input', 'value'),
                State('step-angle-input', 'value')], prevent_initial_call=True)
 def handle_start_scan_script(n_clicks_start, start_angle_val, end_angle_val, step_angle_val):
+    # ... (İçeriği Yanıt #49'daki gibi, değişiklik yok) ...
     if n_clicks_start is None or n_clicks_start == 0: return dash.no_update
     start_a = start_angle_val if start_angle_val is not None else DEFAULT_UI_SCAN_START_ANGLE
     end_a = end_angle_val if end_angle_val is not None else DEFAULT_UI_SCAN_END_ANGLE
@@ -194,6 +224,7 @@ def handle_start_scan_script(n_clicks_start, start_angle_val, end_angle_val, ste
 @app.callback(Output('scan-status-message', 'children', allow_duplicate=True), [Input('stop-scan-button', 'n_clicks')],
               prevent_initial_call=True)
 def handle_stop_scan_script(n_clicks_stop):
+    # ... (İçeriği Yanıt #49'daki gibi, değişiklik yok) ...
     if n_clicks_stop is None or n_clicks_stop == 0: return dash.no_update
     pid_to_kill = None
     if os.path.exists(PID_FILE_PATH_FOR_DASH):
@@ -227,48 +258,79 @@ def handle_stop_scan_script(n_clicks_stop):
 # update_scan_dropdowns callback'i KALDIRILDI.
 
 @app.callback(
-    [Output('current-angle', 'children'), Output('current-distance', 'children'), Output('current-speed', 'children')],
+    [Output('realtime-values', 'children')],  # ID düzeltildi
     [Input('interval-component-main', 'n_intervals')]
 )
 def update_realtime_values(n_intervals):
+    print(f"--- update_realtime_values tetiklendi --- n_intervals: {n_intervals}")
     conn, error = get_db_connection()
-    angle, distance, speed = "--°", "-- cm", "-- cm/s"
+    angle_str, distance_str, speed_str = "--°", "-- cm", "-- cm/s"
+
+    if error:
+        print(f"DB Bağlantı Hatası (Anlık Değerler): {error}")
+        # Hata durumunda bileşenleri boş döndürmek yerine bir mesajla döndürebiliriz
+        # Ancak bu Output sadece children'a gittiği için, doğrudan mesaj basmak zor.
+        # Şimdilik varsayılan değerleri döndürüyoruz.
+        return [dbc.Row([  # Children'a uygun formatta döndür
+            dbc.Col(html.Div([html.H6("Mevcut Açı:"), html.H4(angle_str)]), width=4, className="text-center"),
+            dbc.Col(html.Div([html.H6("Mevcut Mesafe:"), html.H4(distance_str)]), width=4, className="text-center"),
+            dbc.Col(html.Div([html.H6("Anlık Hız:"), html.H4(speed_str)]), width=4, className="text-center")
+        ])]
+
     if conn:
+        latest_id = None
         try:
-            latest_id = get_latest_scan_id_from_db(conn_param=conn)
-            if latest_id:
-                df = pd.read_sql_query(
+            # 'running' durumundaki en son taramanın son noktasını al, yoksa herhangi bir durumdaki en son taramanın son noktası
+            df_latest_scan = pd.read_sql_query(
+                "SELECT id FROM servo_scans WHERE status = 'running' ORDER BY start_time DESC LIMIT 1", conn)
+            if df_latest_scan.empty:
+                df_latest_scan = pd.read_sql_query("SELECT id FROM servo_scans ORDER BY start_time DESC LIMIT 1", conn)
+
+            if not df_latest_scan.empty:
+                latest_id = int(df_latest_scan['id'].iloc[0])
+                df_point = pd.read_sql_query(
                     f"SELECT angle_deg, mesafe_cm, hiz_cm_s FROM scan_points WHERE scan_id = {latest_id} ORDER BY id DESC LIMIT 1",
                     conn)
-                if not df.empty:
-                    angle_val, dist_val, speed_val = df['angle_deg'].iloc[0], df['mesafe_cm'].iloc[0], \
-                    df['hiz_cm_s'].iloc[0]
-                    angle = f"{angle_val:.0f}°" if pd.notnull(angle_val) else "--°";
-                    distance = f"{dist_val:.1f} cm" if pd.notnull(dist_val) else "-- cm";
-                    speed = f"{speed_val:.1f} cm/s" if pd.notnull(speed_val) else "-- cm/s"
+                if not df_point.empty:
+                    angle_val = df_point['angle_deg'].iloc[0]
+                    distance_val = df_point['mesafe_cm'].iloc[0]
+                    speed_val = df_point['hiz_cm_s'].iloc[0]
+                    angle_str = f"{angle_val:.0f}°" if pd.notnull(angle_val) else "--°"
+                    distance_str = f"{distance_val:.1f} cm" if pd.notnull(distance_val) else "-- cm"
+                    speed_str = f"{speed_val:.1f} cm/s" if pd.notnull(speed_val) else "-- cm/s"
+                    print(f"Anlık Değerler: Açı={angle_str}, Mesafe={distance_str}, Hız={speed_str}")
+                else:
+                    print(f"Anlık Değerler: Tarama ID {latest_id} için nokta bulunamadı.")
+            else:
+                print("Anlık Değerler: Hiç tarama kaydı bulunamadı.")
         except Exception as e:
-            print(f"Anlık değerler: {e}")
+            print(f"Anlık değerler alınırken hata: {e}")
         finally:
             conn.close()
-    return angle, distance, speed
+
+    return [dbc.Row([
+        dbc.Col(html.Div([html.H6("Mevcut Açı:"), html.H4(id='current-angle', children=angle_str)]), width=4,
+                className="text-center"),
+        dbc.Col(html.Div([html.H6("Mevcut Mesafe:"), html.H4(id='current-distance', children=distance_str)]), width=4,
+                className="text-center"),
+        dbc.Col(html.Div([html.H6("Anlık Hız:"), html.H4(id='current-speed', children=speed_str)]), width=4,
+                className="text-center")
+    ])]
 
 
 @app.callback(
     [Output('scan-map-graph', 'figure'), Output('polar-graph', 'figure'), Output('time-series-graph', 'figure')],
     [Input('interval-component-main', 'n_intervals')]
+    # Dropdown Input'u kaldırıldığı için selected_scan_id parametresi de kaldırıldı
 )
 def update_all_graphs(n_intervals):
-    # Bu fonksiyonun tam ve güncel hali bir önceki cevabımda (Yanıt #46) bulunmaktadır.
-    # O cevaptaki fonksiyonu (selected_scan_id parametresi olmadan,
-    # en son taramayı kendi bulan versiyonunu) buraya kopyalayın.
-    # Kısa olması için burada sadece iskeletini bırakıyorum.
-    # ÖNEMLİ: Yanıt #46'daki update_all_graphs fonksiyonu selected_scan_id alıyordu.
-    # Onu, selected_scan_id yerine her zaman get_latest_scan_id_from_db() kullanacak şekilde
-    # düzenlemeniz gerekecek. Aşağıda bu düzenlenmiş hali var:
-
     print(f"--- update_all_graphs ÇAĞRILDI (Dropdown Yok) --- n_intervals: {n_intervals}")
     conn, error_msg_conn = get_db_connection()
-    id_to_plot = get_latest_scan_id_from_db(conn_param=conn)
+
+    id_to_plot = None  # Başlangıçta çizilecek ID yok
+    if conn:  # Sadece bağlantı varsa ID almayı dene
+        id_to_plot = get_latest_scan_id_from_db(conn_param=conn)  # conn'i tekrar açmamak için parametre olarak ver
+
     ui_revision_key = str(id_to_plot if id_to_plot else "no_scan") + f"_{n_intervals}"
 
     fig_map = go.Figure().update_layout(title_text='2D Kartezyen Harita (Veri bekleniyor...)',
@@ -278,20 +340,21 @@ def update_all_graphs(n_intervals):
     fig_time = go.Figure().update_layout(title_text='Zaman Serisi - Mesafe (Veri bekleniyor...)',
                                          uirevision=ui_revision_key, plot_bgcolor='rgba(248,248,248,0.95)')
 
-    if error_msg_conn and not conn:
+    if error_msg_conn and not conn:  # Eğer get_db_connection hata döndürdüyse (ve conn None ise)
         print(f"Dash Grafik Güncelleme: DB bağlantı hatası: {error_msg_conn}")
-        # Hata mesajlarını grafik başlıklarına yansıt
-        if conn: conn.close();  # Bu bloğa girerse conn zaten None olur ama yine de kontrol
-        return fig_map, fig_polar, fig_time
+        fig_map.update_layout(title_text=f'2D Harita ({error_msg_conn})');
+        fig_polar.update_layout(title_text=f'Polar Grafik ({error_msg_conn})');
+        fig_time.update_layout(title_text=f'Zaman Serisi ({error_msg_conn})')
+        return fig_map, fig_polar, fig_time  # conn zaten None olduğu için kapatmaya gerek yok
 
     if not id_to_plot:
         print("Dash Grafik: Çizilecek bir tarama ID'si belirlenemedi.")
-        if conn: conn.close();
+        if conn: conn.close();  # Açık bağlantıyı kapat
         return fig_map, fig_polar, fig_time
 
     df_points = pd.DataFrame();
     df_scan_info = pd.DataFrame()
-    if conn:
+    if conn:  # Bağlantı hala geçerliyse (get_latest_scan_id_from_db kendi açtığını kapattı, ama get_db_connection'dan gelen hala açık olabilir)
         try:
             df_scan_info = pd.read_sql_query(f"SELECT status, start_time FROM servo_scans WHERE id = {id_to_plot}",
                                              conn)
@@ -300,7 +363,7 @@ def update_all_graphs(n_intervals):
                 conn)
         except Exception as e:
             print(f"Grafik için DB okuma hatası: {e}")
-        # finally: conn.close() # Bağlantıyı en sonda kapatacağız
+        # finally: conn.close() # Bağlantıyı burada değil, en sonda kapatacağız
 
     scan_status_str = df_scan_info['status'].iloc[0] if not df_scan_info.empty else "Bilinmiyor"
     start_time_epoch = df_scan_info['start_time'].iloc[0] if not df_scan_info.empty else time.time()
@@ -311,6 +374,7 @@ def update_all_graphs(n_intervals):
         max_plot_dist = 200.0
         df_valid = df_points[(df_points['mesafe_cm'] > 0.1) & (df_points['mesafe_cm'] < max_plot_dist)].copy()
         if not df_valid.empty and 'x_cm' in df_valid.columns and 'y_cm' in df_valid.columns:
+            print(f"Dash Grafik: ID {id_to_plot} için {len(df_valid)} geçerli nokta ile grafik çiziliyor.")
             fig_map.add_trace(go.Scatter(x=df_valid['y_cm'], y=df_valid['x_cm'], mode='lines+markers', name='Sınır',
                                          marker=dict(size=5, color=df_valid['mesafe_cm'], colorscale='Viridis',
                                                      showscale=False), line=dict(color='dodgerblue')))
@@ -343,22 +407,24 @@ def update_all_graphs(n_intervals):
                 fig_time.update_xaxes(type='date', tickformat='%H:%M:%S')
             fig_time.update_layout(title_text='Zaman Serisi - Mesafe ' + title_suffix, xaxis_title="Zaman",
                                    yaxis_title="Mesafe (cm)")
-        else:  # df_valid boşsa
+        else:
+            print(f"Dash Grafik: ID {id_to_plot} için geçerli nokta bulunamadı (filtreleme sonrası).")
             fig_map.update_layout(title_text='2D Harita ' + title_suffix + " (Geçerli Veri Yok)");
             fig_polar.update_layout(title_text='Polar ' + title_suffix + " (Geçerli Veri Yok)");
             fig_time.update_layout(title_text='Zaman S. ' + title_suffix + " (Geçerli Veri Yok)")
-    else:  # df_points boşsa
+    else:
+        print(f"Dash Grafik: ID {id_to_plot} için nokta verisi bulunamadı.")
         fig_map.update_layout(title_text='2D Harita ' + title_suffix + " (Nokta Verisi Yok)");
         fig_polar.update_layout(title_text='Polar ' + title_suffix + " (Nokta Verisi Yok)");
         fig_time.update_layout(title_text='Zaman S. ' + title_suffix + " (Nokta Verisi Yok)")
 
-    if conn: conn.close()  # En sonda bağlantıyı kapat
+    if conn: conn.close()  # Tüm DB işlemleri bittikten sonra bağlantıyı kapat.
     return fig_map, fig_polar, fig_time
 
 
 @app.callback(
-    [Output('calculated-area', 'children'), Output('perimeter-length', 'children'),
-     Output('max-width', 'children'), Output('max-depth', 'children')],
+    [Output('calculated-area', 'children'), Output('perimeter-length', 'children'), Output('max-width', 'children'),
+     Output('max-depth', 'children')],
     [Input('interval-component-main', 'n_intervals')]
 )
 def update_analysis_panel(n_intervals):
@@ -378,8 +444,7 @@ def update_analysis_panel(n_intervals):
                 depth = f"{d_val:.2f} cm" if pd.notnull(d_val) else "-- cm"
         except Exception as e:
             print(f"Analiz paneli hatası: {e}")
-    elif error:
-        print(f"DB Bağlantı Hatası (Analiz): {error}")
+    # elif error: print(f"DB Bağlantı Hatası (Analiz): {error}") # get_db_connection zaten logluyor
     if conn: conn.close()
     return area, perimeter, width, depth
 
@@ -391,38 +456,33 @@ def update_analysis_panel(n_intervals):
     [Input('interval-component-system', 'n_intervals')]
 )
 def update_system_card(n_intervals):
-    script_status_text = "Beklemede"
-    status_class_name = "text-secondary"
+    script_status_text, status_class_name = "Beklemede", "text-secondary";
     pid = None
-    # ... (PID kontrolü kısmı aynı) ...
     if os.path.exists(PID_FILE_PATH_FOR_DASH):
         try:
             with open(PID_FILE_PATH_FOR_DASH, 'r') as pf:
-                pid_str = pf.read().strip()
-                if pid_str: pid = int(pid_str)
-        except: pass
+                pid_str = pf.read().strip();
+            if pid_str: pid = int(pid_str)
+        except:
+            pass
     if pid and is_process_running(pid):
         script_status_text, status_class_name = "Çalışıyor", "text-success"
     else:
         if os.path.exists(LOCK_FILE_PATH_FOR_DASH):
-            script_status_text = "Durum Belirsiz (Kilit Var)"
-            status_class_name = "text-warning"
+            script_status_text, status_class_name = "Durum Belirsiz (Kilit Var)", "text-warning"
         else:
-            script_status_text = "Çalışmıyor"
-            status_class_name = "text-danger"
-
-    cpu_percent = 0.0
-    ram_percent = 0.0
+            script_status_text, status_class_name = "Çalışmıyor", "text-danger"
+    cpu_percent, ram_percent = 0.0, 0.0
     try:
-        cpu_percent = psutil.cpu_percent(interval=0.1) # 0.1 saniye üzerinden anlık kullanım
+        cpu_percent = psutil.cpu_percent(interval=0.1)
         virtual_mem = psutil.virtual_memory()
         ram_percent = virtual_mem.percent
+        cpu_percent = round(max(0, min(100, cpu_percent)), 1)
+        ram_percent = round(max(0, min(100, ram_percent)), 1)
     except Exception as e:
-        print(f"Sistem metrikleri (psutil) alınırken hata: {e}")
+        print(f"CPU/RAM (psutil) okuma hatası: {e}")
+    return script_status_text, status_class_name, cpu_percent, f"{cpu_percent}%", ram_percent, f"{ram_percent}%"
 
-    return script_status_text, status_class_name, \
-           cpu_percent, f"{cpu_percent:.1f}%", \
-           ram_percent, f"{ram_percent:.1f}%"
 
 @app.callback(Output('download-csv', 'data'), [Input('export-csv-button', 'n_clicks')], prevent_initial_call=True)
 def export_csv_callback(n_clicks):
@@ -435,8 +495,7 @@ def export_csv_callback(n_clicks):
             return dcc.send_data_frame(df.to_csv, f"en_son_tarama_id_{latest_id}.csv", index=False)
         except Exception as e:
             print(f"CSV indirme hatası: {e}")
-    elif error:
-        print(f"DB Bağlantı Hatası (CSV): {error}")
+    # elif error: print(f"DB Bağlantı Hatası (CSV): {error}") # Zaten loglanıyor
     if conn: conn.close()
     return dash.no_update
 
@@ -459,7 +518,6 @@ def export_excel_callback(n_clicks):
             return dcc.send_bytes(excel_buffer.read(), f"tarama_detaylari_id_{latest_id}.xlsx")
         except Exception as e:
             print(f"Excel indirme hatası: {e}")
-    elif error:
-        print(f"DB Bağlantı Hatası (Excel): {error}")
+    # elif error: print(f"DB Bağlantı Hatası (Excel): {error}")
     if conn: conn.close()
     return dash.no_update
