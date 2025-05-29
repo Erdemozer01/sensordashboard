@@ -80,7 +80,8 @@ def init_hardware():
             time.sleep(1.5)
             print(f"[{os.getpid()}] LCD Ekran (Adres: {hex(LCD_I2C_ADDRESS)}) başarıyla başlatıldı.")
         except Exception as e_lcd_init:
-            print(f"[{os.getpid()}] UYARI: LCD başlatma hatası: {e_lcd_init}."); lcd = None
+            print(f"[{os.getpid()}] UYARI: LCD başlatma hatası: {e_lcd_init}.");
+            lcd = None
     else:
         lcd = None
     return hardware_ok
@@ -265,7 +266,10 @@ def release_resources_on_exit():
     print(f"[{pid}] Donanım kapatılıyor...")
     if servo and hasattr(servo, 'detach'):
         try:
-            servo.angle = (SCAN_START_ANGLE + SCAN_END_ANGLE) / 2; time.sleep(0.5); servo.detach(); servo.close()
+            servo.angle = (SCAN_START_ANGLE + SCAN_END_ANGLE) / 2;
+            time.sleep(0.5);
+            servo.detach();
+            servo.close()
         except:
             pass
     if yellow_led and hasattr(yellow_led, 'close'):
@@ -283,13 +287,13 @@ def release_resources_on_exit():
             lcd.write_string("Mehmet Erdem".ljust(LCD_COLS)[:LCD_COLS])
             lcd.cursor_pos = (1, 0)
             lcd.write_string("OZER (PhD.) ".ljust(LCD_COLS)[:LCD_COLS])
-
         except:
             pass
     print(f"[{pid}] Kalan donanımlar ve LCD kapatıldı.")
     if lock_file_handle:
         try:
-            fcntl.flock(lock_file_handle.fileno(), fcntl.LOCK_UN); lock_file_handle.close()
+            fcntl.flock(lock_file_handle.fileno(), fcntl.LOCK_UN);
+            lock_file_handle.close()
         except:
             pass
     for f_path in [PID_FILE_PATH, LOCK_FILE_PATH]:
@@ -311,17 +315,24 @@ def release_resources_on_exit():
 
 
 if __name__ == "__main__":
+
     parser = argparse.ArgumentParser(description="Servo Motorlu 2D Alan Tarama Betiği")
+
     parser.add_argument("--start_angle", type=int, default=DEFAULT_SCAN_START_ANGLE,
                         help="Tarama başlangıç açısı (derece)")
+
     parser.add_argument("--end_angle", type=int, default=DEFAULT_SCAN_END_ANGLE, help="Tarama bitiş açısı (derece)")
+
     parser.add_argument("--step_angle", type=int, default=DEFAULT_SCAN_STEP_ANGLE, help="Tarama adım açısı (derece)")
+
     args = parser.parse_args()
 
     SCAN_START_ANGLE = args.start_angle
+
     SCAN_END_ANGLE = args.end_angle
     SCAN_STEP_ANGLE = args.step_angle
-    if SCAN_STEP_ANGLE <= 0: SCAN_STEP_ANGLE = 1  # Adım açısı en az 1 olmalı
+    if SCAN_STEP_ANGLE <= 0: SCAN_STEP_ANGLE = 1
+
     # Bitiş açısı başlangıçtan küçükse, range fonksiyonu için adımı negatif yap
     actual_scan_step = SCAN_STEP_ANGLE
     if SCAN_START_ANGLE > SCAN_END_ANGLE:
