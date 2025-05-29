@@ -94,83 +94,45 @@ def init_db_for_scan():
     try:
         conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
+        # servo_scans tablosu: TARAMA AYARLARI SÜTUNLARI EKLENDİ
         cursor.execute('''
-                       CREATE TABLE IF NOT EXISTS servo_scans
-                       (
-                           id
-                           INTEGER
-                           PRIMARY
-                           KEY
-                           AUTOINCREMENT,
-                           start_time
-                           REAL
-                           UNIQUE,
-                           status
-                           TEXT,
-                           hesaplanan_alan_cm2
-                           REAL
-                           DEFAULT
-                           NULL,
-                           cevre_cm
-                           REAL
-                           DEFAULT
-                           NULL,
-                           max_genislik_cm
-                           REAL
-                           DEFAULT
-                           NULL,
-                           max_derinlik_cm
-                           REAL
-                           DEFAULT
-                           NULL,
-                           start_angle_setting
-                           REAL,
-                           end_angle_setting
-                           REAL,
-                           step_angle_setting
-                           REAL
-                       )''')
+            CREATE TABLE IF NOT EXISTS servo_scans (
+                id INTEGER PRIMARY KEY AUTOINCREMENT, 
+                start_time REAL UNIQUE, 
+                status TEXT,
+                hesaplanan_alan_cm2 REAL DEFAULT NULL, 
+                cevre_cm REAL DEFAULT NULL,
+                max_genislik_cm REAL DEFAULT NULL, 
+                max_derinlik_cm REAL DEFAULT NULL,
+                start_angle_setting REAL,      -- EKLENDİ
+                end_angle_setting REAL,        -- EKLENDİ
+                step_angle_setting REAL        -- EKLENDİ
+            )''')
+        # scan_points tablosu (x_cm, y_cm zaten vardı)
         cursor.execute('''
-                       CREATE TABLE IF NOT EXISTS scan_points
-                       (
-                           id
-                           INTEGER
-                           PRIMARY
-                           KEY
-                           AUTOINCREMENT,
-                           scan_id
-                           INTEGER,
-                           angle_deg
-                           REAL,
-                           mesafe_cm
-                           REAL,
-                           hiz_cm_s
-                           REAL,
-                           timestamp
-                           REAL,
-                           x_cm
-                           REAL,
-                           y_cm
-                           REAL,
-                           FOREIGN
-                           KEY
-                       (
-                           scan_id
-                       ) REFERENCES servo_scans
-                       (
-                           id
-                       ))''')
+            CREATE TABLE IF NOT EXISTS scan_points (
+                id INTEGER PRIMARY KEY AUTOINCREMENT, scan_id INTEGER, angle_deg REAL, 
+                mesafe_cm REAL, hiz_cm_s REAL, timestamp REAL,
+                x_cm REAL, y_cm REAL, 
+                FOREIGN KEY(scan_id) REFERENCES servo_scans(id)
+            )''')
+
         cursor.execute("UPDATE servo_scans SET status = 'interrupted_prior_run' WHERE status = 'running'")
+
         scan_start_time = time.time()
-        # Ayarları da kaydet
-        cursor.execute(
-            "INSERT INTO servo_scans (start_time, status, start_angle_setting, end_angle_setting, step_angle_setting) VALUES (?, ?, ?, ?, ?)",
-            (scan_start_time, 'running', SCAN_START_ANGLE, SCAN_END_ANGLE, SCAN_STEP_ANGLE))
+        # INSERT sorgusu da yeni sütunları içermeli
+        cursor.execute("""
+            INSERT INTO servo_scans 
+            (start_time, status, start_angle_setting, end_angle_setting, step_angle_setting) 
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            (scan_start_time, 'running', SCAN_START_ANGLE, SCAN_END_ANGLE, SCAN_STEP_ANGLE) # Global ayarları kullanır
+        )
         current_scan_id_global = cursor.lastrowid
         conn.commit()
         print(f"[{os.getpid()}] Veritabanı '{DB_PATH}' hazırlandı. Yeni tarama ID: {current_scan_id_global}")
     except sqlite3.Error as e_db_init:
-        print(f"[{os.getpid()}] DB başlatma/tarama kaydı hatası: {e_db_init}");
+        print(f"[{os.getpid()}] DB başlatma/tarama kaydı hatası: {e_db_init}")
         current_scan_id_global = None
     finally:
         if conn: conn.close()
