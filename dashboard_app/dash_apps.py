@@ -379,8 +379,8 @@ def update_realtime_values(n_intervals):
      Output('polar-graph', 'figure'),  # Polar Grafik
      Output('time-series-graph', 'figure')],  # Zaman Serisi Grafiği
     [Input('interval-component-main', 'n_intervals'),  # Periyodik güncelleme için
-     Input('scan-select-dropdown', 'value')]  # Kullanıcının seçtiği tarama ID'si
-    # prevent_initial_call=True # KALDIRILDI veya False yapıldı, sayfa yüklenince çalışması için
+     Input('scan-select-dropdown', 'value')],  # Kullanıcının seçtiği tarama ID'si
+    prevent_initial_call=True
 )
 def update_all_graphs(n_intervals, selected_scan_id):
     conn, error_msg_conn = get_db_connection()  # DB bağlantısını helper fonksiyonla al
