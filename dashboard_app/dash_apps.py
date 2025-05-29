@@ -217,7 +217,7 @@ def handle_start_scan_script(n_clicks_start, start_angle_val, end_angle_val, ste
                                                                     color="danger")
         cmd = [python_executable, SENSOR_SCRIPT_PATH, "--start_angle", str(start_a), "--end_angle", str(end_a),
                "--step_angle", str(step_a)]
-        print(f"Dash: Betik başlatılıyor: {' '.join(cmd)}")
+
         subprocess.Popen(cmd, start_new_session=True)
         time.sleep(2.5)
         if os.path.exists(PID_FILE_PATH_FOR_DASH):
@@ -227,7 +227,7 @@ def handle_start_scan_script(n_clicks_start, start_angle_val, end_angle_val, ste
                     pid_str_new = pf_new.read().strip();
                 if pid_str_new: new_pid = int(pid_str_new)
                 if new_pid and is_process_running(new_pid):
-                    return dbc.Alert(f"Betik başlatıldı (PID: {new_pid}).", color="success")
+                    return dbc.Alert(f"Sensör okumaları başladı", color="success")
                 else:
                     return dbc.Alert(f"Betik PID ({new_pid}) ile process bulunamadı.", color="warning")
             except Exception as e:
@@ -235,7 +235,7 @@ def handle_start_scan_script(n_clicks_start, start_angle_val, end_angle_val, ste
         else:
             return dbc.Alert(f"PID dosyası ({PID_FILE_PATH_FOR_DASH}) oluşmadı. Logları kontrol edin.", color="danger")
     except Exception as e:
-        return dbc.Alert(f"Betik başlatılırken hata: {str(e)}", color="danger")
+        return dbc.Alert(f"Sensör başlatılırken hata: {str(e)}", color="danger")
     return dash.no_update
 
 
