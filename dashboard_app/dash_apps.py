@@ -28,16 +28,11 @@ app = DjangoDash('RealtimeSensorDashboard', external_stylesheets=[dbc.themes.BOO
 app.layout = dbc.Container(fluid=True, children=[
     dbc.Row(
         [
-            dbc.Col(html.H1("Dream Pi", className="text-center my-3"),
+            dbc.Col(html.H1("Dream Pi - 2D Alan Tarama", className="text-center my-3"),
                     width=12)
         ]
     ),
-    dbc.Row(
-        [
-            dbc.Col(html.H1("2D Alan Tarama", className="text-center my-3 mb-1"),
-                    width=12)
-        ]
-    ),
+
     dbc.Row([
         dbc.Col([
             html.Div([html.Button('2D Taramayı Başlat', id='start-scan-button', n_clicks=0,
