@@ -405,31 +405,61 @@ def update_all_graphs(n_intervals):
 
 
 @app.callback(
-    [Output('analysis-output', 'children')],  # ID güncellendi
+    [Output('analysis-output', 'children')], # ID güncellendi, bir Div'in children'ı
     [Input('interval-component-main', 'n_intervals')]
 )
 def update_analysis_panel(n_intervals):
+    print(f"--- update_analysis_panel ÇAĞRILDI --- n_intervals: {n_intervals}")
     conn, error = get_db_connection()
-    area_str, perimeter_str, width_str, depth_str = "-- cm²", "-- cm", "-- cm", "-- cm"
-    latest_id = get_latest_scan_id_from_db(conn_param=conn)
-    if conn and latest_id:
-        try:
-            df_scan = pd.read_sql_query(f"SELECT hesaplanan_alan_cm2, cevre_cm, max_genislik_cm, max_derinlik_cm FROM servo_scans WHERE id = {latest_id}", conn)
 
-            if not df_scan.empty:
-                area_val, per_val, w_val, d_val = df_scan.iloc[0]
-                area_str = f"{area_val:.2f} cm²" if pd.notnull(area_val) else "-- cm²";
-                perimeter_str = f"{per_val:.2f} cm" if pd.notnull(per_val) else "-- cm"
-                width_str = f"{w_val:.2f} cm" if pd.notnull(w_val) else "-- cm";
-                depth_str = f"{d_val:.2f} cm" if pd.notnull(d_val) else "-- cm"
-        except Exception as e:
-            print(f"Analiz paneli hatası: {e}")
-    if conn: conn.close()
-    return [dbc.Row([dbc.Col([html.H6("Hesaplanan Alan:"), html.H4(id='calculated-area', children=area_str)]),
-                     dbc.Col([html.H6("Çevre Uzunluğu:"), html.H4(id='perimeter-length', children=perimeter_str)])]),
-            dbc.Row([dbc.Col([html.H6("Max Genişlik:"), html.H4(id='max-width', children=width_str)]),
-                     dbc.Col([html.H6("Max Derinlik:"), html.H4(id='max-depth', children=depth_str)])],
-                    className="mt-2")]
+    area_str, perimeter_str, width_str, depth_str = "-- cm²", "-- cm", "-- cm", "-- cm" # Varsayılanlar
+    latest_id = None # Başlangıçta None
+
+    if conn:
+        latest_id = get_latest_scan_id_from_db(conn_param=conn) # Açık bağlantıyı kullan
+        print(f"Analiz için kullanılacak Tarama ID: {latest_id}")
+        if latest_id:
+            try:
+                df_scan = pd.read_sql_query(
+                    f"SELECT hesaplanan_alan_cm2, cevre_cm, max_genislik_cm, max_derinlik_cm FROM servo_scans WHERE id = {latest_id}",
+                    conn
+                )
+                print(f"Analiz için çekilen df_scan verisi (ID: {latest_id}):\n{df_scan.to_string()}") # Veriyi logla
+                if not df_scan.empty:
+                    area_val = df_scan['hesaplanan_alan_cm2'].iloc[0]
+                    per_val = df_scan['cevre_cm'].iloc[0]
+                    w_val = df_scan['max_genislik_cm'].iloc[0]
+                    d_val = df_scan['max_derinlik_cm'].iloc[0]
+
+                    area_str = f"{area_val:.2f} cm²" if pd.notnull(area_val) else "Hesaplanmadı"
+                    perimeter_str = f"{per_val:.2f} cm" if pd.notnull(per_val) else "Hesaplanmadı"
+                    width_str = f"{w_val:.2f} cm" if pd.notnull(w_val) else "Hesaplanmadı"
+                    depth_str = f"{d_val:.2f} cm" if pd.notnull(d_val) else "Hesaplanmadı"
+                    print(f"İşlenmiş analiz değerleri: Alan={area_str}, Çevre={perimeter_str}, Genişlik={width_str}, Derinlik={depth_str}")
+                else:
+                    print(f"Analiz: Tarama ID {latest_id} için servo_scans tablosunda veri yok veya sütunlar eksik.")
+            except Exception as e:
+                print(f"Analiz paneli DB sorgu hatası (ID: {latest_id}): {e}")
+                area_str, perimeter_str, width_str, depth_str = "Hata", "Hata", "Hata", "Hata" # Hata durumunda
+        else:
+            print("Analiz: Gösterilecek tarama ID'si bulunamadı.")
+        conn.close() # Bağlantıyı burada kapat
+    elif error:
+        print(f"DB Bağlantı Hatası (Analiz Paneli): {error}")
+        area_str, perimeter_str, width_str, depth_str = "DB Yok", "DB Yok", "DB Yok", "DB Yok"
+
+    analysis_children = [
+        dbc.Row([
+            dbc.Col([html.H6("Hesaplanan Alan:"), html.H4(id='calculated-area', children=area_str)]), # ID'ler burada gereksiz, doğrudan children'a değer atanıyor
+            dbc.Col([html.H6("Çevre Uzunluğu:"), html.H4(id='perimeter-length', children=perimeter_str)])
+        ]),
+        dbc.Row([
+            dbc.Col([html.H6("Max Genişlik:"), html.H4(id='max-width', children=width_str)]),
+            dbc.Col([html.H6("Max Derinlik:"), html.H4(id='max-depth', children=depth_str)])
+        ], className="mt-2")
+    ]
+    print(f"Analiz paneli için döndürülen children: {analysis_children}")
+    return [analysis_children] # Output 'analysis-output', 'children' olduğu için liste içinde döndür
 
 
 @app.callback(
