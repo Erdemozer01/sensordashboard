@@ -226,8 +226,7 @@ def update_scan_map_graph(n_intervals):
 
         summary_children = [html.H4("Tarama Özeti:", style={'marginTop': '0px', 'marginBottom': '10px'})]
         if latest_scan_id is not None:
-            summary_children.append(html.P(
-                f"Son Tarama ID: {latest_scan_id}"))
+            summary_children.append(html.P([f"Son Tarama ID: {latest_scan_id}"]))
             summary_children.append(html.P(f"Hesaplanan Sektör Alanı: {hesaplanan_alan_cm2_str}"))  # Alanı göster
         summary_children.append(html.P(f"Toplam Okunan Nokta Sayısı: {len(df_points)}"))
         if not df_points_valid.empty:
