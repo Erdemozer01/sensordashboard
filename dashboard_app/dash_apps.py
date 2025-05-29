@@ -1,4 +1,3 @@
-
 import os
 import sqlite3
 
@@ -26,6 +25,7 @@ SENSOR_SCRIPT_PATH = os.path.join(PROJECT_ROOT_DIR, SENSOR_SCRIPT_FILENAME)
 LOCK_FILE_PATH_FOR_DASH = '/tmp/sensor_scan_script.lock'
 PID_FILE_PATH_FOR_DASH = '/tmp/sensor_scan_script.pid'
 
+
 def is_process_running(pid):
     if pid is None: return False
     try:
@@ -35,8 +35,8 @@ def is_process_running(pid):
     else:
         return True
 
-app = DjangoDash("RealtimeSensorDashboard", external_stylesheets=[dbc.themes.BOOTSTRAP],)
 
+app = DjangoDash("RealtimeSensorDashboard", external_stylesheets=[dbc.themes.BOOTSTRAP], )
 
 # Anlık sensör değerlerini gösteren bir panel ekleyin
 stats_panel = dbc.Card([
@@ -67,10 +67,10 @@ control_panel = dbc.Card([
     dbc.CardBody([
         dbc.Row([
             dbc.Col([
-                html.Button('2D Taramayı Başlat', id='start-scan-button', 
-                           className="btn btn-success btn-lg w-100 mb-3"),
-                html.Button('Taramayı Durdur', id='stop-scan-button', 
-                           className="btn btn-danger btn-lg w-100 mb-3"),
+                html.Button('2D Taramayı Başlat', id='start-scan-button',
+                            className="btn btn-success btn-lg w-100 mb-3"),
+                html.Button('Taramayı Durdur', id='stop-scan-button',
+                            className="btn btn-danger btn-lg w-100 mb-3"),
             ], width=12)
         ]),
         dbc.Row([
@@ -204,7 +204,6 @@ analysis_card = dbc.Card([
         ])
     ])
 ])
-
 
 app.layout = dbc.Container(fluid=True, children=[
     dbc.Row([
@@ -414,6 +413,7 @@ def update_system_status(n_intervals):
 
     return script_status, status_class, servo_position
 
+
 @app.callback(
     [Output('cpu-usage', 'value'),
      Output('ram-usage', 'value')],
@@ -423,7 +423,7 @@ def update_system_metrics(n_intervals):
     try:
         # CPU kullanımı
         cpu_percent = 0
-        
+
         # Linux sistemlerinde CPU kullanımı
         if os.path.exists('/proc/stat'):
             with open('/proc/stat', 'r') as f:
@@ -434,10 +434,10 @@ def update_system_metrics(n_intervals):
                 idle = float(cpu_line[4])
                 total = user + nice + system + idle
                 cpu_percent = 100 * (1 - idle / total)
-        
+
         # RAM kullanımı
         mem_percent = 0
-        
+
         # Linux sistemlerinde RAM kullanımı
         if os.path.exists('/proc/meminfo'):
             mem_info = {}
@@ -448,16 +448,17 @@ def update_system_metrics(n_intervals):
                     if value.endswith('kB'):
                         value = float(value[:-2]) * 1024
                     mem_info[key] = value
-            
+
             if 'MemTotal' in mem_info and 'MemFree' in mem_info:
                 mem_total = float(mem_info['MemTotal'])
                 mem_free = float(mem_info['MemFree'])
                 mem_percent = 100 * (1 - mem_free / mem_total)
-        
+
         return min(100, max(0, cpu_percent)), min(100, max(0, mem_percent))
     except Exception as e:
         print(f"Sistem metrikleri alınırken hata: {e}")
         return 0, 0
+
 
 @app.callback(
     Output('scan-map-graph', 'figure'),
@@ -470,16 +471,16 @@ def update_scan_map_graph(n_intervals, selected_scan_id):
     ctx = dash.callback_context
     if ctx.triggered and ctx.triggered[0]['prop_id'] == 'compare-button.n_clicks':
         return dash.no_update
-    
+
     conn = None
     fig_map = go.Figure()
-    
+
     try:
         if not os.path.exists(DB_PATH):
             raise FileNotFoundError(f"Veritabanı dosyası bulunamadı.")
 
         conn = sqlite3.connect(f'file:{DB_PATH}?mode=ro', uri=True, timeout=5)
-        
+
         # Seçilen bir tarama yoksa, en son taramayı kullan
         if not selected_scan_id:
             df_scan_info = pd.read_sql_query(
@@ -490,13 +491,13 @@ def update_scan_map_graph(n_intervals, selected_scan_id):
             else:
                 fig_map.update_layout(title_text='2D Tarama Haritası (Tarama Bulunamadı)')
                 return fig_map
-        
+
         # Seçilen taramanın verilerini al
         df_points = pd.read_sql_query(
             f"SELECT angle_deg, mesafe_cm, x_cm, y_cm FROM scan_points WHERE scan_id = {selected_scan_id} ORDER BY id ASC",
             conn
         )
-        
+
         if not df_points.empty and 'x_cm' in df_points.columns and 'y_cm' in df_points.columns:
             # Noktaları çizdir
             fig_map.add_trace(go.Scatter(
@@ -506,13 +507,13 @@ def update_scan_map_graph(n_intervals, selected_scan_id):
                 name='Taranan Sınır',
                 line=dict(color='rgba(0,100,80,0.7)', width=2),
                 marker=dict(size=5, color=df_points['mesafe_cm'], colorscale='Viridis', showscale=True,
-                           colorbar_title_text="Mesafe (cm)")
+                            colorbar_title_text="Mesafe (cm)")
             ))
-            
+
             # Alan dolgusu için
             polygon_plot_x = [0] + list(df_points['y_cm'])
             polygon_plot_y = [0] + list(df_points['x_cm'])
-            
+
             fig_map.add_trace(go.Scatter(
                 x=polygon_plot_x,
                 y=polygon_plot_y,
@@ -523,13 +524,13 @@ def update_scan_map_graph(n_intervals, selected_scan_id):
                 showlegend=False,
                 name='Taranan Alan'
             ))
-            
+
             # Sensör konumu
             fig_map.add_trace(
                 go.Scatter(x=[0], y=[0], mode='markers', marker=dict(size=10, symbol='diamond', color='red'),
                            name='Sensör Konumu')
             )
-            
+
             fig_map.update_layout(
                 title_text=f'Alan Tarama #{selected_scan_id}',
                 xaxis_title="Yatay Yayılım (cm)",
@@ -549,8 +550,9 @@ def update_scan_map_graph(n_intervals, selected_scan_id):
         fig_map.update_layout(title_text='2D Tarama Haritası (Hata/Veri Yok)')
     finally:
         if conn: conn.close()
-    
+
     return fig_map
+
 
 @app.callback(
     Output('scan-status-message', 'children'),
@@ -563,7 +565,7 @@ def update_scan_map_graph(n_intervals, selected_scan_id):
 def handle_start_scan_script(n_clicks, start_angle, end_angle, step_angle):
     ctx = dash.callback_context
     if not ctx.triggered or n_clicks == 0: return dash.no_update
-    
+
     current_pid = None
     if os.path.exists(PID_FILE_PATH_FOR_DASH):
         try:
@@ -572,27 +574,27 @@ def handle_start_scan_script(n_clicks, start_angle, end_angle, step_angle):
                 if pid_str: current_pid = int(pid_str)
         except:
             current_pid = None
-    
-    if current_pid and is_process_running(current_pid): 
+
+    if current_pid and is_process_running(current_pid):
         return f"Sensör betiği zaten çalışıyor (PID: {current_pid})."
-    
+
     if os.path.exists(LOCK_FILE_PATH_FOR_DASH) and (not current_pid or not is_process_running(current_pid)):
         try:
             if os.path.exists(PID_FILE_PATH_FOR_DASH): os.remove(PID_FILE_PATH_FOR_DASH)
             if os.path.exists(LOCK_FILE_PATH_FOR_DASH): os.remove(LOCK_FILE_PATH_FOR_DASH)
         except OSError as e:
             return f"Kalıntı kilit/PID silinirken hata: {e}."
-    
+
     # Tarama parametrelerini doğrula
     if start_angle is None or end_angle is None or step_angle is None:
         return "Geçersiz tarama parametreleri!"
-    
+
     if start_angle < 0 or start_angle > 180 or end_angle < 0 or end_angle > 180 or step_angle < 1 or step_angle > 45:
         return "Tarama parametreleri geçerli aralıkta değil!"
-    
+
     if start_angle >= end_angle:
         return "Başlangıç açısı, bitiş açısından küçük olmalıdır!"
-    
+
     # Parametreleri dosyaya yaz (sensör betiği tarafından okunabilir)
     try:
         with open('/tmp/sensor_scan_params.json', 'w') as f:
@@ -603,22 +605,22 @@ def handle_start_scan_script(n_clicks, start_angle, end_angle, step_angle):
             }, f)
     except Exception as e:
         print(f"Parametre yazma hatası: {e}")
-    
+
     try:
         python_executable = sys.executable
-        if not os.path.exists(SENSOR_SCRIPT_PATH): 
+        if not os.path.exists(SENSOR_SCRIPT_PATH):
             return f"HATA: Sensör betiği bulunamadı: {SENSOR_SCRIPT_PATH}"
-        
+
         process = subprocess.Popen([python_executable, SENSOR_SCRIPT_PATH], start_new_session=True)
         time.sleep(2.5)
-        
+
         if os.path.exists(PID_FILE_PATH_FOR_DASH):
             new_pid = None
             try:
                 with open(PID_FILE_PATH_FOR_DASH, 'r') as pf_new:
                     pid_str_new = pf_new.read().strip()
                     if pid_str_new: new_pid = int(pid_str_new)
-                
+
                 if new_pid and is_process_running(new_pid):
                     return f"Tarama Başlatıldı"
                 else:
@@ -629,7 +631,7 @@ def handle_start_scan_script(n_clicks, start_angle, end_angle, step_angle):
             return f"PID dosyası ({PID_FILE_PATH_FOR_DASH}) oluşmadı. Betik loglarını kontrol edin."
     except Exception as e:
         return f"Sensör betiği başlatılırken hata: {str(e)}"
-    
+
     return dash.no_update
 
 
@@ -642,7 +644,7 @@ def handle_stop_scan_script(n_clicks):
     ctx = dash.callback_context
     if not ctx.triggered or n_clicks == 0:
         return dash.no_update
-    
+
     current_pid = None
     if os.path.exists(PID_FILE_PATH_FOR_DASH):
         try:
@@ -652,7 +654,7 @@ def handle_stop_scan_script(n_clicks):
                     current_pid = int(pid_str)
         except:
             current_pid = None
-    
+
     if current_pid and is_process_running(current_pid):
         try:
             os.kill(current_pid, signal.SIGTERM)
@@ -665,6 +667,7 @@ def handle_stop_scan_script(n_clicks):
     else:
         return "Durdurulacak aktif tarama bulunamadı."
 
+
 @app.callback(
     [Output('current-angle', 'children'),
      Output('current-distance', 'children'),
@@ -676,7 +679,7 @@ def update_realtime_values(n_intervals):
     try:
         conn = sqlite3.connect(f'file:{DB_PATH}?mode=ro', uri=True)
         df = pd.read_sql_query(
-            "SELECT angle_deg, mesafe_cm, hiz_cm_s FROM scan_points ORDER BY id DESC LIMIT 1", 
+            "SELECT angle_deg, mesafe_cm, hiz_cm_s FROM scan_points ORDER BY id DESC LIMIT 1",
             conn
         )
         if not df.empty:
@@ -688,7 +691,7 @@ def update_realtime_values(n_intervals):
         print(f"Gerçek zamanlı değerler alınırken hata: {e}")
     finally:
         if conn: conn.close()
-    
+
     return "--°", "-- cm", "-- cm/s"
 
 
@@ -758,3 +761,67 @@ def update_time_series_graph(n_intervals, selected_scan_id):
         if conn: conn.close()
 
     return fig_time
+
+
+@app.callback(
+    Output('polar-graph', 'figure'),
+    [Input('interval-component-scan', 'n_intervals')],
+    [State('primary-scan-dropdown', 'value')]
+)
+def update_polar_graph(n_intervals, selected_scan_id):
+    conn = None
+    fig_polar = go.Figure()
+
+    try:
+        if not os.path.exists(DB_PATH):
+            raise FileNotFoundError(f"Veritabanı dosyası bulunamadı.")
+
+        conn = sqlite3.connect(f'file:{DB_PATH}?mode=ro', uri=True, timeout=5)
+
+        # Seçilen bir tarama yoksa, en son taramayı kullan
+        if not selected_scan_id:
+            df_scan_info = pd.read_sql_query(
+                "SELECT id FROM servo_scans ORDER BY start_time DESC LIMIT 1", conn
+            )
+            if not df_scan_info.empty:
+                selected_scan_id = int(df_scan_info['id'].iloc[0])
+            else:
+                fig_polar.update_layout(title_text='Polar Grafik (Tarama Bulunamadı)')
+                return fig_polar
+
+        # Seçilen taramanın verilerini al
+        df_points = pd.read_sql_query(
+            f"SELECT angle_deg, mesafe_cm FROM scan_points WHERE scan_id = {selected_scan_id} ORDER BY angle_deg ASC",
+            conn
+        )
+
+        if not df_points.empty:
+            # Polar grafik çiz
+            fig_polar.add_trace(go.Scatterpolar(
+                r=df_points['mesafe_cm'],
+                theta=df_points['angle_deg'],
+                mode='lines+markers',
+                name='Mesafe Profili',
+                marker=dict(size=8, color=df_points['mesafe_cm'], colorscale='Viridis', showscale=True,
+                            colorbar_title_text="Mesafe (cm)")
+            ))
+
+            fig_polar.update_layout(
+                title_text=f'Polar Mesafe Grafiği - Tarama #{selected_scan_id}',
+                polar=dict(
+                    radialaxis=dict(
+                        visible=True,
+                        range=[0, max(df_points['mesafe_cm']) * 1.1]
+                    )
+                ),
+                showlegend=True
+            )
+        else:
+            fig_polar.update_layout(title_text='Polar Grafik (Veri Bekleniyor)')
+    except Exception as e:
+        print(f"Polar grafik oluşturma hatası: {e}")
+        fig_polar.update_layout(title_text='Polar Grafik (Hata)')
+    finally:
+        if conn: conn.close()
+
+    return fig_polar
