@@ -460,8 +460,9 @@ if __name__ == "__main__":
                                         (hesaplanan_alan_cm2, perimeter_cm, max_genislik_cm_scan, max_derinlik_cm_scan,
                                          script_exit_status_global, current_scan_id_global))
                     db_conn_main_script_global.commit()
+                    print(f"[{os.getpid()}] Analiz verileri veritabanına yazıldı. Alan: {hesaplanan_alan_cm2:.2f}")
                 except Exception as e_db_update:
-                    print(f"DB Alan Güncelleme Hatası: {e_db_update}")
+                    print(f"[{os.getpid()}] DB Analiz Güncelleme Hatası: {e_db_update}")
             else:
                 script_exit_status_global = 'completed_insufficient_points'
                 if lcd:

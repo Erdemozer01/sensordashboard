@@ -158,8 +158,8 @@ def get_db_connection():  # Aynı
 
 
 def get_latest_scan_id_from_db(conn_param=None):  # Aynı
-    internal_conn = False;
-    conn_to_use = conn_param;
+    internal_conn = False
+    conn_to_use = conn_param
     latest_id = None
     if not conn_to_use:
         conn_to_use, error = get_db_connection()
