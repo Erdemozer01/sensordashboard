@@ -391,37 +391,104 @@ def update_analysis_panel(n_intervals):
     [Input('interval-component-system', 'n_intervals')]
 )
 def update_system_card(n_intervals):
-    # ... (Yanıt #40'taki tam kod) ...
-    script_status_text, status_class_name = "Beklemede", "text-secondary";
+    script_status_text = "Beklemede"
+    status_class_name = "text-secondary"  # Varsayılan renk sınıfı
     pid = None
+
+    # Sensör Betiği Durumunu Kontrol Et
     if os.path.exists(PID_FILE_PATH_FOR_DASH):
         try:
             with open(PID_FILE_PATH_FOR_DASH, 'r') as pf:
-                pid_str = pf.read().strip();
-            if pid_str: pid = int(pid_str)
-        except:
-            pass
-    if pid and is_process_running(pid): script_status_text, status_class_name = "Çalışıyor", "text-success"
-    cpu_percent, ram_percent = 0.0, 0.0
+                pid_str = pf.read().strip()
+                if pid_str:  # Dosya boş değilse
+                    pid = int(pid_str)
+        except (FileNotFoundError, ValueError, TypeError) as e:
+            print(f"Sistem Durumu: PID dosyası ({PID_FILE_PATH_FOR_DASH}) okunamadı veya geçersiz: {e}")
+            pid = None  # Hata durumunda pid'i None yap
+
+    if pid and is_process_running(pid):
+        script_status_text = "Çalışıyor"
+        status_class_name = "text-success"  # Çalışıyorsa yeşil
+    else:
+        # Eğer PID dosyası yoksa veya PID ile process bulunamadıysa, kilit dosyasına da bakabiliriz
+        if os.path.exists(LOCK_FILE_PATH_FOR_DASH):
+            # Kilit dosyası var ama process yoksa, "Kalıntı Kilit" durumu olabilir.
+            # Ya da betik yeni başladı ve PID dosyası henüz Dash tarafından okunamadı.
+            script_status_text = "Durum Belirsiz (Kilit Var)"
+            status_class_name = "text-warning"  # Belirsiz durum için sarı
+        else:
+            script_status_text = "Çalışmıyor"
+            status_class_name = "text-danger"  # Çalışmıyorsa kırmızı
+
+    cpu_percent = 0.0
+    ram_percent = 0.0
+
     try:
+        # Sadece Linux sistemlerinde /proc dosya sisteminden oku
         if sys.platform == "linux" and os.path.exists('/proc/stat') and os.path.exists('/proc/meminfo'):
-            with open('/proc/stat', 'r') as f1:
-                stat_start = list(map(int, f1.readline().split()[1:8]))
-            time.sleep(0.1);
-            with open('/proc/stat', 'r') as f2:
-                stat_end = list(map(int, f2.readline().split()[1:8]))
-            diff_idle = stat_end[3] - stat_start[3];
-            diff_total = sum(stat_end) - sum(stat_start)
-            if diff_total > 0: cpu_percent = round(100.0 * (1.0 - diff_idle / total_delta), 1)
-            mem_info = {};
+            # CPU Kullanımı Hesaplama
+            # İlk okuma için /proc/stat
+            with open('/proc/stat', 'r') as f_stat1:
+                # İlk satırdaki CPU toplam değerlerini al (user, nice, system, idle, iowait, irq, softirq)
+                # Çekirdek sayısını hesaba katmadan genel CPU kullanımı için ilk 'cpu' satırı yeterli.
+                line1_fields_str = f_stat1.readline().split()
+                # 'cpu' etiketini atla, sonraki 7 sayısal alanı al
+                line1_fields = list(map(int, line1_fields_str[1:8]))
+
+            prev_idle = line1_fields[3]  # 4. alan 'idle' dır (0-indexed)
+            prev_total = sum(line1_fields)
+
+            time.sleep(0.2)  # CPU istatistiklerinin güncellenmesi için kısa bir bekleme (0.1-0.5s arası)
+
+            # İkinci okuma için /proc/stat
+            with open('/proc/stat', 'r') as f_stat2:
+                line2_fields_str = f_stat2.readline().split()
+                line2_fields = list(map(int, line2_fields_str[1:8]))
+
+            curr_idle = line2_fields[3]
+            curr_total = sum(line2_fields)
+
+            # Farkları hesapla
+            idle_delta = curr_idle - prev_idle
+            total_delta = curr_total - prev_total
+
+            if total_delta > 0:  # Sıfıra bölme hatasını engelle
+                cpu_usage_fraction = 1.0 - (idle_delta / total_delta)
+                cpu_percent = round(100.0 * cpu_usage_fraction, 1)
+            else:
+                cpu_percent = 0.0
+            cpu_percent = max(0, min(100, cpu_percent))  # Değeri 0-100 aralığında tut
+
+            # RAM Kullanımı Hesaplama
+            mem_info = {}
             with open('/proc/meminfo', 'r') as f_mem:
-                for line in f_mem: parts = line.split(':'); key = parts[0]; value = parts[1].strip();
-                if value.endswith('kB'): value = float(value[:-2].strip()) * 1024
-                mem_info[key] = value
-            if 'MemTotal' in mem_info and 'MemAvailable' in mem_info: ram_percent = round(
-                100.0 * (mem_info['MemTotal'] - mem_info['MemAvailable']) / mem_info['MemTotal'], 1)
+                for line in f_mem:
+                    parts = line.split(':')
+                    if len(parts) == 2:
+                        key = parts[0].strip()
+                        value_str = parts[1].strip()
+                        if value_str.endswith('kB'):
+                            try:
+                                value = float(value_str[:-2].strip()) * 1024  # byte'a çevir
+                                mem_info[key] = value
+                            except ValueError:
+                                pass  # Sayıya çevrilemiyorsa atla
+
+            if 'MemTotal' in mem_info and 'MemAvailable' in mem_info:
+                mem_total_bytes = mem_info['MemTotal']
+                mem_available_bytes = mem_info['MemAvailable']
+                if mem_total_bytes > 0:  # Sıfıra bölme hatasını engelle
+                    ram_usage_fraction = (mem_total_bytes - mem_available_bytes) / mem_total_bytes
+                    ram_percent = round(100.0 * ram_usage_fraction, 1)
+            ram_percent = max(0, min(100, ram_percent))  # Değeri 0-100 aralığında tut
+
+    except FileNotFoundError:
+        print("Sistem Durumu: /proc/stat veya /proc/meminfo bulunamadı (Linux değil mi?). CPU/RAM 0 olarak ayarlandı.")
+        cpu_percent, ram_percent = 0.0, 0.0
     except Exception as e:
-        print(f"CPU/RAM okuma hatası: {e}")
+        print(f"Sistem Durumu: CPU/RAM okuma hatası: {e}")
+        cpu_percent, ram_percent = 0.0, 0.0  # Hata durumunda varsayılan değerler
+
     return script_status_text, status_class_name, cpu_percent, f"{cpu_percent}%", ram_percent, f"{ram_percent}%"
 
 
