@@ -13,7 +13,7 @@ import time
 import math
 import numpy as np
 import dash_bootstrap_components as dbc
-import signal  # Taramayı durdurmak için
+import signal
 
 # --- Sabitler ---
 PROJECT_ROOT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..')
@@ -29,9 +29,14 @@ DEFAULT_UI_SCAN_STEP_ANGLE = 10
 
 app = DjangoDash('RealtimeSensorDashboard', external_stylesheets=[dbc.themes.BOOTSTRAP])
 
-# --- LAYOUT BİLEŞENLERİ (Yanıt #37'deki gibi, ufak iyileştirmelerle) ---
+# --- LAYOUT BİLEŞENLERİ (Yanıt #37'deki gibi) ---
+# ... (title_card, control_panel, stats_panel, system_card, scan_selector_card, export_card, analysis_card, visualization_tabs)
+# Bu bileşenlerin tanımları bir önceki cevaptaki (#37) gibi kalacak.
+# Onları tekrar yazmak yerine sadece ana app.layout'u gösteriyorum, içleri aynı varsayılır.
+# Eğer bu bileşenlerin kodlarını da isterseniz belirtebilirsiniz.
+
 title_card = dbc.Row([dbc.Col(html.H1("Dream Pi - 2D Alan Tarama Sistemi", className="text-center my-3"), width=12)])
-control_panel = dbc.Card([  # ... (Yanıt #37'deki control_panel içeriği) ...
+control_panel = dbc.Card([
     dbc.CardHeader("Tarama Kontrol ve Ayarları", className="bg-primary text-white"),
     dbc.CardBody([
         dbc.Row([
@@ -55,7 +60,7 @@ control_panel = dbc.Card([  # ... (Yanıt #37'deki control_panel içeriği) ...
                                   step=1)], className="mb-2"),
     ])
 ])
-stats_panel = dbc.Card([  # ... (Yanıt #37'deki stats_panel içeriği) ...
+stats_panel = dbc.Card([
     dbc.CardHeader("Anlık Sensör Değerleri", className="bg-info text-white"),
     dbc.CardBody([html.Div(id='realtime-values', children=[
         dbc.Row([
@@ -66,13 +71,12 @@ stats_panel = dbc.Card([  # ... (Yanıt #37'deki stats_panel içeriği) ...
             dbc.Col(html.Div([html.H6("Anlık Hız:"), html.H4(id='current-speed', children="-- cm/s")]), width=4,
                     className="text-center")
         ])])])
-])
-system_card = dbc.Card([  # ... (Yanıt #37'deki system_card içeriği) ...
+], className="mb-3")  # Altına boşluk ekle
+system_card = dbc.Card([
     dbc.CardHeader("Sistem Durumu", className="bg-secondary text-white"),
     dbc.CardBody([
         dbc.Row([
             dbc.Col(html.Div([html.H6("Sensör Betiği:"), html.H5(id='script-status', children="Beklemede")])),
-            # dbc.Col(html.Div([html.H6("Servo Pozisyonu:"), html.H5(id='servo-position', children="--°")])) # Anlık servo pos. için ayrı bir veri kaynağı gerekir.
         ], className="mb-2"),
         dbc.Row([
             dbc.Col(html.Div([html.H6("Pi CPU Kullanımı:"),
@@ -82,24 +86,24 @@ system_card = dbc.Card([  # ... (Yanıt #37'deki system_card içeriği) ...
                               dbc.Progress(id='ram-usage', value=0, color="info", style={"height": "20px"},
                                            className="mb-1", label="0%")]))
         ])])
-])
-scan_selector_card = dbc.Card([  # ... (Yanıt #37'deki scan_selector_card içeriği) ...
+], className="mb-3")
+scan_selector_card = dbc.Card([
     dbc.CardHeader("Geçmiş Taramalar", className="bg-light"),
     dbc.CardBody([
         html.Label("Görüntülenecek Tarama ID:"),
         dcc.Dropdown(id='scan-select-dropdown', placeholder="Tarama seçin...", style={'marginBottom': '10px'}),
     ])
-])
-export_card = dbc.Card([  # ... (Yanıt #37'deki export_card içeriği) ...
+], className="mb-3")
+export_card = dbc.Card([
     dbc.CardHeader("Veri Dışa Aktarma", className="bg-light"),
     dbc.CardBody([
-        dbc.Button('Seçili Taramayı CSV İndir', id='export-csv-button', color="primary", className="me-2 w-100 mb-2"),
+        dbc.Button('Seçili Taramayı CSV İndir', id='export-csv-button', color="primary", className="me-1 w-100 mb-2"),
         dcc.Download(id='download-csv'),
         dbc.Button('Seçili Taramayı Excel İndir', id='export-excel-button', color="success", className="w-100"),
         dcc.Download(id='download-excel'),
     ])
-])
-analysis_card = dbc.Card([  # ... (Yanıt #37'deki analysis_card içeriği) ...
+], className="mb-3")
+analysis_card = dbc.Card([
     dbc.CardHeader("Tarama Analizi", className="bg-dark text-white"),
     dbc.CardBody(html.Div(id='analysis-output', children=[  # Varsayılan içerik
         dbc.Row([
@@ -121,14 +125,14 @@ visualization_tabs = dbc.Tabs([
 app.layout = dbc.Container(fluid=True, children=[
     title_card,
     dbc.Row([
-        dbc.Col([control_panel, dbc.Row(html.Div(style={"height": "15px"})),
-                 stats_panel, dbc.Row(html.Div(style={"height": "15px"})),
-                 system_card, dbc.Row(html.Div(style={"height": "15px"})),
-                 scan_selector_card, dbc.Row(html.Div(style={"height": "15px"})),
-                 export_card],
+        dbc.Col([control_panel,
+                 dbc.Row(html.Div(style={"height": "15px"})), stats_panel,
+                 dbc.Row(html.Div(style={"height": "15px"})), system_card,
+                 dbc.Row(html.Div(style={"height": "15px"})), scan_selector_card,
+                 dbc.Row(html.Div(style={"height": "15px"})), export_card],
                 md=4, className="mb-3"),
-        dbc.Col([visualization_tabs, dbc.Row(html.Div(style={"height": "15px"})),
-                 analysis_card],
+        dbc.Col([visualization_tabs,
+                 dbc.Row(html.Div(style={"height": "15px"})), analysis_card],
                 md=8)
     ]),
     dcc.Interval(id='interval-component-main', interval=1500, n_intervals=0),
@@ -136,21 +140,35 @@ app.layout = dbc.Container(fluid=True, children=[
 ])
 
 
-# --- CALLBACK FONKSİYONLARI ---
-# is_process_running, get_db_connection (Yanıt #37'deki gibi)
-# handle_start_scan_script (Yanıt #37'deki gibi, argümanları cmd listesine ekler)
-# handle_stop_scan_script (Yanıt #37'deki gibi)
-# update_scan_dropdowns (Yanıt #37'deki gibi)
-# update_realtime_values (Yanıt #37'deki gibi)
-# update_all_graphs (Yanıt #37'deki gibi, 2D, Polar, Zaman Serisi)
-# update_analysis_panel (Yanıt #37'deki gibi, servo_scans'tan alan, çevre, genişlik, derinlik çeker)
-# update_system_card (Yanıt #37'deki gibi, script durumu, CPU/RAM)
-# export_csv_callback (Yanıt #37'deki gibi)
-# export_excel_callback (Yanıt #37'deki gibi)
+# --- HELPER FONKSİYONLAR ---
+def is_process_running(pid):  # Aynı
+    if pid is None: return False
+    try:
+        os.kill(pid, 0)
+    except OSError:
+        return False
+    else:
+        return True
 
-# ÖNEMLİ: Bir önceki cevaptaki (Yanıt #37) tüm callback fonksiyonlarını buraya kopyalamanız gerekmektedir.
-# Kısaltma amacıyla hepsini tekrar buraya eklemiyorum, ancak o cevapta tam halleri mevcuttur.
-# Sadece handle_start_scan_script'i güncel argüman gönderme şekliyle tekrar ekliyorum:
+
+def get_db_connection():  # Aynı
+    try:
+        if not os.path.exists(DB_PATH): return None, f"Veritabanı dosyası ({DB_PATH}) bulunamadı."
+        conn = sqlite3.connect(f'file:{DB_PATH}?mode=ro', uri=True, timeout=5)
+        return conn, None
+    except sqlite3.OperationalError as e:
+        return None, f"DB Kilitli/Hata: {e}"
+    except Exception as e:
+        return None, f"DB Bağlantı Hatası: {e}"
+
+
+# --- CALLBACK FONKSİYONLARI ---
+# (handle_start_scan_script, handle_stop_scan_script, update_scan_dropdowns,
+#  update_realtime_values, update_all_graphs, update_analysis_panel,
+#  update_system_card, export_csv_callback, export_excel_callback)
+# Bu callback fonksiyonlarının tam ve güncel halleri bir önceki cevabımda (Yanıt #37) bulunmaktadır.
+# Lütfen o cevaptaki tüm callback fonksiyonlarını buraya kopyalayın.
+# Kısa olması için sadece en çok değişen handle_start_scan_script'i ve stop'u tekrar ekliyorum:
 
 @app.callback(
     Output('scan-status-message', 'children'),
@@ -161,17 +179,9 @@ app.layout = dbc.Container(fluid=True, children=[
     prevent_initial_call=True
 )
 def handle_start_scan_script(n_clicks_start, start_angle_val, end_angle_val, step_angle_val):
-    # Bu callback'in tam ve güncel hali bir önceki cevabınızda (Yanıt #37) bulunmaktadır.
-    # Lütfen o cevaptaki `handle_start_scan_script` ve diğer tüm callback'leri buraya taşıyın.
-    # Ana mantık:
-    # 1. Butona tıklandı mı kontrol et.
-    # 2. Mevcut PID/Lock dosyalarını kontrol et, çalışan process var mı bak.
-    # 3. Kalıntı dosyaları temizle.
-    # 4. Dash arayüzünden alınan start_a, end_a, step_a değerlerini al.
-    # 5. Bu değerleri sensor_script.py'ye komut satırı argümanı olarak ekle.
-    # 6. subprocess.Popen ile sensor_script.py'yi başlat.
-    # 7. Kullanıcıya geri bildirim ver.
-    # Örnek cmd oluşturma:
+    if n_clicks_start is None or n_clicks_start == 0:  # Butona tıklanmadıysa (prevent_initial_call olsa da)
+        return dash.no_update
+
     start_a = start_angle_val if start_angle_val is not None else DEFAULT_UI_SCAN_START_ANGLE
     end_a = end_angle_val if end_angle_val is not None else DEFAULT_UI_SCAN_END_ANGLE
     step_a = step_angle_val if step_angle_val is not None else DEFAULT_UI_SCAN_STEP_ANGLE
@@ -181,28 +191,134 @@ def handle_start_scan_script(n_clicks_start, start_angle_val, end_angle_val, ste
     if not (1 <= step_a <= 45):
         return dbc.Alert("Geçersiz adım açısı (1-45 arası olmalı)!", color="danger", duration=4000)
 
-    # ... (Kilit/PID kontrolü ve temizliği Yanıt #37'deki gibi) ...
+    current_pid = None
+    if os.path.exists(PID_FILE_PATH_FOR_DASH):
+        try:
+            with open(PID_FILE_PATH_FOR_DASH, 'r') as pf:
+                pid_str = pf.read().strip()
+                if pid_str: current_pid = int(pid_str)
+        except:
+            current_pid = None  # Hata durumunda None ata
 
-    cmd = [
-        sys.executable, SENSOR_SCRIPT_PATH,
-        "--start_angle", str(start_a),
-        "--end_angle", str(end_a),
-        "--step_angle", str(step_a)
-    ]
+    if current_pid and is_process_running(current_pid):
+        return dbc.Alert(f"Sensör betiği zaten çalışıyor (PID: {current_pid}).", color="warning", duration=4000)
+
+    if os.path.exists(LOCK_FILE_PATH_FOR_DASH) and (not current_pid or not is_process_running(current_pid)):
+        print(f"Dash: Kalıntı kilit/PID dosyası bulundu. Siliniyor...")
+        try:
+            if os.path.exists(PID_FILE_PATH_FOR_DASH): os.remove(PID_FILE_PATH_FOR_DASH)
+            if os.path.exists(LOCK_FILE_PATH_FOR_DASH): os.remove(LOCK_FILE_PATH_FOR_DASH)
+        except OSError as e_rm_lock:
+            return dbc.Alert(f"Kalıntı kilit/PID dosyası silinirken hata: {e_rm_lock}. Lütfen manuel kontrol edin.",
+                             color="danger")
+
     try:
-        # ... (subprocess.Popen(cmd, ...) ve sonrası Yanıt #37'deki gibi) ...
-        # ... (Aşağısı sadece bir kesit, tam fonksiyon için Yanıt #37'ye bakın) ...
-        if os.path.exists(PID_FILE_PATH_FOR_DASH):  # Basit bir örnek
-            return dbc.Alert("Sensör betiği başlatıldı (Detaylar için #37'ye bakın).", color="success")
+        python_executable = sys.executable
+        if not os.path.exists(SENSOR_SCRIPT_PATH):
+            return dbc.Alert(f"HATA: Sensör betiği ({SENSOR_SCRIPT_PATH}) bulunamadı!", color="danger")
+
+        cmd = [
+            python_executable, SENSOR_SCRIPT_PATH,
+            "--start_angle", str(start_a), "--end_angle", str(end_a), "--step_angle", str(step_a)
+        ]
+        print(f"Dash: Betik başlatılıyor: {' '.join(cmd)}")
+        process = subprocess.Popen(cmd, start_new_session=True)
+        time.sleep(2.5)
+
+        if os.path.exists(PID_FILE_PATH_FOR_DASH):
+            new_pid = None
+            try:
+                with open(PID_FILE_PATH_FOR_DASH, 'r') as pf_new:
+                    pid_str_new = pf_new.read().strip()
+                    if pid_str_new: new_pid = int(pid_str_new)
+                if new_pid and is_process_running(new_pid):
+                    return dbc.Alert(f"Sensör betiği başlatıldı (PID: {new_pid}).", color="success")
+                else:
+                    return dbc.Alert(f"Sensör betiği başlatıldı ama PID ({new_pid}) ile process bulunamadı.",
+                                     color="warning")
+            except Exception as e_pid_read:
+                return dbc.Alert(f"PID okunurken hata ({PID_FILE_PATH_FOR_DASH}): {e_pid_read}", color="warning")
         else:
-            return dbc.Alert("Sensör betiği başlatılamadı veya PID dosyası oluşmadı.", color="danger")
+            return dbc.Alert(f"PID dosyası ({PID_FILE_PATH_FOR_DASH}) oluşmadı. Betik loglarını kontrol edin.",
+                             color="danger")
     except Exception as e:
-        return dbc.Alert(f"Başlatma hatası: {e}", color="danger")
+        return dbc.Alert(f"Sensör betiği başlatılırken genel hata: {str(e)}", color="danger")
+    return dash.no_update
 
-    return "Bu mesajın normalde görünmemesi gerekir."  # Placeholder
 
-# --- Diğer Callback Fonksiyonları ---
-# Lütfen update_scan_dropdowns, update_realtime_values, update_all_graphs,
-# update_analysis_panel, update_system_card, export_csv_callback, export_excel_callback
-# ve handle_stop_scan_script fonksiyonlarını bir önceki cevaptaki (#37) gibi buraya ekleyin.
-# Onları tekrar yazmak bu cevabı çok uzatacaktır.
+@app.callback(
+    Output('scan-status-message', 'children', allow_duplicate=True),  # allow_duplicate=True önemli!
+    [Input('stop-scan-button', 'n_clicks')],
+    prevent_initial_call=True
+)
+def handle_stop_scan_script(n_clicks_stop):
+    if n_clicks_stop is None or n_clicks_stop == 0:
+        return dash.no_update
+
+    pid_to_kill = None
+    if os.path.exists(PID_FILE_PATH_FOR_DASH):
+        try:
+            with open(PID_FILE_PATH_FOR_DASH, 'r') as pf:
+                pid_str = pf.read().strip()
+                if pid_str: pid_to_kill = int(pid_str)
+        except:
+            pid_to_kill = None
+
+    if pid_to_kill and is_process_running(pid_to_kill):
+        try:
+            print(f"Dash: Sensör betiği (PID: {pid_to_kill}) için SIGTERM gönderiliyor...")
+            os.kill(pid_to_kill, signal.SIGTERM)
+            time.sleep(1.5)
+            if is_process_running(pid_to_kill):
+                print(f"Dash: Sensör betiği (PID: {pid_to_kill}) SIGTERM'e yanıt vermedi, SIGKILL gönderiliyor...")
+                os.kill(pid_to_kill, signal.SIGKILL)
+                # Kilit ve PID dosyalarını burada da temizle (eğer atexit çalışmazsa diye)
+                if os.path.exists(PID_FILE_PATH_FOR_DASH): os.remove(PID_FILE_PATH_FOR_DASH)
+                if os.path.exists(LOCK_FILE_PATH_FOR_DASH): os.remove(LOCK_FILE_PATH_FOR_DASH)
+                return dbc.Alert(f"Sensör betiği (PID: {pid_to_kill}) zorla durduruldu (SIGKILL).", color="warning")
+            return dbc.Alert(f"Sensör betiği (PID: {pid_to_kill}) durduruldu (SIGTERM).", color="info")
+        except Exception as e:
+            return dbc.Alert(f"Sensör betiği (PID: {pid_to_kill}) durdurulurken hata: {e}", color="danger")
+    else:
+        msg = "Çalışan bir sensör betiği bulunamadı."
+        # Kalıntı dosyaları temizle
+        cleaned = False
+        if os.path.exists(LOCK_FILE_PATH_FOR_DASH): os.remove(LOCK_FILE_PATH_FOR_DASH); cleaned = True
+        if os.path.exists(PID_FILE_PATH_FOR_DASH): os.remove(PID_FILE_PATH_FOR_DASH); cleaned = True
+        if cleaned: msg += " Kalıntı kilit/PID dosyaları temizlendi."
+        return dbc.Alert(msg, color="warning")
+
+
+# === Diğer Callback Fonksiyonları (update_scan_dropdowns, update_realtime_values, vb.) ===
+# Lütfen bu fonksiyonların tam ve güncel hallerini bir önceki tam kod cevabınızdan (Yanıt #37)
+# veya kendi en son çalışan versiyonlarınızdan buraya dikkatlice kopyalayın.
+# Özellikle veritabanı sorgularının ve döndürdükleri Output'ların
+# layout'unuzdaki ID'lerle eşleştiğinden emin olun.
+# Örnek olarak, grafik güncelleme callback'inin iskeleti:
+
+@app.callback(
+    [Output('scan-map-graph', 'figure'),
+     Output('polar-graph', 'figure'),
+     Output('time-series-graph', 'figure')],
+    [Input('interval-component-main', 'n_intervals'),
+     Input('scan-select-dropdown', 'value')]
+)
+def update_all_graphs(n_intervals, selected_scan_id):
+    # Bu fonksiyonun tam içeriği için Yanıt #37'ye bakın.
+    # Temel mantık:
+    # 1. get_db_connection() ile DB'ye bağlan.
+    # 2. selected_scan_id yoksa en sonuncuyu al.
+    # 3. df_points ve df_scan_info'yu çek.
+    # 4. fig_map, fig_polar, fig_time oluştur ve güncelle.
+    # 5. Bu figürleri döndür.
+    # Hata durumlarını ve boş veri durumlarını ele al.
+    # (Placeholder, tam kodu eklemelisiniz)
+    return go.Figure(), go.Figure(), go.Figure()
+
+# Diğer callback'ler de benzer şekilde eklenecek...
+# update_scan_dropdowns
+# update_realtime_values
+# update_analysis_panel
+# update_system_card
+# export_csv_callback
+# export_excel_callback
