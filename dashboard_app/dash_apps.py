@@ -117,13 +117,20 @@ analysis_card = dbc.Card([
     ])
 ])
 
+estimation_card = dbc.Card([
+    dbc.CardHeader("Ortam Şekli Tahmini", className="bg-success text-white"),
+    dbc.CardBody(
+        html.H4("Tahmin: Bekleniyor...", id='environment-estimation-text', className="text-center")
+    )
+])
+
 visualization_tabs = dbc.Tabs([
     dbc.Tab(dcc.Graph(id='scan-map-graph', style={'height': '75vh'}), label="2D Kartezyen Harita"),
     dbc.Tab(dcc.Graph(id='polar-graph', style={'height': '75vh'}), label="Polar Grafik"),
     dbc.Tab(dcc.Graph(id='time-series-graph', style={'height': '75vh'}), label="Zaman Serisi (Mesafe)"),
     # YENİ SEKME
     dbc.Tab(
-        dcc.Loading( # Veri yüklenirken bekleme animasyonu gösterir
+        dcc.Loading(  # Veri yüklenirken bekleme animasyonu gösterir
             children=[
                 dash_table.DataTable(
                     id='scan-data-table',
@@ -134,15 +141,14 @@ visualization_tabs = dbc.Tabs([
                     },
                     style_table={'height': '70vh', 'overflowY': 'auto'},
                     page_size=20,  # Sayfa başına 20 satır göster
-                    sort_action="native", # Sütunlara tıklayarak sıralama
-                    filter_action="native", # Sütun bazında filtreleme
+                    sort_action="native",  # Sütunlara tıklayarak sıralama
+                    filter_action="native",  # Sütun bazında filtreleme
                 )
             ]
         ),
         label="Veri Tablosu"
     )
 ])
-
 
 app.layout = dbc.Container(fluid=True, children=[
     title_card,
@@ -152,9 +158,15 @@ app.layout = dbc.Container(fluid=True, children=[
                  dbc.Row(html.Div(style={"height": "15px"})), system_card,
                  dbc.Row(html.Div(style={"height": "15px"})), export_card],
                 md=4, className="mb-3"),
-        dbc.Col([visualization_tabs,
-                 dbc.Row(html.Div(style={"height": "15px"})), analysis_card],
-                md=8)
+        dbc.Col([
+            visualization_tabs,
+            dbc.Row(html.Div(style={"height": "15px"})),
+            # YENİ DÜZENLEME: Analiz ve Tahmin kartlarını yan yana koymak için Row kullan
+            dbc.Row([
+                dbc.Col(analysis_card, md=8),
+                dbc.Col(estimation_card, md=4)
+            ])
+        ], md=8)
     ]),
     # IYILESTIRME: Interval süresi sistem yükünü azaltmak için 3sn'ye çıkarıldı.
     dcc.Interval(id='interval-component-main', interval=3000, n_intervals=0),
@@ -219,7 +231,6 @@ def get_latest_scan_id_from_db(conn_param=None):
                State('step-angle-input', 'value')],
               prevent_initial_call=True)
 def handle_start_scan_script(n_clicks_start, start_angle_val, end_angle_val, step_angle_val):
-
     if n_clicks_start == 0:
         return no_update
 
@@ -322,7 +333,6 @@ def handle_stop_scan_script(n_clicks_stop):
     [Input('interval-component-main', 'n_intervals')]
 )
 def update_realtime_values(n_intervals):
-
     conn, error = get_db_connection()
 
     angle_str, distance_str, speed_str = "--°", "-- cm", "-- cm/s"
