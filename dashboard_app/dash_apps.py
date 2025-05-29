@@ -15,6 +15,7 @@ import time
 import io
 import signal
 import psutil  # Sistem bilgilerini almak için
+import numpy as np
 
 from scipy.spatial import ConvexHull
 from simplification.cutil import simplify_coords
