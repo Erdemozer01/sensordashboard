@@ -414,9 +414,8 @@ def update_analysis_panel(n_intervals):
     latest_id = get_latest_scan_id_from_db(conn_param=conn)
     if conn and latest_id:
         try:
-            df_scan = pd.read_sql_query(
-                f"SELECT hesaplanan_alan_cm2, cevre_cm, max_genislik_cm, max_derinlik_cm FROM servo_scans WHERE id = {latest_id}",
-                conn)
+            df_scan = pd.read_sql_query(f"SELECT hesaplanan_alan_cm2, cevre_cm, max_genislik_cm, max_derinlik_cm FROM servo_scans WHERE id = {latest_id}", conn)
+
             if not df_scan.empty:
                 area_val, per_val, w_val, d_val = df_scan.iloc[0]
                 area_str = f"{area_val:.2f} cm²" if pd.notnull(area_val) else "-- cm²";
