@@ -8,11 +8,12 @@ import sys
 import fcntl
 import atexit
 import math
+import argparse  # Komut satırı argümanları için
 
 # --- Pin Tanımlamaları ---
 TRIG_PIN = 23
 ECHO_PIN = 24
-SERVO_PIN = 12  # Servo motorunuzu bağladığınız GPIO pini (KENDİNİZE GÖRE DEĞİŞTİRİN!)
+SERVO_PIN = 12
 YELLOW_LED_PIN = 27
 
 # --- LCD Ayarları ---
@@ -22,16 +23,16 @@ LCD_COLS = 16
 LCD_ROWS = 2
 I2C_PORT = 1
 
-# --- Eşik Değerleri ve Sabitler ---
-TERMINATION_DISTANCE_CM = 10.0
-SCAN_START_ANGLE = 0
-SCAN_END_ANGLE = 180
-SCAN_STEP_ANGLE = 10
+# --- Varsayılan Eşik ve Tarama Değerleri ---
+DEFAULT_TERMINATION_DISTANCE_CM = 10.0
+DEFAULT_SCAN_START_ANGLE = 0
+DEFAULT_SCAN_END_ANGLE = 180
+DEFAULT_SCAN_STEP_ANGLE = 10
 SERVO_SETTLE_TIME = 0.3
 LOOP_TARGET_INTERVAL_S = 0.6
 
 PROJECT_ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
-DB_NAME_ONLY = 'live_scan_data.sqlite3'  # dash_apps.py ile aynı olmalı!
+DB_NAME_ONLY = 'live_scan_data.sqlite3'
 DB_PATH = os.path.join(PROJECT_ROOT_DIR, DB_NAME_ONLY)
 LOCK_FILE_PATH = '/tmp/sensor_scan_script.lock'
 PID_FILE_PATH = '/tmp/sensor_scan_script.pid'
@@ -46,6 +47,12 @@ current_scan_id_global = None
 db_conn_main_script_global = None
 script_exit_status_global = 'interrupted_unexpectedly'
 
+# Dinamik olarak ayarlanacak tarama parametreleri
+TERMINATION_DISTANCE_CM = DEFAULT_TERMINATION_DISTANCE_CM
+SCAN_START_ANGLE = DEFAULT_SCAN_START_ANGLE
+SCAN_END_ANGLE = DEFAULT_SCAN_END_ANGLE
+SCAN_STEP_ANGLE = DEFAULT_SCAN_STEP_ANGLE
+
 
 def init_hardware():
     global sensor, yellow_led, servo, lcd
@@ -58,7 +65,7 @@ def init_hardware():
                              initial_angle=None,
                              min_pulse_width=0.0005, max_pulse_width=0.0025)
         yellow_led.off()
-        target_center_angle = (SCAN_START_ANGLE + SCAN_END_ANGLE) / 2
+        target_center_angle = (SCAN_START_ANGLE + SCAN_END_ANGLE) / 2  # Global olanı kullan
         if servo: servo.angle = target_center_angle; time.sleep(0.7)
         print(f"[{os.getpid()}] Temel donanımlar başarıyla başlatıldı.")
     except Exception as e:
@@ -87,7 +94,6 @@ def init_db_for_scan():
     try:
         conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
-        # servo_scans tablosu: hesaplanan_alan_cm2 sütununu içerir
         cursor.execute('''
                        CREATE TABLE IF NOT EXISTS servo_scans
                        (
@@ -104,9 +110,26 @@ def init_db_for_scan():
                            hesaplanan_alan_cm2
                            REAL
                            DEFAULT
-                           NULL
+                           NULL,
+                           cevre_cm
+                           REAL
+                           DEFAULT
+                           NULL,
+                           max_genislik_cm
+                           REAL
+                           DEFAULT
+                           NULL,
+                           max_derinlik_cm
+                           REAL
+                           DEFAULT
+                           NULL,
+                           start_angle_setting
+                           REAL,
+                           end_angle_setting
+                           REAL,
+                           step_angle_setting
+                           REAL
                        )''')
-        # scan_points tablosu: x_cm ve y_cm sütunlarını içerir
         cursor.execute('''
                        CREATE TABLE IF NOT EXISTS scan_points
                        (
@@ -136,11 +159,13 @@ def init_db_for_scan():
                        ) REFERENCES servo_scans
                        (
                            id
-                       )
-                           )''')
+                       ))''')
         cursor.execute("UPDATE servo_scans SET status = 'interrupted_prior_run' WHERE status = 'running'")
         scan_start_time = time.time()
-        cursor.execute("INSERT INTO servo_scans (start_time, status) VALUES (?, ?)", (scan_start_time, 'running'))
+        # Ayarları da kaydet
+        cursor.execute(
+            "INSERT INTO servo_scans (start_time, status, start_angle_setting, end_angle_setting, step_angle_setting) VALUES (?, ?, ?, ?, ?)",
+            (scan_start_time, 'running', SCAN_START_ANGLE, SCAN_END_ANGLE, SCAN_STEP_ANGLE))
         current_scan_id_global = cursor.lastrowid
         conn.commit()
         print(f"[{os.getpid()}] Veritabanı '{DB_PATH}' hazırlandı. Yeni tarama ID: {current_scan_id_global}")
@@ -153,6 +178,7 @@ def init_db_for_scan():
 
 def acquire_lock_and_pid():
     global lock_file_handle
+    # ... (Kod aynı, bir önceki cevaptaki gibi) ...
     try:
         if os.path.exists(PID_FILE_PATH): os.remove(PID_FILE_PATH)
     except OSError:
@@ -177,6 +203,7 @@ def acquire_lock_and_pid():
 
 
 def calculate_polygon_area_shoelace(cartesian_points_with_origin):
+    # ... (Kod aynı, bir önceki cevaptaki gibi) ...
     n = len(cartesian_points_with_origin)
     if n < 3: return 0.0
     area = 0.0
@@ -187,11 +214,23 @@ def calculate_polygon_area_shoelace(cartesian_points_with_origin):
     return abs(area) / 2.0
 
 
-def release_resources_on_exit():
+def calculate_perimeter(cartesian_points_with_origin):
+    perimeter = 0.0
+    n = len(cartesian_points_with_origin)
+    if n < 2: return 0.0
+    for i in range(n):
+        x1, y1 = cartesian_points_with_origin[i]
+        x2, y2 = cartesian_points_with_origin[(i + 1) % n]  # Son noktadan ilkine döner
+        perimeter += math.sqrt((x2 - x1) ** 2 + (y2 - y1) ** 2)
+    return perimeter
+
+
+def release_resources_on_exit():  # Bu fonksiyon da büyük ölçüde aynı
     global lock_file_handle, current_scan_id_global, db_conn_main_script_global, script_exit_status_global
     global sensor, yellow_led, servo, lcd
+    # ... (Bir önceki cevaptaki release_resources_on_exit içeriği) ...
     pid = os.getpid()
-    print(f"[{pid}] `release_resources_on_exit` çağrıldı. Betik çıkış durumu: {script_exit_status_global}")
+    print(f"[{pid}] `release_resources_on_exit` çağrıldı. Çıkış durumu: {script_exit_status_global}")
     if db_conn_main_script_global:
         try:
             db_conn_main_script_global.close()
@@ -215,7 +254,8 @@ def release_resources_on_exit():
     print(f"[{pid}] Donanım kapatılıyor...")
     if servo and hasattr(servo, 'detach'):
         try:
-            servo.angle = (SCAN_START_ANGLE + SCAN_END_ANGLE) / 2; time.sleep(0.5); servo.detach(); servo.close()
+            servo.angle = (SCAN_START_ANGLE + SCAN_END_ANGLE) / 2; time.sleep(
+                0.5); servo.detach(); servo.close()  # Global SCAN_... kullanılıyor
         except:
             pass
     if yellow_led and hasattr(yellow_led, 'close'):
@@ -227,12 +267,6 @@ def release_resources_on_exit():
             lcd.clear();
             lcd.cursor_pos = (0, 0);
             lcd.write_string("Dream Pi Kapandi".ljust(LCD_COLS)[:LCD_COLS])
-            time.sleep(1.5)
-            lcd.clear()
-            lcd.cursor_pos = (0, 0);
-            lcd.write_string("Mehmet Erdem".ljust(LCD_COLS)[:LCD_COLS])
-            lcd.cursor_pos = (1, 0);
-            lcd.write_string("OZER (PhD.)".ljust(LCD_COLS)[:LCD_COLS])
         except:
             pass
     print(f"[{pid}] Kalan donanımlar ve LCD kapatıldı.")
@@ -260,11 +294,26 @@ def release_resources_on_exit():
 
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Servo Motorlu 2D Alan Tarama Betiği")
+    parser.add_argument("--start_angle", type=int, default=DEFAULT_SCAN_START_ANGLE,
+                        help="Tarama başlangıç açısı (derece)")
+    parser.add_argument("--end_angle", type=int, default=DEFAULT_SCAN_END_ANGLE, help="Tarama bitiş açısı (derece)")
+    parser.add_argument("--step_angle", type=int, default=DEFAULT_SCAN_STEP_ANGLE, help="Tarama adım açısı (derece)")
+    args = parser.parse_args()
+
+    # Komut satırından gelen argümanları global sabitlere ata
+    SCAN_START_ANGLE = args.start_angle
+    SCAN_END_ANGLE = args.end_angle
+    SCAN_STEP_ANGLE = args.step_angle
+    # Adım açısı çok küçükse veya bitiş başlangıçtan küçükse düzelt
+    if SCAN_STEP_ANGLE <= 0: SCAN_STEP_ANGLE = 1
+    if SCAN_END_ANGLE < SCAN_START_ANGLE: SCAN_END_ANGLE = SCAN_START_ANGLE
+
     atexit.register(lambda: release_resources_on_exit())
 
     if not acquire_lock_and_pid(): sys.exit(1)
     if not init_hardware(): sys.exit(1)
-    init_db_for_scan()
+    init_db_for_scan()  # Bu, current_scan_id_global'i ve DB'deki tarama ayarlarını ayarlar
     if not current_scan_id_global: sys.exit(1)
 
     ölçüm_tamponu_hız_için_yerel = []
@@ -275,7 +324,8 @@ if __name__ == "__main__":
         lcd.clear();
         lcd.cursor_pos = (0, 0);
         lcd.write_string(f"ScanID:{current_scan_id_global} Basladi".ljust(LCD_COLS)[:LCD_COLS])
-        if LCD_ROWS > 1: lcd.cursor_pos = (1, 0); lcd.write_string("Aci: -- Mes: --".ljust(LCD_COLS)[:LCD_COLS])
+        if LCD_ROWS > 1: lcd.cursor_pos = (1, 0); lcd.write_string(
+            f"A:{SCAN_START_ANGLE}-{SCAN_END_ANGLE} S:{SCAN_STEP_ANGLE}".ljust(LCD_COLS)[:LCD_COLS])
 
     scan_completed_successfully = False
     try:
@@ -287,55 +337,42 @@ if __name__ == "__main__":
         time.sleep(1.0)
 
         for angle_deg in range(SCAN_START_ANGLE, SCAN_END_ANGLE + SCAN_STEP_ANGLE, SCAN_STEP_ANGLE):
+            # ... (Döngü içeriği bir önceki cevaptaki gibi, LED'ler hariç,
+            #       x_cm, y_cm hesaplaması ve DB'ye eklenmesi dahil) ...
             loop_iteration_start_time = time.time()
-
             if yellow_led: yellow_led.toggle()
-
             servo.angle = angle_deg
             time.sleep(SERVO_SETTLE_TIME)
-
             current_timestamp = time.time()
             distance_m = sensor.distance
             distance_cm = distance_m * 100
-
             angle_rad = math.radians(angle_deg)
             x_cm = distance_cm * math.cos(angle_rad)
             y_cm = distance_cm * math.sin(angle_rad)
-
-            if 0 < distance_cm < (sensor.max_distance * 100):  # Alan hesabı için geçerli noktaları topla
+            if 0 < distance_cm < (sensor.max_distance * 100):
                 collected_cartesian_points_for_area.append((x_cm, y_cm))
-
             hiz_cm_s = 0.0
             if ölçüm_tamponu_hız_için_yerel:
                 son_veri_noktasi = ölçüm_tamponu_hız_için_yerel[-1]
                 delta_mesafe = distance_cm - son_veri_noktasi['mesafe_cm']
                 delta_zaman = current_timestamp - son_veri_noktasi['zaman_s']
                 if delta_zaman > 0.001: hiz_cm_s = delta_mesafe / delta_zaman
-
             if lcd:
                 try:
-                    lcd.cursor_pos = (0, 0)
-                    lcd.write_string(f"A:{angle_deg:<3} M:{distance_cm:5.1f}cm".ljust(LCD_COLS)[:LCD_COLS])
-                    if LCD_ROWS > 1:
-                        lcd.cursor_pos = (1, 0)
-                        # x_cm ve y_cm'i LCD'de göstermek yerine hızı göstermek daha anlamlı olabilir veya sadece mesafe
-                        lcd.write_string(f"Hiz:{hiz_cm_s:5.1f}cm/s".ljust(LCD_COLS)[:LCD_COLS])
-                except Exception as e_lcd_write:
-                    print(f"LCD Yazma Hatası: {e_lcd_write}")
-
-            if distance_cm < TERMINATION_DISTANCE_CM:
-                print(f"[{os.getpid()}] DİKKAT: NESNE ÇOK YAKIN ({distance_cm:.2f}cm)!")
-                if lcd:
-                    lcd.clear();
                     lcd.cursor_pos = (0, 0);
-                    lcd.write_string("COK YAKIN! DUR!".ljust(LCD_COLS)[:LCD_COLS])
+                    lcd.write_string(f"A:{angle_deg:<3} M:{distance_cm:5.1f}cm".ljust(LCD_COLS)[:LCD_COLS])
                     if LCD_ROWS > 1: lcd.cursor_pos = (1, 0); lcd.write_string(
-                        f"{distance_cm:.1f} cm".ljust(LCD_COLS)[:LCD_COLS])
-                if yellow_led: yellow_led.on()
-                script_exit_status_global = 'terminated_close_object'
+                        f"Hiz:{hiz_cm_s:5.1f}cm/s".ljust(LCD_COLS)[:LCD_COLS])
+                except:
+                    pass
+            if distance_cm < TERMINATION_DISTANCE_CM:
+                print(f"DİKKAT: NESNE ÇOK YAKIN ({distance_cm:.2f}cm)!");
+                if lcd: lcd.clear(); lcd.cursor_pos = (0, 0); lcd.write_string("COK YAKIN! DUR!");
+                if LCD_ROWS > 1: lcd.cursor_pos = (1, 0); lcd.write_string(f"{distance_cm:.1f} cm")
+                if yellow_led: yellow_led.on();
+                script_exit_status_global = 'terminated_close_object';
                 time.sleep(1.5);
                 break
-
             try:
                 cursor_main.execute('''
                                     INSERT INTO scan_points (scan_id, angle_deg, mesafe_cm, hiz_cm_s, timestamp, x_cm, y_cm)
@@ -344,26 +381,25 @@ if __name__ == "__main__":
                                     (current_scan_id_global, angle_deg, distance_cm, hiz_cm_s, current_timestamp, x_cm,
                                      y_cm))
                 db_conn_main_script_global.commit()
-            except Exception as e_db_insert:
-                print(f"[{os.getpid()}] DB Ekleme Hatası: {e_db_insert}")
-
+            except Exception as e:
+                print(f"DB Ekleme Hatası: {e}")
             ölçüm_tamponu_hız_için_yerel = [{'mesafe_cm': distance_cm, 'zaman_s': current_timestamp}]
-
             loop_processing_time = time.time() - loop_iteration_start_time
             sleep_duration = max(0, LOOP_TARGET_INTERVAL_S - loop_processing_time)
             if sleep_duration > 0 and (angle_deg < SCAN_END_ANGLE): time.sleep(sleep_duration)
-
-        else:  # for döngüsü normal biterse
+        else:
+            # Alan Hesabı
             if len(collected_cartesian_points_for_area) >= 2:
-                polygon_vertices_for_area = [(0.0, 0.0)] + collected_cartesian_points_for_area
-                # Eğer tarama 0-180 ise ve son nokta ile (0,0) arasında bir çizgi istiyorsak
-                # ve ilk nokta ile (0,0) arasında, Shoelace bunu (0,0) başa eklendiği için zaten yapar.
-                # Ancak, eğer açık bir fan şeklinin iç alanını değil de, noktaların çevrelediği
-                # (ve orijini içeren) bir poligon alanı isteniyorsa, bu yaklaşım doğrudur.
-                # Tarama 0-180 derece olduğu için, son nokta ile ilk nokta arasında bir bağlantı yoktur.
-                # Bu yüzden (0,0) eklemek, sensörden çıkan ışınların oluşturduğu bir "dilimin" alanını verir.
+                polygon_vertices = [(0.0, 0.0)] + collected_cartesian_points_for_area
+                hesaplanan_alan_cm2 = calculate_polygon_area_shoelace(polygon_vertices)
+                # Çevre ve diğer analizler için
+                perimeter = calculate_perimeter(polygon_vertices)  # Orijin dahil poligonun çevresi
+                max_derinlik_cm = max(
+                    p[0] for p in collected_cartesian_points_for_area) if collected_cartesian_points_for_area else 0
+                # Genişlik için y_cm'lerin min/max farkı daha doğru olur:
+                y_coords_for_width = [p[1] for p in collected_cartesian_points_for_area]
+                max_genislik_cm = max(y_coords_for_width) - min(y_coords_for_width) if y_coords_for_width else 0
 
-                hesaplanan_alan_cm2 = calculate_polygon_area_shoelace(polygon_vertices_for_area)
                 print(f"\n[{os.getpid()}] TARANAN SEKTÖR ALANI: {hesaplanan_alan_cm2:.2f} cm^2")
                 if lcd:
                     lcd.clear();
@@ -372,29 +408,24 @@ if __name__ == "__main__":
                     if LCD_ROWS > 1: lcd.cursor_pos = (1, 0); lcd.write_string(
                         f"Alan:{hesaplanan_alan_cm2:.0f}cm2".ljust(LCD_COLS)[:LCD_COLS])
 
-                cursor_main.execute(
-                    "UPDATE servo_scans SET hesaplanan_alan_cm2 = ?, status = 'completed_area_calc' WHERE id = ?",
-                    (hesaplanan_alan_cm2, current_scan_id_global))
+                cursor_main.execute("""UPDATE servo_scans
+                                       SET hesaplanan_alan_cm2 = ?,
+                                           cevre_cm            = ?,
+                                           max_genislik_cm     = ?,
+                                           max_derinlik_cm     = ?,
+                                           status              = 'completed_analysis'
+                                       WHERE id = ?""",
+                                    (hesaplanan_alan_cm2, perimeter, max_genislik_cm, max_derinlik_cm,
+                                     current_scan_id_global))
                 db_conn_main_script_global.commit()
-                script_exit_status_global = 'completed_area_calc'
-            else:
-                print(f"[{os.getpid()}] Alan hesaplamak için yeterli nokta toplanamadı.")
+                script_exit_status_global = 'completed_analysis'
+            else:  # Yeterli nokta yoksa
                 script_exit_status_global = 'completed_insufficient_points'
-                if lcd:
-                    lcd.clear();
-                    lcd.cursor_pos = (0, 0);
-                    lcd.write_string("Tarama Tamamlandi".ljust(LCD_COLS)[:LCD_COLS])
-                    if LCD_ROWS > 1: lcd.cursor_pos = (1, 0); lcd.write_string(
-                        "Alan Hesaplanamadi".ljust(LCD_COLS)[:LCD_COLS])
+                if lcd: lcd.clear(); lcd.cursor_pos = (1, 0); lcd.write_string(
+                    "Alan Hesaplanamadi".ljust(LCD_COLS)[:LCD_COLS])
             scan_completed_successfully = True
 
     except KeyboardInterrupt:
-        print(f"\n[{os.getpid()}] Tarama kullanıcı tarafından (Ctrl+C) sonlandırıldı.")
-        script_exit_status_global = 'interrupted_ctrl_c'
-        if lcd: lcd.clear(); lcd.cursor_pos = (0, 0); lcd.write_string("DURDURULDU (C)".ljust(LCD_COLS)[:LCD_COLS])
-    except Exception as e_main_loop:
-        print(f"[{os.getpid()}] Tarama sırasında ana döngüde beklenmedik bir hata: {e_main_loop}")
-        script_exit_status_global = 'error_in_loop'
-        if lcd: lcd.clear(); lcd.cursor_pos=(0,0); lcd.write_string("HATA OLUSTU!".ljust(LCD_COLS)[:LCD_COLS])
-
-    # atexit, script_exit_status_global'in son değerini kullanarak temizliği yapacak.
+        script_exit_status_global = 'interrupted_ctrl_c'; print(f"Ctrl+C ile durduruldu.")
+    except Exception as e:
+        script_exit_status_global = 'error_in_loop'; print(f"Ana döngü hatası: {e}")
