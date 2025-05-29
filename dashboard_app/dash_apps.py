@@ -379,53 +379,163 @@ def update_realtime_values(n_intervals):
      Output('polar-graph', 'figure'),
      Output('time-series-graph', 'figure')],
     [Input('interval-component-main', 'n_intervals'),
-     Input('scan-select-dropdown', 'value')]
+     Input('scan-select-dropdown', 'value')]  # Dropdown'dan seçilen tarama ID'si
+    # prevent_initial_call=True YOK, sayfa yüklenince de çalışsın
 )
 def update_all_graphs(n_intervals, selected_scan_id):
-    print(f"--- update_all_graphs tetiklendi ---")
-    print(f"n_intervals: {n_intervals}, selected_scan_id: {selected_scan_id}")
+    print(
+        f"--- update_all_graphs tetiklendi --- n_intervals: {n_intervals}, Gelen selected_scan_id: {selected_scan_id}")
 
-    fig_map = go.Figure()
-    fig_polar = go.Figure()
-    fig_time = go.Figure()
-
-    # Sayfa ilk yüklendiğinde veya selected_scan_id None ise basit bir mesaj göster
-    if selected_scan_id is None and n_intervals == 0:  # Veya sadece n_intervals == 0
-        fig_map.update_layout(title_text='2D Harita (İlk Yükleme - Veri Bekleniyor)')
-        fig_polar.update_layout(title_text='Polar Grafik (İlk Yükleme - Veri Bekleniyor)')
-        fig_time.update_layout(title_text='Zaman Serisi (İlk Yükleme - Veri Bekleniyor)')
-        print("İlk yükleme, boş grafikler döndürülüyor.")
-        return fig_map, fig_polar, fig_time
-
-    # ... (Buraya normal veri çekme ve grafik oluşturma kodunuz gelecek) ...
-    # ... (Eğer veri bulunamazsa veya hata olursa, yine uygun başlıklarla boş figürler döndürün) ...
-
-    # Test için sabit bir grafik döndürmeyi deneyebilirsiniz:
-    # fig_map.add_trace(go.Scatter(x=[1, 2, 3], y=[2, 1, 2]))
-    # fig_map.update_layout(title_text='Test Grafiği')
-    # print("Test grafiği döndürülüyor.")
-
-    # Şimdilik gerçek veri çekme mantığını geçici olarak devre dışı bırakıp sadece başlıkları ayarlayalım:
     conn, error_msg_conn = get_db_connection()
+
+    # Başlangıçta boş veya hata durumunda gösterilecek figürler
+    # uirevision, kullanıcı etkileşimlerini (zoom, pan) korumak için kullanılır.
+    # selected_scan_id değiştiğinde veya veri olmadığında grafik sıfırlanır/boş döner.
+    # Eğer selected_scan_id None ise, "initial_load" gibi bir değer kullanılabilir.
+    ui_revision_key = str(selected_scan_id) if selected_scan_id else f"initial_load_{n_intervals}"
+
+    fig_map = go.Figure().update_layout(
+        title_text='2D Kartezyen Harita (Veri bekleniyor...)',
+        uirevision=ui_revision_key,
+        plot_bgcolor='rgba(248,248,248,0.95)'  # Düzeltilmiş renk kodu
+    )
+    fig_polar = go.Figure().update_layout(
+        title_text='Polar Grafik (Veri bekleniyor...)',
+        uirevision=ui_revision_key,
+        plot_bgcolor='rgba(248,248,248,0.95)'
+    )
+    fig_time = go.Figure().update_layout(
+        title_text='Zaman Serisi - Mesafe (Veri bekleniyor...)',
+        uirevision=ui_revision_key,
+        plot_bgcolor='rgba(248,248,248,0.95)'
+    )
+
     if error_msg_conn:
-        print(f"DB Bağlantı Hatası: {error_msg_conn}")
-        # Hata mesajlarını grafik başlıklarına yazdırabilirsiniz
-        fig_map.update_layout(title_text=f'2D Harita (DB Hatası)')
-        # ... diğer grafikler için de ...
+        print(f"Dash Grafik Güncelleme: Veritabanı bağlantı hatası: {error_msg_conn}")
+        fig_map.update_layout(title_text=f'2D Harita ({error_msg_conn})')
+        fig_polar.update_layout(title_text=f'Polar Grafik ({error_msg_conn})')
+        fig_time.update_layout(title_text=f'Zaman Serisi ({error_msg_conn})')
         return fig_map, fig_polar, fig_time
 
-    # ... (veri çekme ve işleme mantığı) ...
-    # Eğer df_points boşsa veya df_scan_info boşsa, bunu loglayın ve boş grafik döndürün
+    current_scan_id_to_plot = selected_scan_id
 
-    if conn: conn.close()
+    if not current_scan_id_to_plot and conn:  # Eğer dropdown'dan bir seçim gelmediyse (None ise)
+        try:
+            df_last_scan = pd.read_sql_query("SELECT id FROM servo_scans ORDER BY start_time DESC LIMIT 1", conn)
+            if not df_last_scan.empty:
+                current_scan_id_to_plot = int(df_last_scan['id'].iloc[0])
+                print(
+                    f"Dash Grafik: Dropdown'dan ID gelmedi, en son tarama ID: {current_scan_id_to_plot} kullanılacak.")
+            else:
+                print("Dash Grafik: Dropdown'dan ID gelmedi ve veritabanında hiç tarama yok.")
+                if conn: conn.close()
+                return fig_map, fig_polar, fig_time  # Veri yok, boş grafikler döner
+        except Exception as e:
+            print(f"Dash Grafik: En son tarama ID'si alınırken hata: {e}")
+            if conn: conn.close()
+            return fig_map, fig_polar, fig_time  # Hata durumunda boş grafikler
 
-    # Eğer her şey yolundaysa ve veri varsa, dolu grafikleri döndürün
-    # Bu kısım önceki cevaptaki gibi olacak
-    # ...
+    if not current_scan_id_to_plot:  # Hala bir tarama ID'si yoksa (DB boş veya ilk sorgu başarısızsa)
+        print("Dash Grafik: Çizilecek bir tarama ID'si belirlenemedi.")
+        if conn: conn.close()
+        return fig_map, fig_polar, fig_time
 
-    # Şimdilik varsayılan boş grafikleri döndürelim (gerçek kodunuzda dolu olanları döndüreceksiniz)
-    print("Callback sonu, grafikler döndürülüyor (muhtemelen boş).")
-    return fig_map, fig_polar, fig_time
+    print(f"Dash Grafik: Tarama ID {current_scan_id_to_plot} için grafikler oluşturuluyor...")
+    df_points = pd.DataFrame()
+    df_scan_info = pd.DataFrame()
+    try:
+        df_scan_info = pd.read_sql_query(
+            f"SELECT status, start_time FROM servo_scans WHERE id = {current_scan_id_to_plot}", conn)
+        df_points = pd.read_sql_query(
+            f"SELECT angle_deg, mesafe_cm, x_cm, y_cm, timestamp FROM scan_points WHERE scan_id = {current_scan_id_to_plot} ORDER BY id ASC",
+            conn
+        )
+
+        scan_status_str = df_scan_info['status'].iloc[0] if not df_scan_info.empty else "Bilinmiyor"
+        start_time_epoch = df_scan_info['start_time'].iloc[0] if not df_scan_info.empty else time.time()
+        start_time_str = time.strftime('%H:%M:%S (%d-%m-%y)', time.localtime(start_time_epoch))
+
+        title_suffix = f"(ID: {current_scan_id_to_plot}, Başl: {start_time_str}, Dur: {scan_status_str})"
+
+        if not df_points.empty:
+            max_plot_dist = 200.0  # sensor_script.py'deki max_distance * 100 ile uyumlu olmalı
+            df_valid = df_points[(df_points['mesafe_cm'] > 0.1) & (df_points['mesafe_cm'] < max_plot_dist)].copy()
+
+            if not df_valid.empty:
+                print(f"Dash Grafik: {len(df_valid)} geçerli nokta bulundu.")
+                # 1. 2D Kartezyen Harita
+                if 'x_cm' in df_valid.columns and 'y_cm' in df_valid.columns:
+                    fig_map.add_trace(go.Scatter(
+                        x=df_valid['y_cm'], y=df_valid['x_cm'], mode='lines+markers',
+                        name='Taranan Sınır',
+                        marker=dict(size=5, color=df_valid['mesafe_cm'], colorscale='Viridis', showscale=False),
+                        line=dict(color='dodgerblue', width=1.5)
+                    ))
+                    fig_map.add_trace(
+                        go.Scatter(x=[0], y=[0], mode='markers', marker=dict(size=10, symbol='diamond', color='red'),
+                                   name='Sensör'))
+                fig_map.update_layout(
+                    title_text='2D Kartezyen Harita ' + title_suffix,
+                    xaxis_title="Yatay Yayılım (cm)", yaxis_title="İleri Mesafe (cm)",
+                    yaxis_scaleanchor="x", yaxis_scaleratio=1,
+                    margin=dict(l=40, r=40, t=60, b=40)
+                )
+
+                # 2. Polar Grafik
+                fig_polar.add_trace(go.Scatterpolar(
+                    r=df_valid['mesafe_cm'], theta=df_valid['angle_deg'], mode='lines+markers',
+                    name='Mesafe Profili',
+                    marker=dict(color=df_valid['mesafe_cm'], colorscale='Viridis', showscale=True,
+                                colorbar_title_text="Mesafe (cm)"),  # Burada colorbar gösteriliyor
+                    line_color='deepskyblue'
+                ))
+                fig_polar.update_layout(
+                    title_text='Polar Grafik ' + title_suffix,
+                    polar=dict(radialaxis=dict(visible=True, range=[0, max_plot_dist], ticksuffix=" cm"),
+                               angularaxis=dict(direction="clockwise", ticksuffix="°"))
+                )
+
+                # 3. Zaman Serisi (Mesafe vs Zaman)
+                if 'timestamp' in df_valid.columns:
+                    df_time_series = df_valid.sort_values(by='timestamp')
+                    # Zaman damgalarını datetime nesnelerine çevir (Plotly zaman eksenini daha iyi anlar)
+                    datetime_series = pd.to_datetime(df_time_series['timestamp'], unit='s')
+
+                    fig_time.add_trace(go.Scatter(
+                        x=datetime_series,  # X ekseninde datetime nesneleri
+                        y=df_time_series['mesafe_cm'],
+                        mode='lines+markers', name='Mesafe (cm)',
+                        marker_color='green'
+                    ))
+                    fig_time.update_xaxes(type='date', tickformat='%H:%M:%S')  # Zaman formatını ayarla
+                fig_time.update_layout(
+                    title_text='Zaman Serisi - Mesafe ' + title_suffix,
+                    xaxis_title="Ölçüm Zamanı", yaxis_title="Mesafe (cm)",
+                    margin=dict(l=40, r=40, t=60, b=40)
+                )
+            else:  # df_valid boş ise
+                print(f"Dash Grafik: Tarama ID {current_scan_id_to_plot} için geçerli nokta bulunamadı.")
+                fig_map.update_layout(title_text='2D Harita ' + title_suffix + " (Geçerli Veri Yok)")
+                fig_polar.update_layout(title_text='Polar Grafik ' + title_suffix + " (Geçerli Veri Yok)")
+                fig_time.update_layout(title_text='Zaman Serisi ' + title_suffix + " (Geçerli Veri Yok)")
+        else:  # df_points boş ise
+            print(f"Dash Grafik: Tarama ID {current_scan_id_to_plot} için nokta verisi bulunamadı.")
+            fig_map.update_layout(title_text='2D Harita ' + title_suffix + " (Nokta Verisi Yok)")
+            fig_polar.update_layout(title_text='Polar Grafik ' + title_suffix + " (Nokta Verisi Yok)")
+            fig_time.update_layout(title_text='Zaman Serisi ' + title_suffix + " (Nokta Verisi Yok)")
+
+    except Exception as e:
+        print(f"Dash Grafik: Grafik oluşturma sırasında genel hata: {e}")
+        error_text = f"Hata: {str(e)[:100]}"  # Hata mesajını kısalt
+        fig_map.update_layout(title_text=f'2D Harita ({error_text})')
+        fig_polar.update_layout(title_text=f'Polar Grafik ({error_text})')
+        fig_time.update_layout(title_text=f'Zaman Serisi ({error_text})')
+    finally:
+        if conn:
+            conn.close()
+
+    print(f"Dash Grafik: Grafik güncelleme tamamlandı. {len(df_points) if not df_points.empty else 0} nokta işlendi.")
+    return fig_map,fig_polar, fig_time
 
 
 @app.callback(
