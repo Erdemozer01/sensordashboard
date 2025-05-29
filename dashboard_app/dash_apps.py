@@ -364,15 +364,18 @@ def update_realtime_values(n_intervals):
     [Input('interval-component-main', 'n_intervals')]
 )
 def update_all_graphs(n_intervals):
+    # 1. Veritabanı bağlantısı ve temel hazırlıklar
     conn, error_msg_conn = get_db_connection()
     id_to_plot = get_latest_scan_id_from_db(conn_param=conn) if conn else None
     ui_revision_key = str(id_to_plot) if id_to_plot else "no_scan"
 
-    fig_map = go.Figure().update_layout(title_text='2D Kartezyen Harita (Veri bekleniyor...)',
-                                        uirevision=ui_revision_key)
-    fig_polar = go.Figure().update_layout(title_text='Polar Grafik (Veri bekleniyor...)', uirevision=ui_revision_key)
+    # Boş başlangıç figürleri ve varsayılan tahmin metni
+    fig_map = go.Figure().update_layout(title_text='2D Harita (Veri bekleniyor...)', uirevision=ui_revision_key,
+                                        plot_bgcolor='rgba(248,248,248,0.95)')
+    fig_polar = go.Figure().update_layout(title_text='Polar Grafik (Veri bekleniyor...)', uirevision=ui_revision_key,
+                                          plot_bgcolor='rgba(248,248,248,0.95)')
     fig_time = go.Figure().update_layout(title_text='Zaman Serisi - Mesafe (Veri bekleniyor...)',
-                                         uirevision=ui_revision_key)
+                                         uirevision=ui_revision_key, plot_bgcolor='rgba(248,248,248,0.95)')
     estimation_text = "Tahmin: Veri Yok"
 
     if not conn or not id_to_plot:
@@ -380,86 +383,97 @@ def update_all_graphs(n_intervals):
         return fig_map, fig_polar, fig_time, estimation_text
 
     try:
+        # 2. Veritabanından verileri çekme
         df_scan_info = pd.read_sql_query(f"SELECT status, start_time FROM servo_scans WHERE id = {id_to_plot}", conn)
         df_points = pd.read_sql_query(
             f"SELECT x_cm, y_cm, angle_deg, mesafe_cm, timestamp FROM scan_points WHERE scan_id = {id_to_plot} ORDER BY id ASC",
             conn)
 
-        # ... (Grafik başlıkları için title_suffix oluşturma kodları aynı)
         scan_status_str = df_scan_info['status'].iloc[0] if not df_scan_info.empty else "Bilinmiyor"
         start_time_epoch = df_scan_info['start_time'].iloc[0] if not df_scan_info.empty else time.time()
         start_time_str = time.strftime('%H:%M:%S (%d-%m-%y)', time.localtime(start_time_epoch))
         title_suffix = f"(ID: {id_to_plot}, Başl: {start_time_str}, Durum: {scan_status_str.capitalize()})"
 
+        # 3. Veri işleme ve analiz
         if not df_points.empty:
             df_valid = df_points[(df_points['mesafe_cm'] > 1.0) & (df_points['mesafe_cm'] < 200.0)].copy()
-            if len(df_valid) > 10:  # Analiz için yeterli nokta var mı?
-                # --- ÖNCEKİ GRAFİK ÇİZİMLERİ ---
+
+            if len(df_valid) > 10:  # Analiz için yeterli nokta varsa devam et
+
+                # --- A. Ham Veri Grafikleri ---
+                # 2D Harita: Ham noktalar ve sensör konumu
                 fig_map.add_trace(
                     go.Scatter(x=df_valid['y_cm'], y=df_valid['x_cm'], mode='markers', name='Taranan Noktalar',
-                               marker=dict(size=4)))
+                               marker=dict(size=4, color='blue')))
                 fig_map.add_trace(
                     go.Scatter(x=[0], y=[0], mode='markers', marker=dict(size=10, symbol='diamond', color='red'),
                                name='Sensör'))
-                # ... (polar ve zaman serisi grafikleri için kodlar aynı)
 
-                # --- YENİ: GELİŞMİŞ ŞEKİL TAHMİNİ ---
-                points = df_valid[['y_cm', 'x_cm']].to_numpy()  # Grafik eksenlerine göre (y,x) alıyoruz
+                # Polar Grafik
+                fig_polar.add_trace(
+                    go.Scatterpolar(r=df_valid['mesafe_cm'], theta=df_valid['angle_deg'], mode='markers',
+                                    name='Mesafe'))
 
-                # 1. Dışbükey Zarf (Convex Hull)
+                # Zaman Serisi Grafiği
+                df_time = df_valid.sort_values(by='timestamp')
+                datetime_series = pd.to_datetime(df_time['timestamp'], unit='s')
+                fig_time.add_trace(
+                    go.Scatter(x=datetime_series, y=df_time['mesafe_cm'], mode='lines+markers', name='Mesafe (cm)'))
+
+                # --- B. Gelişmiş Şekil Tahmini ---
+                points = df_valid[['y_cm', 'x_cm']].to_numpy()
+
+                # Adım 1: Dışbükey Zarf (Convex Hull)
                 hull = ConvexHull(points)
                 hull_points = points[hull.vertices]
 
-                # 2. Poligonu Basitleştirme (Douglas-Peucker)
-                # 'epsilon' değeri, basitleştirmenin ne kadar agresif olacağını belirler.
-                # Daha yüksek epsilon = daha az köşe.
-                epsilon = 3.0  # cm cinsinden tolerans
+                # Adım 2: Poligonu Basitleştirme (Douglas-Peucker)
+                epsilon = 3.0  # cm cinsinden basitleştirme toleransı
                 simplified_points = simplify_coords(hull_points, epsilon)
 
-                # 3. Sınıflandırma
-                num_vertices = len(simplified_points) - 1  # Kapalı poligon olduğu için son nokta ilkiyle aynıdır
-
-                shape_map = {
-                    3: "Üçgensel Alan",
-                    4: "Dörtgensel Alan",
-                    5: "Beşgensel Alan",
-                    6: "Altıgensel Alan"
-                }
+                # Adım 3: Köşe Sayısına Göre Sınıflandırma
+                num_vertices = len(simplified_points) - 1  # Kapalı poligonun köşe sayısı
+                shape_map = {3: "Üçgensel Alan", 4: "Dörtgensel Alan", 5: "Beşgensel Alan", 6: "Altıgensel Alan"}
                 estimation_text = shape_map.get(num_vertices, f"{num_vertices} Köşeli Alan")
 
-                # 4. Dairesellik Kontrolü
-                # Dairesellik = (4 * pi * Alan) / (Çevre^2). 1'e ne kadar yakınsa o kadar daireseldir.
-                if num_vertices > 6:  # Çok köşeli ise dairesel olabilir
-                    hull_area = hull.volume  # 2D'de alan demektir
-                    hull_perimeter = hull.area  # 2D'de çevre demektir
+                # Adım 4: Dairesellik Kontrolü
+                if num_vertices > 6:  # Çok köşeli ise dairesel olma ihtimali artar
+                    hull_area = hull.volume  # 2D'de alan
+                    hull_perimeter = hull.area  # 2D'de çevre
                     if hull_perimeter > 0:
                         circularity = (4 * np.pi * hull_area) / (hull_perimeter ** 2)
-                        if circularity > 0.85:
+                        if circularity > 0.85:  # 1'e çok yakınsa daireseldir
                             estimation_text = "Dairesel Alan"
 
-                # 5. Tespit Edilen Şekli Grafikte Çiz
+                # Adım 5: Tespit Edilen Şekli 2D Haritada Çiz
                 fig_map.add_trace(go.Scatter(
-                    x=simplified_points[:, 0],
-                    y=simplified_points[:, 1],
-                    mode='lines+markers',
+                    x=np.append(simplified_points[:, 0], simplified_points[0, 0]),  # Poligonu kapat
+                    y=np.append(simplified_points[:, 1], simplified_points[0, 1]),  # Poligonu kapat
+                    mode='lines',
                     fill='toself',
                     fillcolor='rgba(255, 0, 0, 0.1)',
                     line=dict(color='red', width=2, dash='dash'),
                     name=f'Tahmin: {estimation_text}'
                 ))
+            else:
+                estimation_text = "Tahmin: Yetersiz Veri"
 
+        # --- C. Grafik Başlıklarını ve Eksenlerini Güncelleme ---
         fig_map.update_layout(title_text='2D Harita ve Şekil Tahmini ' + title_suffix, xaxis_title="Yatay (cm)",
                               yaxis_title="İleri (cm)", yaxis_scaleanchor="x", yaxis_scaleratio=1)
-        # ... (Diğer grafiklerin update_layout kodları)
+        fig_polar.update_layout(title_text='Polar Grafik ' + title_suffix,
+                                polar=dict(radialaxis=dict(visible=True, range=[0, 200]),
+                                           angularaxis=dict(direction="clockwise", ticksuffix="°")))
+        fig_time.update_layout(title_text='Zaman Serisi - Mesafe ' + title_suffix, xaxis_title="Zaman",
+                               yaxis_title="Mesafe (cm)")
 
     except Exception as e:
         estimation_text = "Tahmin: Analiz Hatası"
-        print(f"Gelişmiş analiz hatası: {e}")
+        print(f"Gelişmiş analiz ve grafikleme hatası: {e}")
     finally:
-        if conn: conn.close()
+        if conn:
+            conn.close()
 
-    # DİKKAT: `fig_polar` ve `fig_time` için olan çizim mantığını bu bloğun içine taşımanız gerekebilir.
-    # Bu örnekte sadece fig_map'e odaklanılmıştır.
     return fig_map, fig_polar, fig_time, estimation_text
 
 
