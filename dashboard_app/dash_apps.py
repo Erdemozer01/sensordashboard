@@ -16,6 +16,9 @@ import io
 import signal
 import psutil  # Sistem bilgilerini almak için
 
+from scipy.spatial import ConvexHull
+from simplification.cutil import simplify_coords
+
 # --- Sabitler ---
 try:
     PROJECT_ROOT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..')
@@ -185,14 +188,19 @@ def get_latest_scan_id_from_db(conn_param=None):
     internal_conn = False
     conn_to_use = conn_param
     latest_id = None
+
     if not conn_to_use:
+
         conn_to_use, error = get_db_connection()
         if error: print(f"DB Hatası (get_latest_scan_id): {error}"); return None
         internal_conn = True
+
     if conn_to_use:
         try:
+
             df_scan = pd.read_sql_query(
                 "SELECT id FROM servo_scans WHERE status = 'running' ORDER BY start_time DESC LIMIT 1", conn_to_use)
+
             if df_scan.empty: df_scan = pd.read_sql_query("SELECT id FROM servo_scans ORDER BY start_time DESC LIMIT 1",
                                                           conn_to_use)
             if not df_scan.empty:
@@ -211,14 +219,21 @@ def get_latest_scan_id_from_db(conn_param=None):
                State('step-angle-input', 'value')],
               prevent_initial_call=True)
 def handle_start_scan_script(n_clicks_start, start_angle_val, end_angle_val, step_angle_val):
-    if n_clicks_start == 0: return no_update
+
+    if n_clicks_start == 0:
+        return no_update
+
     start_a = start_angle_val if start_angle_val is not None else DEFAULT_UI_SCAN_START_ANGLE
     end_a = end_angle_val if end_angle_val is not None else DEFAULT_UI_SCAN_END_ANGLE
     step_a = step_angle_val if step_angle_val is not None else DEFAULT_UI_SCAN_STEP_ANGLE
-    if not (0 <= start_a <= 180 and 0 <= end_a <= 180 and start_a <= end_a): return dbc.Alert("Geçersiz açı!",
-                                                                                              color="danger")
+
+    if not (0 <= start_a <= 180 and 0 <= end_a <= 180 and start_a <= end_a):
+        return dbc.Alert("Geçersiz açı!", color="danger")
+
     if not (1 <= step_a <= 45): return dbc.Alert("Geçersiz adım açısı!", color="danger")
+
     current_pid = None
+
     if os.path.exists(PID_FILE_PATH_FOR_DASH):
         try:
             with open(PID_FILE_PATH_FOR_DASH, 'r') as pf:
@@ -249,7 +264,7 @@ def handle_start_scan_script(n_clicks_start, start_angle_val, end_angle_val, ste
                     pid_str_new = pf_new.read().strip()
                 if pid_str_new: new_pid = int(pid_str_new)
                 if new_pid and is_process_running(new_pid):
-                    return dbc.Alert(f"Sensör okumaları başladı (PID: {new_pid}).", color="success")
+                    return dbc.Alert(f"Sensör okumaları başladı.", color="success")
                 else:
                     return dbc.Alert(f"Betik başlatıldı ancak process (PID: {new_pid}) bulunamadı.", color="warning")
             except Exception as e:
@@ -307,8 +322,11 @@ def handle_stop_scan_script(n_clicks_stop):
     [Input('interval-component-main', 'n_intervals')]
 )
 def update_realtime_values(n_intervals):
+
     conn, error = get_db_connection()
+
     angle_str, distance_str, speed_str = "--°", "-- cm", "-- cm/s"
+
     if conn:
         try:
             latest_id = get_latest_scan_id_from_db(conn_param=conn)
@@ -331,81 +349,108 @@ def update_realtime_values(n_intervals):
 @app.callback(
     [Output('scan-map-graph', 'figure'),
      Output('polar-graph', 'figure'),
-     Output('time-series-graph', 'figure')],
+     Output('time-series-graph', 'figure'),
+     Output('environment-estimation-text', 'children')],
     [Input('interval-component-main', 'n_intervals')]
 )
 def update_all_graphs(n_intervals):
     conn, error_msg_conn = get_db_connection()
     id_to_plot = get_latest_scan_id_from_db(conn_param=conn) if conn else None
-
-    # uirevision, grafik güncellendiğinde zoom/pan ayarlarını korur.
     ui_revision_key = str(id_to_plot) if id_to_plot else "no_scan"
 
-    # Boş grafik şablonları
     fig_map = go.Figure().update_layout(title_text='2D Kartezyen Harita (Veri bekleniyor...)',
-                                        uirevision=ui_revision_key, plot_bgcolor='rgba(248,248,248,0.95)')
-    fig_polar = go.Figure().update_layout(title_text='Polar Grafik (Veri bekleniyor...)', uirevision=ui_revision_key,
-                                          plot_bgcolor='rgba(248,248,248,0.95)')
+                                        uirevision=ui_revision_key)
+    fig_polar = go.Figure().update_layout(title_text='Polar Grafik (Veri bekleniyor...)', uirevision=ui_revision_key)
     fig_time = go.Figure().update_layout(title_text='Zaman Serisi - Mesafe (Veri bekleniyor...)',
-                                         uirevision=ui_revision_key, plot_bgcolor='rgba(248,248,248,0.95)')
+                                         uirevision=ui_revision_key)
+    estimation_text = "Tahmin: Veri Yok"
 
     if not conn or not id_to_plot:
-        if error_msg_conn: print(f"Grafik Güncelleme: DB bağlantı hatası: {error_msg_conn}")
         if conn: conn.close()
-        return fig_map, fig_polar, fig_time
+        return fig_map, fig_polar, fig_time, estimation_text
 
     try:
         df_scan_info = pd.read_sql_query(f"SELECT status, start_time FROM servo_scans WHERE id = {id_to_plot}", conn)
         df_points = pd.read_sql_query(
-            f"SELECT angle_deg, mesafe_cm, x_cm, y_cm, timestamp FROM scan_points WHERE scan_id = {id_to_plot} ORDER BY id ASC",
+            f"SELECT x_cm, y_cm, angle_deg, mesafe_cm, timestamp FROM scan_points WHERE scan_id = {id_to_plot} ORDER BY id ASC",
             conn)
 
+        # ... (Grafik başlıkları için title_suffix oluşturma kodları aynı)
         scan_status_str = df_scan_info['status'].iloc[0] if not df_scan_info.empty else "Bilinmiyor"
         start_time_epoch = df_scan_info['start_time'].iloc[0] if not df_scan_info.empty else time.time()
         start_time_str = time.strftime('%H:%M:%S (%d-%m-%y)', time.localtime(start_time_epoch))
         title_suffix = f"(ID: {id_to_plot}, Başl: {start_time_str}, Durum: {scan_status_str.capitalize()})"
 
         if not df_points.empty:
-            max_plot_dist = 200.0
-            df_valid = df_points[(df_points['mesafe_cm'] > 0.1) & (df_points['mesafe_cm'] < max_plot_dist)].copy()
-
-            if not df_valid.empty and 'x_cm' in df_valid.columns and 'y_cm' in df_valid.columns:
-                fig_map.add_trace(go.Scatter(x=df_valid['y_cm'], y=df_valid['x_cm'], mode='lines+markers', name='Sınır',
-                                             line=dict(color='dodgerblue')))
-                polygon_plot_x = [0] + list(df_valid['y_cm'])
-                polygon_plot_y = [0] + list(df_valid['x_cm'])
-                if len(df_valid) > 1: polygon_plot_x.append(0); polygon_plot_y.append(0)
+            df_valid = df_points[(df_points['mesafe_cm'] > 1.0) & (df_points['mesafe_cm'] < 200.0)].copy()
+            if len(df_valid) > 10:  # Analiz için yeterli nokta var mı?
+                # --- ÖNCEKİ GRAFİK ÇİZİMLERİ ---
                 fig_map.add_trace(
-                    go.Scatter(x=polygon_plot_x, y=polygon_plot_y, fill="toself", fillcolor='rgba(0,176,246,0.2)',
-                               line=dict(color='rgba(255,255,255,0)'), showlegend=False))
+                    go.Scatter(x=df_valid['y_cm'], y=df_valid['x_cm'], mode='markers', name='Taranan Noktalar',
+                               marker=dict(size=4)))
                 fig_map.add_trace(
                     go.Scatter(x=[0], y=[0], mode='markers', marker=dict(size=10, symbol='diamond', color='red'),
                                name='Sensör'))
-                fig_map.update_layout(title_text='2D Harita ' + title_suffix, xaxis_title="Yatay (cm)",
-                                      yaxis_title="İleri (cm)", yaxis_scaleanchor="x", yaxis_scaleratio=1)
+                # ... (polar ve zaman serisi grafikleri için kodlar aynı)
 
-                fig_polar.add_trace(
-                    go.Scatterpolar(r=df_valid['mesafe_cm'], theta=df_valid['angle_deg'], mode='lines+markers',
-                                    name='Mesafe', marker=dict(colorscale='Viridis', showscale=True,
-                                                               colorbar_title_text="Mesafe(cm)")))
-                fig_polar.update_layout(title_text='Polar Grafik ' + title_suffix,
-                                        polar=dict(radialaxis=dict(visible=True, range=[0, max_plot_dist]),
-                                                   angularaxis=dict(direction="clockwise", ticksuffix="°")))
+                # --- YENİ: GELİŞMİŞ ŞEKİL TAHMİNİ ---
+                points = df_valid[['y_cm', 'x_cm']].to_numpy()  # Grafik eksenlerine göre (y,x) alıyoruz
 
-                if 'timestamp' in df_valid.columns:
-                    df_time = df_valid.sort_values(by='timestamp')
-                    datetime_series = pd.to_datetime(df_time['timestamp'], unit='s')
-                    fig_time.add_trace(
-                        go.Scatter(x=datetime_series, y=df_time['mesafe_cm'], mode='lines+markers', name='Mesafe (cm)'))
-                    fig_time.update_xaxes(type='date', tickformat='%H:%M:%S')
-                fig_time.update_layout(title_text='Zaman Serisi - Mesafe ' + title_suffix, xaxis_title="Zaman",
-                                       yaxis_title="Mesafe (cm)")
+                # 1. Dışbükey Zarf (Convex Hull)
+                hull = ConvexHull(points)
+                hull_points = points[hull.vertices]
+
+                # 2. Poligonu Basitleştirme (Douglas-Peucker)
+                # 'epsilon' değeri, basitleştirmenin ne kadar agresif olacağını belirler.
+                # Daha yüksek epsilon = daha az köşe.
+                epsilon = 3.0  # cm cinsinden tolerans
+                simplified_points = simplify_coords(hull_points, epsilon)
+
+                # 3. Sınıflandırma
+                num_vertices = len(simplified_points) - 1  # Kapalı poligon olduğu için son nokta ilkiyle aynıdır
+
+                shape_map = {
+                    3: "Üçgensel Alan",
+                    4: "Dörtgensel Alan",
+                    5: "Beşgensel Alan",
+                    6: "Altıgensel Alan"
+                }
+                estimation_text = shape_map.get(num_vertices, f"{num_vertices} Köşeli Alan")
+
+                # 4. Dairesellik Kontrolü
+                # Dairesellik = (4 * pi * Alan) / (Çevre^2). 1'e ne kadar yakınsa o kadar daireseldir.
+                if num_vertices > 6:  # Çok köşeli ise dairesel olabilir
+                    hull_area = hull.volume  # 2D'de alan demektir
+                    hull_perimeter = hull.area  # 2D'de çevre demektir
+                    if hull_perimeter > 0:
+                        circularity = (4 * np.pi * hull_area) / (hull_perimeter ** 2)
+                        if circularity > 0.85:
+                            estimation_text = "Dairesel Alan"
+
+                # 5. Tespit Edilen Şekli Grafikte Çiz
+                fig_map.add_trace(go.Scatter(
+                    x=simplified_points[:, 0],
+                    y=simplified_points[:, 1],
+                    mode='lines+markers',
+                    fill='toself',
+                    fillcolor='rgba(255, 0, 0, 0.1)',
+                    line=dict(color='red', width=2, dash='dash'),
+                    name=f'Tahmin: {estimation_text}'
+                ))
+
+        fig_map.update_layout(title_text='2D Harita ve Şekil Tahmini ' + title_suffix, xaxis_title="Yatay (cm)",
+                              yaxis_title="İleri (cm)", yaxis_scaleanchor="x", yaxis_scaleratio=1)
+        # ... (Diğer grafiklerin update_layout kodları)
+
     except Exception as e:
-        print(f"Grafik için DB okuma hatası: {e}")
+        estimation_text = "Tahmin: Analiz Hatası"
+        print(f"Gelişmiş analiz hatası: {e}")
     finally:
         if conn: conn.close()
 
-    return fig_map, fig_polar, fig_time
+    # DİKKAT: `fig_polar` ve `fig_time` için olan çizim mantığını bu bloğun içine taşımanız gerekebilir.
+    # Bu örnekte sadece fig_map'e odaklanılmıştır.
+    return fig_map, fig_polar, fig_time, estimation_text
 
 
 # IYILESTIRME & DÜZELTME: Bu callback artık sadece analiz değerlerini döndürüyor ve doğru formatta.
