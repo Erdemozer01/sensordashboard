@@ -14,10 +14,11 @@ import subprocess
 import time
 import io
 import signal
-import psutil
+import psutil  # Sistem bilgilerini almak için
 import numpy as np
+
 from scipy.spatial import ConvexHull
-from simplification.cutil import simplify_coords  # pip install simplification
+from simplification.cutil import simplify_coords
 
 # --- Sabitler ---
 try:
@@ -128,17 +129,21 @@ visualization_tabs = dbc.Tabs([
     dbc.Tab(dcc.Graph(id='scan-map-graph', style={'height': '75vh'}), label="2D Kartezyen Harita"),
     dbc.Tab(dcc.Graph(id='polar-graph', style={'height': '75vh'}), label="Polar Grafik"),
     dbc.Tab(dcc.Graph(id='time-series-graph', style={'height': '75vh'}), label="Zaman Serisi (Mesafe)"),
+    # YENİ SEKME
     dbc.Tab(
-        dcc.Loading(
+        dcc.Loading(  # Veri yüklenirken bekleme animasyonu gösterir
             children=[
                 dash_table.DataTable(
                     id='scan-data-table',
                     style_cell={'textAlign': 'left', 'padding': '5px'},
-                    style_header={'backgroundColor': 'rgb(230, 230, 230)', 'fontWeight': 'bold'},
+                    style_header={
+                        'backgroundColor': 'rgb(230, 230, 230)',
+                        'fontWeight': 'bold'
+                    },
                     style_table={'height': '70vh', 'overflowY': 'auto'},
-                    page_size=20,
-                    sort_action="native",
-                    filter_action="native",
+                    page_size=20,  # Sayfa başına 20 satır göster
+                    sort_action="native",  # Sütunlara tıklayarak sıralama
+                    filter_action="native",  # Sütun bazında filtreleme
                 )
             ]
         ),
@@ -157,12 +162,14 @@ app.layout = dbc.Container(fluid=True, children=[
         dbc.Col([
             visualization_tabs,
             dbc.Row(html.Div(style={"height": "15px"})),
+            # YENİ DÜZENLEME: Analiz ve Tahmin kartlarını yan yana koymak için Row kullan
             dbc.Row([
-                dbc.Col(analysis_card, md=8),  # Tarama Analizi Kartı
-                dbc.Col(estimation_card, md=4)  # Ortam Şekli Tahmini Kartı
+                dbc.Col(analysis_card, md=8),
+                dbc.Col(estimation_card, md=4)
             ])
         ], md=8)
     ]),
+    # IYILESTIRME: Interval süresi sistem yükünü azaltmak için 3sn'ye çıkarıldı.
     dcc.Interval(id='interval-component-main', interval=3000, n_intervals=0),
     dcc.Interval(id='interval-component-system', interval=3000, n_intervals=0),
 ])
@@ -194,14 +201,19 @@ def get_latest_scan_id_from_db(conn_param=None):
     internal_conn = False
     conn_to_use = conn_param
     latest_id = None
+
     if not conn_to_use:
+
         conn_to_use, error = get_db_connection()
         if error: print(f"DB Hatası (get_latest_scan_id): {error}"); return None
         internal_conn = True
+
     if conn_to_use:
         try:
+
             df_scan = pd.read_sql_query(
                 "SELECT id FROM servo_scans WHERE status = 'running' ORDER BY start_time DESC LIMIT 1", conn_to_use)
+
             if df_scan.empty: df_scan = pd.read_sql_query("SELECT id FROM servo_scans ORDER BY start_time DESC LIMIT 1",
                                                           conn_to_use)
             if not df_scan.empty:
@@ -220,14 +232,20 @@ def get_latest_scan_id_from_db(conn_param=None):
                State('step-angle-input', 'value')],
               prevent_initial_call=True)
 def handle_start_scan_script(n_clicks_start, start_angle_val, end_angle_val, step_angle_val):
-    if n_clicks_start == 0: return no_update
+    if n_clicks_start == 0:
+        return no_update
+
     start_a = start_angle_val if start_angle_val is not None else DEFAULT_UI_SCAN_START_ANGLE
     end_a = end_angle_val if end_angle_val is not None else DEFAULT_UI_SCAN_END_ANGLE
     step_a = step_angle_val if step_angle_val is not None else DEFAULT_UI_SCAN_STEP_ANGLE
-    if not (0 <= start_a <= 180 and 0 <= end_a <= 180 and start_a <= end_a): return dbc.Alert("Geçersiz açı!",
-                                                                                              color="danger")
+
+    if not (0 <= start_a <= 180 and 0 <= end_a <= 180 and start_a <= end_a):
+        return dbc.Alert("Geçersiz açı!", color="danger")
+
     if not (1 <= step_a <= 45): return dbc.Alert("Geçersiz adım açısı!", color="danger")
+
     current_pid = None
+
     if os.path.exists(PID_FILE_PATH_FOR_DASH):
         try:
             with open(PID_FILE_PATH_FOR_DASH, 'r') as pf:
@@ -250,7 +268,7 @@ def handle_start_scan_script(n_clicks_start, start_angle_val, end_angle_val, ste
         cmd = [python_executable, SENSOR_SCRIPT_PATH, "--start_angle", str(start_a), "--end_angle", str(end_a),
                "--step_angle", str(step_a)]
         subprocess.Popen(cmd, start_new_session=True)
-        time.sleep(2.5)
+        time.sleep(2.5)  # Betiğin PID dosyasını oluşturması için kısa bir bekleme
         if os.path.exists(PID_FILE_PATH_FOR_DASH):
             new_pid = None
             try:
@@ -258,7 +276,7 @@ def handle_start_scan_script(n_clicks_start, start_angle_val, end_angle_val, ste
                     pid_str_new = pf_new.read().strip()
                 if pid_str_new: new_pid = int(pid_str_new)
                 if new_pid and is_process_running(new_pid):
-                    return dbc.Alert(f"Sensör okumaları başladı (PID: {new_pid}).", color="success")
+                    return dbc.Alert(f"Sensör okumaları başladı.", color="success")
                 else:
                     return dbc.Alert(f"Betik başlatıldı ancak process (PID: {new_pid}) bulunamadı.", color="warning")
             except Exception as e:
@@ -285,9 +303,11 @@ def handle_stop_scan_script(n_clicks_stop):
             pid_to_kill = None
     if pid_to_kill and is_process_running(pid_to_kill):
         try:
-            os.kill(pid_to_kill, signal.SIGTERM);
+            os.kill(pid_to_kill, signal.SIGTERM)
             time.sleep(2.0)
-            if is_process_running(pid_to_kill): os.kill(pid_to_kill, signal.SIGKILL); time.sleep(0.5)
+            if is_process_running(pid_to_kill):
+                os.kill(pid_to_kill, signal.SIGKILL)
+                time.sleep(0.5)
             if not is_process_running(pid_to_kill):
                 return dbc.Alert(f"Betik (PID: {pid_to_kill}) başarıyla durduruldu.", color="info")
             else:
@@ -306,6 +326,7 @@ def handle_stop_scan_script(n_clicks_stop):
         return dbc.Alert(msg, color="warning")
 
 
+# IYILESTIRME: Bu callback artık tüm HTML yapısını değil, sadece değerleri güncelliyor.
 @app.callback(
     [Output('current-angle', 'children'),
      Output('current-distance', 'children'),
@@ -314,7 +335,9 @@ def handle_stop_scan_script(n_clicks_stop):
 )
 def update_realtime_values(n_intervals):
     conn, error = get_db_connection()
+
     angle_str, distance_str, speed_str = "--°", "-- cm", "-- cm/s"
+
     if conn:
         try:
             latest_id = get_latest_scan_id_from_db(conn_param=conn)
@@ -330,11 +353,139 @@ def update_realtime_values(n_intervals):
         except Exception as e:
             print(f"Anlık değerler güncellenirken hata: {e}")
         finally:
-            if conn: conn.close()
+            conn.close()
     return angle_str, distance_str, speed_str
 
 
-# KULLANICININ İŞARET ETTİĞİ VE GÜNCELLENEN CALLBACK
+@app.callback(
+    [Output('scan-map-graph', 'figure'),
+     Output('polar-graph', 'figure'),
+     Output('time-series-graph', 'figure'),
+     Output('environment-estimation-text', 'children')],
+    [Input('interval-component-main', 'n_intervals')]
+)
+def update_all_graphs(n_intervals):
+    # 1. VERİTABANI BAĞLANTISI VE TEMEL HAZIRLIKLAR
+    conn, error_msg_conn = get_db_connection()
+    id_to_plot = get_latest_scan_id_from_db(conn_param=conn) if conn else None
+    ui_revision_key = str(id_to_plot) if id_to_plot else "no_scan"
+
+    # Boş başlangıç figürleri ve varsayılan tahmin metni
+    fig_map = go.Figure().update_layout(title_text='2D Harita (Veri bekleniyor...)', uirevision=ui_revision_key,
+                                        plot_bgcolor='rgba(248,248,248,0.95)')
+    fig_polar = go.Figure().update_layout(title_text='Polar Grafik (Veri bekleniyor...)', uirevision=ui_revision_key,
+                                          plot_bgcolor='rgba(248,248,248,0.95)')
+    fig_time = go.Figure().update_layout(title_text='Zaman Serisi - Mesafe (Veri bekleniyor...)',
+                                         uirevision=ui_revision_key, plot_bgcolor='rgba(248,248,248,0.95)')
+    estimation_text = "Tahmin: Veri Yok"
+
+    if not conn or not id_to_plot:
+        if conn: conn.close()
+        return fig_map, fig_polar, fig_time, estimation_text
+
+    try:
+        # 2. VERİLERİ VERİTABANINDAN ÇEKME
+        df_scan_info = pd.read_sql_query(f"SELECT status, start_time FROM servo_scans WHERE id = {id_to_plot}", conn)
+        df_points = pd.read_sql_query(
+            f"SELECT x_cm, y_cm, angle_deg, mesafe_cm, timestamp FROM scan_points WHERE scan_id = {id_to_plot} ORDER BY id ASC",
+            conn)
+
+        scan_status_str = df_scan_info['status'].iloc[0] if not df_scan_info.empty else "Bilinmiyor"
+        start_time_epoch = df_scan_info['start_time'].iloc[0] if not df_scan_info.empty else time.time()
+        start_time_str = time.strftime('%H:%M:%S (%d-%m-%y)', time.localtime(start_time_epoch))
+        title_suffix = f"(ID: {id_to_plot}, Başl: {start_time_str}, Durum: {scan_status_str.capitalize()})"
+
+        # 3. VERİ İŞLEME, GÖRSELLEŞTİRME VE ANALİZ
+        if not df_points.empty:
+            df_valid = df_points[(df_points['mesafe_cm'] > 1.0) & (df_points['mesafe_cm'] < 200.0)].copy()
+
+            if len(df_valid) > 10:  # Analiz için yeterli nokta varsa devam et
+
+                # --- A. Tüm Ham Veri Grafikleri ---
+
+                # 2D Harita: Ham noktalar ve sensör konumu
+                fig_map.add_trace(
+                    go.Scatter(x=df_valid['y_cm'], y=df_valid['x_cm'], mode='markers', name='Taranan Noktalar',
+                               marker=dict(size=4, color='rgba(0, 0, 255, 0.6)')))
+                fig_map.add_trace(
+                    go.Scatter(x=[0], y=[0], mode='markers', marker=dict(size=10, symbol='diamond', color='red'),
+                               name='Sensör'))
+
+                # Polar Grafik
+                fig_polar.add_trace(
+                    go.Scatterpolar(r=df_valid['mesafe_cm'], theta=df_valid['angle_deg'], mode='markers',
+                                    name='Mesafe'))
+
+                # Zaman Serisi Grafiği
+                df_time = df_valid.sort_values(by='timestamp')
+                datetime_series = pd.to_datetime(df_time['timestamp'], unit='s')
+                fig_time.add_trace(
+                    go.Scatter(x=datetime_series, y=df_time['mesafe_cm'], mode='lines+markers', name='Mesafe (cm)'))
+
+                # --- B. Gelişmiş Şekil Tahmini Analizi ---
+                points = df_valid[['y_cm', 'x_cm']].to_numpy()
+
+                # Adım 1: Dışbükey Zarf (Convex Hull)
+                hull = ConvexHull(points)
+                hull_points = points[hull.vertices]
+
+                # Adım 2: Önce Dairesellik Oranını Hesapla
+                hull_area = hull.volume  # 2D'de alan
+                hull_perimeter = hull.area  # 2D'de çevre
+                circularity = 0.0
+                if hull_perimeter > 0:
+                    circularity = (4 * np.pi * hull_area) / (hull_perimeter ** 2)
+
+                # Adım 3: Şekli Sınıflandır (Dairesel mi, Poligon mu?)
+                if circularity > 0.82:  # Eşiği 0.82 olarak ayarladık, gerekirse değiştirilebilir
+                    estimation_text = "Dairesel Alan"
+                    # Daireyi daha pürüzsüz çizmek için epsilon'u düşürelim
+                    simplified_points = simplify_coords(hull_points, 1.0)
+                else:
+                    # Dairesel değilse, poligon olarak sınıflandır
+                    epsilon = 3.0  # Poligon basitleştirme toleransı
+                    simplified_points = simplify_coords(hull_points, epsilon)
+                    num_vertices = len(simplified_points) - 1
+                    shape_map = {3: "Üçgensel Alan", 4: "Dörtgensel Alan", 5: "Beşgensel Alan", 6: "Altıgensel Alan"}
+                    estimation_text = shape_map.get(num_vertices, f"{num_vertices} Köşeli Alan")
+
+                # Adım 4: Tespit Edilen Şekli 2D Haritada Çiz
+                fig_map.add_trace(go.Scatter(
+                    x=np.append(simplified_points[:, 0], simplified_points[0, 0]),
+                    # Poligonu kapatmak için ilk noktayı sona ekle
+                    y=np.append(simplified_points[:, 1], simplified_points[0, 1]),
+                    mode='lines',
+                    fill='toself',
+                    fillcolor='rgba(255, 0, 0, 0.1)',
+                    line=dict(color='red', width=2, dash='dash'),
+                    name=f'Tahmin: {estimation_text}'
+                ))
+            else:
+                estimation_text = "Tahmin: Yetersiz Veri"
+        else:
+            estimation_text = "Tahmin: Veri Yok"
+
+        # --- C. Tüm Grafik Başlıklarını ve Eksenlerini Güncelleme ---
+        fig_map.update_layout(title_text='2D Harita ve Şekil Tahmini ' + title_suffix, xaxis_title="Yatay (cm)",
+                              yaxis_title="İleri (cm)", yaxis_scaleanchor="x", yaxis_scaleratio=1,
+                              legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
+        fig_polar.update_layout(title_text='Polar Grafik ' + title_suffix,
+                                polar=dict(radialaxis=dict(visible=True, range=[0, 200]),
+                                           angularaxis=dict(direction="clockwise", ticksuffix="°")))
+        fig_time.update_layout(title_text='Zaman Serisi - Mesafe ' + title_suffix, xaxis_title="Zaman",
+                               yaxis_title="Mesafe (cm)")
+
+    except Exception as e:
+        estimation_text = "Tahmin: Analiz Hatası"
+        print(f"Gelişmiş analiz ve grafikleme hatası: {e}")
+    finally:
+        if conn:
+            conn.close()
+
+    return fig_map, fig_polar, fig_time, estimation_text
+
+
+# IYILESTIRME & DÜZELTME: Bu callback artık sadece analiz değerlerini döndürüyor ve doğru formatta.
 @app.callback(
     [Output('calculated-area', 'children'),
      Output('perimeter-length', 'children'),
@@ -343,55 +494,34 @@ def update_realtime_values(n_intervals):
     [Input('interval-component-main', 'n_intervals')]
 )
 def update_analysis_panel(n_intervals):
-    print(f"DEBUG: update_analysis_panel çağrıldı, n_intervals: {n_intervals}")  # Hata ayıklama için
     conn, error = get_db_connection()
     area_str, perimeter_str, width_str, depth_str = "-- cm²", "-- cm", "-- cm", "-- cm"
-
     if conn:
-        print("DEBUG: update_analysis_panel - Veritabanı bağlantısı başarılı.")
         try:
             latest_id = get_latest_scan_id_from_db(conn_param=conn)
-            print(f"DEBUG: update_analysis_panel - Son tarama ID: {latest_id}")
             if latest_id:
                 df_scan = pd.read_sql_query(
                     f"SELECT hesaplanan_alan_cm2, cevre_cm, max_genislik_cm, max_derinlik_cm FROM servo_scans WHERE id = {latest_id}",
-                    conn
-                )
-                print(f"DEBUG: update_analysis_panel - df_scan (ID: {latest_id}):\n{df_scan.to_string()}")
+                    conn)
                 if not df_scan.empty:
-                    scan_data_row = df_scan.iloc[0]
-
-                    # Sütunların varlığını .get() ile kontrol ederek daha güvenli erişim
-                    area_val = scan_data_row.get('hesaplanan_alan_cm2')
-                    per_val = scan_data_row.get('cevre_cm')
-                    w_val = scan_data_row.get('max_genislik_cm')
-                    d_val = scan_data_row.get('max_derinlik_cm')
-
+                    area_val, per_val, w_val, d_val = df_scan.iloc[0]
                     area_str = f"{area_val:.2f} cm²" if pd.notnull(area_val) else "Hesaplanmadı"
                     perimeter_str = f"{per_val:.2f} cm" if pd.notnull(per_val) else "Hesaplanmadı"
                     width_str = f"{w_val:.2f} cm" if pd.notnull(w_val) else "Hesaplanmadı"
                     depth_str = f"{d_val:.2f} cm" if pd.notnull(d_val) else "Hesaplanmadı"
-                    print(
-                        f"DEBUG: update_analysis_panel - İşlenmiş değerler: Alan={area_str}, Çevre={perimeter_str}, Genişlik={width_str}, Derinlik={depth_str}")
-                else:
-                    print(f"DEBUG: update_analysis_panel - ID {latest_id} için servo_scans tablosunda veri yok.")
-            else:
-                print("DEBUG: update_analysis_panel - Gösterilecek son tarama ID'si bulunamadı.")
         except Exception as e:
-            print(f"HATA: Analiz paneli DB sorgu veya işleme hatası: {e}")  # Hata mesajını daha belirgin yap
+            print(f"Analiz paneli DB sorgu hatası: {e}")
             area_str, perimeter_str, width_str, depth_str = "Hata", "Hata", "Hata", "Hata"
         finally:
-            if conn: conn.close()
-            print("DEBUG: update_analysis_panel - Veritabanı bağlantısı kapatıldı.")
+            conn.close()
     elif error:
-        print(f"HATA: DB Bağlantı Hatası (Analiz Paneli): {error}")
+        print(f"DB Bağlantı Hatası (Analiz Paneli): {error}")
         area_str, perimeter_str, width_str, depth_str = "DB Yok", "DB Yok", "DB Yok", "DB Yok"
 
-    print(
-        f"DEBUG: update_analysis_panel tamamlandı, dönen değerler: {area_str}, {perimeter_str}, {width_str}, {depth_str}")
     return area_str, perimeter_str, width_str, depth_str
 
 
+# IYILESTIRME & DÜZELTME: Bu callback artık doğrudan ilgili bileşen özelliklerini güncelliyor.
 @app.callback(
     [Output('script-status', 'children'),
      Output('script-status', 'className'),
@@ -411,6 +541,7 @@ def update_system_card(n_intervals):
                 if pid_str: pid = int(pid_str)
         except (IOError, ValueError):
             pass
+
     if pid and is_process_running(pid):
         script_status_text, status_class_name = "Çalışıyor", "text-success"
     else:
@@ -418,122 +549,15 @@ def update_system_card(n_intervals):
             script_status_text, status_class_name = "Durum Belirsiz (Kilit Var)", "text-warning"
         else:
             script_status_text, status_class_name = "Çalışmıyor", "text-danger"
+
     cpu_percent, ram_percent = 0.0, 0.0
     try:
         cpu_percent = round(psutil.cpu_percent(interval=0.1), 1)
         ram_percent = round(psutil.virtual_memory().percent, 1)
     except Exception as e:
         print(f"CPU/RAM (psutil) okuma hatası: {e}")
+
     return script_status_text, status_class_name, cpu_percent, f"{cpu_percent}%", ram_percent, f"{ram_percent}%"
-
-
-@app.callback(
-    [Output('scan-map-graph', 'figure'),
-     Output('polar-graph', 'figure'),
-     Output('time-series-graph', 'figure'),
-     Output('environment-estimation-text', 'children')],
-    [Input('interval-component-main', 'n_intervals')]
-)
-def update_all_graphs(n_intervals):
-    conn, error_msg_conn = get_db_connection()
-    id_to_plot = get_latest_scan_id_from_db(conn_param=conn) if conn else None
-    ui_revision_key = str(id_to_plot) if id_to_plot else "no_scan"
-
-    fig_map = go.Figure().update_layout(title_text='2D Harita (Veri bekleniyor...)', uirevision=ui_revision_key,
-                                        plot_bgcolor='rgba(248,248,248,0.95)')
-    fig_polar = go.Figure().update_layout(title_text='Polar Grafik (Veri bekleniyor...)', uirevision=ui_revision_key,
-                                          plot_bgcolor='rgba(248,248,248,0.95)')
-    fig_time = go.Figure().update_layout(title_text='Zaman Serisi - Mesafe (Veri bekleniyor...)',
-                                         uirevision=ui_revision_key, plot_bgcolor='rgba(248,248,248,0.95)')
-    estimation_text = "Tahmin: Veri Yok"
-
-    if not conn or not id_to_plot:
-        if conn: conn.close()
-        return fig_map, fig_polar, fig_time, estimation_text
-
-    try:
-        df_scan_info = pd.read_sql_query(f"SELECT status, start_time FROM servo_scans WHERE id = {id_to_plot}", conn)
-        df_points = pd.read_sql_query(
-            f"SELECT x_cm, y_cm, angle_deg, mesafe_cm, timestamp FROM scan_points WHERE scan_id = {id_to_plot} ORDER BY angle_deg ASC",
-            conn)
-
-        scan_status_str = df_scan_info['status'].iloc[0] if not df_scan_info.empty else "Bilinmiyor"
-        start_time_epoch = df_scan_info['start_time'].iloc[0] if not df_scan_info.empty else time.time()
-        start_time_str = time.strftime('%H:%M:%S (%d-%m-%y)', time.localtime(start_time_epoch))
-        title_suffix = f"(ID: {id_to_plot}, Başl: {start_time_str}, Durum: {scan_status_str.capitalize()})"
-
-        if not df_points.empty:
-            df_valid = df_points[(df_points['mesafe_cm'] > 1.0) & (df_points['mesafe_cm'] < 200.0)].copy()
-
-            if len(df_valid) > 20:
-                fig_map.add_trace(
-                    go.Scatter(x=df_valid['y_cm'], y=df_valid['x_cm'], mode='markers', name='Taranan Noktalar',
-                               marker=dict(size=4, color='rgba(0, 0, 255, 0.6)')))
-                fig_map.add_trace(
-                    go.Scatter(x=[0], y=[0], mode='markers', marker=dict(size=10, symbol='diamond', color='red'),
-                               name='Sensör'))
-                fig_polar.add_trace(
-                    go.Scatterpolar(r=df_valid['mesafe_cm'], theta=df_valid['angle_deg'], mode='markers',
-                                    name='Mesafe'))
-
-                df_time_sorted = df_valid.sort_values(by='timestamp')
-                datetime_series = pd.to_datetime(df_time_sorted['timestamp'], unit='s')
-                fig_time.add_trace(go.Scatter(x=datetime_series, y=df_time_sorted['mesafe_cm'], mode='lines+markers',
-                                              name='Mesafe (cm)'))
-
-                distances = df_valid['mesafe_cm'].to_numpy()
-                distance_deltas = np.diff(distances)
-                std_dev_of_deltas = np.std(distance_deltas) if len(distance_deltas) > 0 else float('inf')
-
-                points_for_hull = df_valid[['y_cm', 'x_cm']].to_numpy()
-                hull = ConvexHull(points_for_hull)
-                hull_area = hull.volume
-                hull_perimeter = hull.area
-                circularity = (4 * np.pi * hull_area) / (hull_perimeter ** 2) if hull_perimeter > 0 else 0
-
-                if std_dev_of_deltas < 1.0:  # Eşik değeri ayarlanabilir
-                    estimation_text = "Dairesel Alan (Tutarlı Yüzey)"
-                elif circularity > 0.82:
-                    estimation_text = "Dairesel Alan (Geometrik)"
-                else:
-                    hull_points = points_for_hull[hull.vertices]
-                    epsilon = 3.0
-                    simplified_points = simplify_coords(hull_points, epsilon)
-                    num_vertices = len(simplified_points) - 1 if len(
-                        simplified_points) > 0 else 0  # simplified_points boş değilse köşe say
-
-                    shape_map = {3: "Üçgensel Alan", 4: "Dörtgensel Alan", 5: "Beşgensel Alan", 6: "Altıgensel Alan"}
-                    estimation_text = shape_map.get(num_vertices, f"{num_vertices} Köşeli Alan")
-
-                final_polygon_points = simplify_coords(points_for_hull[hull.vertices], 2.0)
-                if len(final_polygon_points) > 1:  # Çizmek için en az 2 nokta olmalı
-                    fig_map.add_trace(go.Scatter(
-                        x=np.append(final_polygon_points[:, 0], final_polygon_points[0, 0]),
-                        y=np.append(final_polygon_points[:, 1], final_polygon_points[0, 1]),
-                        mode='lines', fill='toself', fillcolor='rgba(255, 0, 0, 0.1)',
-                        line=dict(color='red', width=2, dash='dash'), name=f'Tahmin: {estimation_text}'
-                    ))
-            else:
-                estimation_text = "Tahmin: Yetersiz Veri"
-        else:
-            estimation_text = "Tahmin: Veri Yok"
-
-        fig_map.update_layout(title_text='2D Harita ve Şekil Tahmini ' + title_suffix, xaxis_title="Yatay (cm)",
-                              yaxis_title="İleri (cm)", yaxis_scaleanchor="x", yaxis_scaleratio=1,
-                              legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
-        fig_polar.update_layout(title_text='Polar Grafik ' + title_suffix,
-                                polar=dict(radialaxis=dict(visible=True, range=[0, 200]),
-                                           angularaxis=dict(direction="clockwise", ticksuffix="°")))
-        fig_time.update_layout(title_text='Zaman Serisi - Mesafe ' + title_suffix, xaxis_title="Zaman",
-                               yaxis_title="Mesafe (cm)")
-
-    except Exception as e:
-        estimation_text = "Tahmin: Analiz Hatası"
-        print(f"HATA: Gelişmiş analiz ve grafikleme hatası: {e}")
-    finally:
-        if conn: conn.close()
-
-    return fig_map, fig_polar, fig_time, estimation_text
 
 
 @app.callback(Output('download-csv', 'data'),
@@ -568,11 +592,13 @@ def export_excel_callback(n_clicks):
             df_points = pd.read_sql_query(f"SELECT * FROM scan_points WHERE scan_id = {latest_id} ORDER BY id ASC",
                                           conn)
             df_scan_info = pd.read_sql_query(f"SELECT * FROM servo_scans WHERE id = {latest_id}", conn)
+
             excel_buffer = io.BytesIO()
             with pd.ExcelWriter(excel_buffer, engine='xlsxwriter') as writer:
                 df_points.to_excel(writer, sheet_name=f'Scan_{latest_id}_Points', index=False)
                 df_scan_info.to_excel(writer, sheet_name=f'Scan_{latest_id}_Info', index=False)
             excel_buffer.seek(0)
+
             return dcc.send_bytes(excel_buffer.read(), f"tarama_detaylari_id_{latest_id}.xlsx")
     except Exception as e:
         print(f"Excel indirme hatası: {e}")
@@ -588,26 +614,45 @@ def export_excel_callback(n_clicks):
 )
 def update_data_table(n_intervals):
     conn, error = get_db_connection()
-    empty_table_data, empty_table_columns = [], []
+
+    # Başlangıçta boş bir tablo döndür
+    empty_table = [], []
+
     if not conn:
-        print(f"Veri Tablosu: DB bağlantı hatası: {error if error else 'Bilinmeyen bağlantı hatası'}")
-        return empty_table_data, empty_table_columns
+        print(f"Veri Tablosu: DB bağlantı hatası: {error}")
+        return empty_table
+
     try:
         latest_id = get_latest_scan_id_from_db(conn_param=conn)
         if not latest_id:
-            return empty_table_data, empty_table_columns
-        query = f"SELECT id, angle_deg, mesafe_cm, hiz_cm_s, x_cm, y_cm, timestamp FROM scan_points WHERE scan_id = {latest_id} ORDER BY id DESC"
+            return empty_table
+
+        # Tabloda gösterilecek sütunları seçelim
+        query = f"""
+            SELECT id, angle_deg, mesafe_cm, hiz_cm_s, x_cm, y_cm, timestamp
+            FROM scan_points
+            WHERE scan_id = {latest_id}
+            ORDER BY id DESC
+        """
         df = pd.read_sql_query(query, conn)
+
         if df.empty:
-            return empty_table_data, empty_table_columns
-        df['timestamp'] = pd.to_datetime(df['timestamp'], unit='s').dt.strftime('%H:%M:%S.%f').str[
-                          :-3]  # Milisaniye ekle
+            return empty_table
+
+        # Timestamp'i daha okunaklı bir formata çevirelim
+        df['timestamp'] = pd.to_datetime(df['timestamp'], unit='s').dt.strftime('%H:%M:%S')
+
+        # Sütunları DataTable formatına hazırla
         columns = [{"name": i.replace("_", " ").title(), "id": i} for i in df.columns]
+
+        # Veriyi DataTable formatına hazırla
         data = df.to_dict('records')
+
         return data, columns
+
     except Exception as e:
         print(f"Veri tablosu güncellenirken hata: {e}")
-        return empty_table_data, empty_table_columns
+        return empty_table
     finally:
-        if conn: conn.close()
-
+        if conn:
+            conn.close()
