@@ -1,4 +1,4 @@
-# dashboard_app/dash_apps.py (Tüm İyileştirmeler Uygulanmış Hali)
+# dashboard_app/dash_apps.py
 
 from django_plotly_dash import DjangoDash
 import dash
@@ -385,9 +385,10 @@ def update_all_graphs(n_intervals):
 
     try:
         # 2. VERİLERİ VERİTABANINDAN ÇEKME
+        # DİKKAT: Pürüzsüzlük kontrolü için veriyi açıya göre sıralıyoruz.
         df_scan_info = pd.read_sql_query(f"SELECT status, start_time FROM servo_scans WHERE id = {id_to_plot}", conn)
         df_points = pd.read_sql_query(
-            f"SELECT x_cm, y_cm, angle_deg, mesafe_cm, timestamp FROM scan_points WHERE scan_id = {id_to_plot} ORDER BY id ASC",
+            f"SELECT x_cm, y_cm, angle_deg, mesafe_cm, timestamp FROM scan_points WHERE scan_id = {id_to_plot} ORDER BY angle_deg ASC",
             conn)
 
         scan_status_str = df_scan_info['status'].iloc[0] if not df_scan_info.empty else "Bilinmiyor"
@@ -399,9 +400,9 @@ def update_all_graphs(n_intervals):
         if not df_points.empty:
             df_valid = df_points[(df_points['mesafe_cm'] > 1.0) & (df_points['mesafe_cm'] < 200.0)].copy()
 
-            if len(df_valid) > 10:  # Analiz için yeterli nokta varsa devam et
+            if len(df_valid) > 20:  # Analiz için yeterli nokta varsa devam et
 
-                # --- A. Tüm Ham Veri Grafikleri ---
+                # --- A. Ham Veri Grafikleri ---
 
                 # 2D Harita: Ham noktalar ve sensör konumu
                 fig_map.add_trace(
@@ -417,48 +418,47 @@ def update_all_graphs(n_intervals):
                                     name='Mesafe'))
 
                 # Zaman Serisi Grafiği
-                df_time = df_valid.sort_values(by='timestamp')
-                datetime_series = pd.to_datetime(df_time['timestamp'], unit='s')
-                fig_time.add_trace(
-                    go.Scatter(x=datetime_series, y=df_time['mesafe_cm'], mode='lines+markers', name='Mesafe (cm)'))
+                df_time_sorted = df_valid.sort_values(by='timestamp')
+                datetime_series = pd.to_datetime(df_time_sorted['timestamp'], unit='s')
+                fig_time.add_trace(go.Scatter(x=datetime_series, y=df_time_sorted['mesafe_cm'], mode='lines+markers',
+                                              name='Mesafe (cm)'))
 
-                # --- B. Gelişmiş Şekil Tahmini Analizi ---
+                # --- B. Hibrit Model ile Gelişmiş Şekil Tahmini ---
+
+                # Yöntem 1 (İstatistiksel): Mesafelerin tutarlılığını kontrol et
+                distances = df_valid['mesafe_cm'].to_numpy()
+                distance_deltas = np.diff(distances)
+                std_dev_of_deltas = np.std(distance_deltas)
+
+                # Yöntem 2 (Geometrik): Convex Hull ve dairesellik
                 points = df_valid[['y_cm', 'x_cm']].to_numpy()
-
-                # Adım 1: Dışbükey Zarf (Convex Hull)
                 hull = ConvexHull(points)
-                hull_points = points[hull.vertices]
+                hull_area = hull.volume
+                hull_perimeter = hull.area
+                circularity = (4 * np.pi * hull_area) / (hull_perimeter ** 2) if hull_perimeter > 0 else 0
 
-                # Adım 2: Önce Dairesellik Oranını Hesapla
-                hull_area = hull.volume  # 2D'de alan
-                hull_perimeter = hull.area  # 2D'de çevre
-                circularity = 0.0
-                if hull_perimeter > 0:
-                    circularity = (4 * np.pi * hull_area) / (hull_perimeter ** 2)
-
-                # Adım 3: Şekli Sınıflandır (Dairesel mi, Poligon mu?)
-                if circularity > 0.82:  # Eşiği 0.82 olarak ayarladık, gerekirse değiştirilebilir
-                    estimation_text = "Dairesel Alan"
-                    # Daireyi daha pürüzsüz çizmek için epsilon'u düşürelim
-                    simplified_points = simplify_coords(hull_points, 1.0)
+                # Karar Aşaması: Hibrit mantığı uygula
+                # Standart sapma çok düşükse (örn: 1 cm'den az), yüzey çok pürüzsüzdür.
+                if std_dev_of_deltas < 1.0:
+                    estimation_text = "Dairesel Alan (Tutarlı Yüzey)"
+                elif circularity > 0.82:  # Geometrik olarak dairesel mi?
+                    estimation_text = "Dairesel Alan (Geometrik)"
                 else:
                     # Dairesel değilse, poligon olarak sınıflandır
-                    epsilon = 3.0  # Poligon basitleştirme toleransı
+                    hull_points = points[hull.vertices]
+                    epsilon = 3.0
                     simplified_points = simplify_coords(hull_points, epsilon)
                     num_vertices = len(simplified_points) - 1
                     shape_map = {3: "Üçgensel Alan", 4: "Dörtgensel Alan", 5: "Beşgensel Alan", 6: "Altıgensel Alan"}
                     estimation_text = shape_map.get(num_vertices, f"{num_vertices} Köşeli Alan")
 
-                # Adım 4: Tespit Edilen Şekli 2D Haritada Çiz
+                # Görselleştirme için her zaman en dış sınırı (Convex Hull) sadeleştirip çizelim
+                final_polygon_points = simplify_coords(points[hull.vertices], 2.0)
                 fig_map.add_trace(go.Scatter(
-                    x=np.append(simplified_points[:, 0], simplified_points[0, 0]),
-                    # Poligonu kapatmak için ilk noktayı sona ekle
-                    y=np.append(simplified_points[:, 1], simplified_points[0, 1]),
-                    mode='lines',
-                    fill='toself',
-                    fillcolor='rgba(255, 0, 0, 0.1)',
-                    line=dict(color='red', width=2, dash='dash'),
-                    name=f'Tahmin: {estimation_text}'
+                    x=np.append(final_polygon_points[:, 0], final_polygon_points[0, 0]),
+                    y=np.append(final_polygon_points[:, 1], final_polygon_points[0, 1]),
+                    mode='lines', fill='toself', fillcolor='rgba(255, 0, 0, 0.1)',
+                    line=dict(color='red', width=2, dash='dash'), name=f'Tahmin: {estimation_text}'
                 ))
             else:
                 estimation_text = "Tahmin: Yetersiz Veri"
