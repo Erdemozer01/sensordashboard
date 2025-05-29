@@ -2,7 +2,7 @@
 
 from django_plotly_dash import DjangoDash
 import dash
-from dash import html, dcc, Output, Input, State, no_update
+from dash import html, dcc, Output, Input, State, no_update, dash_table
 import dash_bootstrap_components as dbc
 import plotly.graph_objects as go
 
@@ -117,8 +117,29 @@ analysis_card = dbc.Card([
 visualization_tabs = dbc.Tabs([
     dbc.Tab(dcc.Graph(id='scan-map-graph', style={'height': '75vh'}), label="2D Kartezyen Harita"),
     dbc.Tab(dcc.Graph(id='polar-graph', style={'height': '75vh'}), label="Polar Grafik"),
-    dbc.Tab(dcc.Graph(id='time-series-graph', style={'height': '75vh'}), label="Zaman Serisi (Mesafe)")
+    dbc.Tab(dcc.Graph(id='time-series-graph', style={'height': '75vh'}), label="Zaman Serisi (Mesafe)"),
+    # YENİ SEKME
+    dbc.Tab(
+        dcc.Loading( # Veri yüklenirken bekleme animasyonu gösterir
+            children=[
+                dash_table.DataTable(
+                    id='scan-data-table',
+                    style_cell={'textAlign': 'left', 'padding': '5px'},
+                    style_header={
+                        'backgroundColor': 'rgb(230, 230, 230)',
+                        'fontWeight': 'bold'
+                    },
+                    style_table={'height': '70vh', 'overflowY': 'auto'},
+                    page_size=20,  # Sayfa başına 20 satır göster
+                    sort_action="native", # Sütunlara tıklayarak sıralama
+                    filter_action="native", # Sütun bazında filtreleme
+                )
+            ]
+        ),
+        label="Veri Tablosu"
+    )
 ])
+
 
 app.layout = dbc.Container(fluid=True, children=[
     title_card,
@@ -507,3 +528,54 @@ def export_excel_callback(n_clicks):
     finally:
         if conn: conn.close()
     return no_update
+
+
+@app.callback(
+    [Output('scan-data-table', 'data'),
+     Output('scan-data-table', 'columns')],
+    [Input('interval-component-main', 'n_intervals')]
+)
+def update_data_table(n_intervals):
+    conn, error = get_db_connection()
+
+    # Başlangıçta boş bir tablo döndür
+    empty_table = [], []
+
+    if not conn:
+        print(f"Veri Tablosu: DB bağlantı hatası: {error}")
+        return empty_table
+
+    try:
+        latest_id = get_latest_scan_id_from_db(conn_param=conn)
+        if not latest_id:
+            return empty_table
+
+        # Tabloda gösterilecek sütunları seçelim
+        query = f"""
+            SELECT id, angle_deg, mesafe_cm, hiz_cm_s, x_cm, y_cm, timestamp
+            FROM scan_points
+            WHERE scan_id = {latest_id}
+            ORDER BY id DESC
+        """
+        df = pd.read_sql_query(query, conn)
+
+        if df.empty:
+            return empty_table
+
+        # Timestamp'i daha okunaklı bir formata çevirelim
+        df['timestamp'] = pd.to_datetime(df['timestamp'], unit='s').dt.strftime('%H:%M:%S')
+
+        # Sütunları DataTable formatına hazırla
+        columns = [{"name": i.replace("_", " ").title(), "id": i} for i in df.columns]
+
+        # Veriyi DataTable formatına hazırla
+        data = df.to_dict('records')
+
+        return data, columns
+
+    except Exception as e:
+        print(f"Veri tablosu güncellenirken hata: {e}")
+        return empty_table
+    finally:
+        if conn:
+            conn.close()
