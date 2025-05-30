@@ -10,6 +10,8 @@ import os
 import time
 import numpy as np
 
+
+
 # Not: Bu testte kullanılmayacak olsalar da, hata almamak için kütüphaneler kalabilir.
 from scipy.spatial import ConvexHull
 from simplification.cutil import simplify_coords
@@ -81,6 +83,8 @@ app.layout = dbc.Container(fluid=True, children=[
 ###############################################################
 # Sadece bu callback çalışacak
 
+# Hata Ayıklama - Adım 2 Kodu
+
 @app.callback(
     [Output('scan-map-graph', 'figure'),
      Output('polar-graph', 'figure'),
@@ -89,34 +93,32 @@ app.layout = dbc.Container(fluid=True, children=[
     [Input('interval-component-main', 'n_intervals')]
 )
 def update_all_graphs(n_intervals):
-    print("DEBUG ADIM 1: Veri çekme testi başlatıldı.")
-
+    print("DEBUG ADIM 2: Ham veri çizim testi başlatıldı.")
     conn, error = get_db_connection()
+    fig_map = go.Figure().update_layout(title_text="Adım 2: Ham Veri Çizimi...")
+
     if not conn:
-        print("HATA: Adım 1'de veritabanı bağlantısı kurulamadı.")
-        return go.Figure(), go.Figure(), go.Figure(), "DB Bağlantı Hatası"
+        return fig_map, go.Figure(), go.Figure(), "DB Hatası"
 
     try:
         id_to_plot = get_latest_scan_id_from_db(conn_param=conn)
         if not id_to_plot:
-            print("UYARI: Adım 1'de son tarama ID'si bulunamadı.")
-            return go.Figure(), go.Figure(), go.Figure(), "Tarama ID Yok"
+            return fig_map, go.Figure(), go.Figure(), "ID Yok"
 
-        df_points = pd.read_sql_query(f"SELECT * FROM scan_points WHERE scan_id = {id_to_plot}", conn)
+        df_points = pd.read_sql_query(f"SELECT x_cm, y_cm FROM scan_points WHERE scan_id = {id_to_plot}", conn)
 
-        if df_points.empty:
-            print("UYARI: Adım 1'de tarama noktası bulunamadı.")
-            return go.Figure(), go.Figure(), go.Figure(), "Veri Yok"
-
-        print(f"DEBUG ADIM 1 BAŞARILI: Veri çekildi. Toplam {len(df_points)} nokta bulundu.")
-        print(df_points.head().to_string())
+        if not df_points.empty:
+            print("DEBUG ADIM 2 BAŞARILI: Veri çizime gönderiliyor.")
+            fig_map.add_trace(go.Scatter(x=df_points['y_cm'], y=df_points['x_cm'], mode='markers', name='Ham Veri'))
+            fig_map.update_layout(title_text="Adım 2 Başarılı: Ham Veri Görünüyor!")
+        else:
+            fig_map.update_layout(title_text="Adım 2: Çizilecek veri yok.")
 
     except Exception as e:
-        print(f"HATA: Adım 1 sırasında bir istisna oluştu: {e}")
+        print(f"HATA: Adım 2 sırasında bir istisna oluştu: {e}")
+        fig_map.update_layout(title_text=f"Adım 2'de Hata: {e}")
     finally:
         if conn:
             conn.close()
 
-    # Bu adımda henüz grafik çizmiyoruz, boş figürler döndürüyoruz.
-    fig = go.Figure().update_layout(title_text="Adım 1 Tamamlandı. Terminali Kontrol Edin.")
-    return fig, go.Figure(), go.Figure(), "Veri Çekildi"
+    return fig_map, go.Figure(), go.Figure(), "Çizim Testi"
