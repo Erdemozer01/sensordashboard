@@ -1,35 +1,14 @@
-# stepper_uln2003_test.py
+# stepper_uln2003_test.py (Düzeltilmiş)
 from gpiozero import OutputDevice
 import time
 
 # --- Pin Tanımlamaları (Kendi bağlantılarınıza göre güncelleyin) ---
-# ULN2003 Sürücü Kartının IN pinlerine bağlanan Raspberry Pi GPIO pinleri
-IN1_PIN = 5  # Örnek: GPIO5
-IN2_PIN = 6  # Örnek: GPIO6
-IN3_PIN = 13  # Örnek: GPIO13
-IN4_PIN = 19  # Örnek: GPIO19
-
-# Step motor için adım sıralaması (Half-step için 8 adım)
-# Bu sıra 28BYJ-48 motorunun kablo renklerine ve sürücüye bağlanışına göre değişebilir.
-# Yaygın bir sıralama:
-# Step | IN1 | IN2 | IN3 | IN4
-# ---------------------------
-# 1    | 1   | 0   | 0   | 0
-# 2    | 1   | 1   | 0   | 0
-# 3    | 0   | 1   | 0   | 0
-# 4    | 0   | 1   | 1   | 0
-# 5    | 0   | 0   | 1   | 0
-# 6    | 0   | 0   | 1   | 1
-# 7    | 0   | 0   | 0   | 1
-# 8    | 1   | 0   | 0   | 1
-# Farklı bir kablolama için bu sıra (veya pinlerin sırası) değişebilir.
-# Genellikle mavi-pembe-sarı-turuncu veya benzeri bir renk sırası vardır motor kablolarında.
-# Sürücü kartındaki LED'ler yanıyorsa, doğru sırayı bulmak için deneme yapabilirsiniz.
+IN1_PIN = 5
+IN2_PIN = 6
+IN3_PIN = 13
+IN4_PIN = 19
 
 # Half-step sequence
-# Bu sekans, motorunuzun kablo bağlantı sırasına göre ayarlanmalıdır.
-# Genellikle 28BYJ-48 motorlar için (ve ULN2003 üzerindeki LED'lerin sırayla yandığı)
-# doğru sekanslardan biri budur.
 step_sequence = [
     [1, 0, 0, 0],
     [1, 1, 0, 0],
@@ -41,39 +20,63 @@ step_sequence = [
     [1, 0, 0, 1]
 ]
 
-# Full-step sequence (daha az adım, daha az hassas ama daha fazla tork)
-# step_sequence = [
-#  [1,0,1,0],
-#  [0,1,1,0],
-#  [0,1,0,1],
-#  [1,0,0,1]
-# ]
-
-
 # --- GPIO Pinlerini OutputDevice olarak başlatma ---
-motor_pins = [
-    OutputDevice(IN1_PIN),
-    OutputDevice(IN2_PIN),
-    OutputDevice(IN3_PIN),
-    OutputDevice(IN4_PIN)
-]
+# Bu değişkeni global yapmak yerine, doğrudan __main__ içinde tanımlayıp
+# fonksiyonlara parametre olarak geçmek daha iyi olabilir veya
+# fonksiyonlar içinde erişilebilir olmasını sağlamak gerekir.
+# Şimdilik global bırakalım ama try bloğu içinde initialize edelim.
+motor_pins = []
+
+
+def initialize_motor_pins():
+    """Motor pinlerini başlatır."""
+    global motor_pins
+    # Önceki pinleri temizle (eğer varsa ve açıksa)
+    for pin_obj in motor_pins:
+        if hasattr(pin_obj, 'close') and not pin_obj.closed:
+            pin_obj.close()
+    motor_pins = [
+        OutputDevice(IN1_PIN),
+        OutputDevice(IN2_PIN),
+        OutputDevice(IN3_PIN),
+        OutputDevice(IN4_PIN)
+    ]
+    print("Motor pinleri başlatıldı.")
 
 
 def cleanup_pins():
     """Tüm motor pinlerini kapatır."""
-    for pin in motor_pins:
-        pin.off()
-        pin.close()
+    global motor_pins
+    print("Motor pinleri temizleniyor...")
+    for pin_obj in motor_pins:
+        try:
+            if not pin_obj.closed:  # Pin hala açıksa kapat
+                pin_obj.off()
+                pin_obj.close()
+        except Exception as e:
+            print(f"Pin temizlenirken hata ({pin_obj.pin if hasattr(pin_obj, 'pin') else 'bilinmiyor'}): {e}")
+    motor_pins = []  # Listeyi temizle
     print("Motor pinleri temizlendi.")
 
 
 def motor_step(step_idx):
     """Motoru verilen adıma göre sürer."""
+    global motor_pins
+    if not motor_pins:  # Pinler başlatılmamışsa bir şey yapma
+        print("Hata: Motor pinleri başlatılmamış!")
+        return
+
     for i in range(4):
-        if step_sequence[step_idx][i] == 1:
-            motor_pins[i].on()
-        else:
-            motor_pins[i].off()
+        try:
+            if not motor_pins[i].closed:  # Sadece açık pinlere yaz
+                if step_sequence[step_idx][i] == 1:
+                    motor_pins[i].on()
+                else:
+                    motor_pins[i].off()
+            # else:
+            #     print(f"Uyarı: Pin {motor_pins[i].pin} kapalı, yazma atlandı.")
+        except Exception as e:
+            print(f"motor_step içinde pin {i} yazılırken hata: {e}")
 
 
 # --- Ana Test Döngüsü ---
@@ -81,35 +84,28 @@ if __name__ == "__main__":
     print("Step Motor ULN2003 Testi Başlıyor...")
     print(f"Kullanılan GPIO Pinleri: IN1={IN1_PIN}, IN2={IN2_PIN}, IN3={IN3_PIN}, IN4={IN4_PIN}")
 
-    # 28BYJ-48 motoru genellikle bir devir için (half-step modunda) 4096 adım atar.
-    # (Dişli oranı ~64, motorun kendi adımı 32, half-step 64 -> 64*64 = 4096)
-    # Full-step modunda ise 2048 adım.
-    # Bizim `step_sequence` 8 adımlık bir döngü. 4096 / 8 = 512 tam döngü bir devir eder.
+    initialize_motor_pins()  # Pinleri burada başlat
 
     steps_per_revolution_half_step = 4096
-    # Adım başına bekleme süresi (saniye). Bu değeri azaltarak hızı artırabilirsiniz,
-    # ama çok azaltırsanız motor adım kaçırabilir.
-    step_delay = 0.001  # 1 milisaniye, hızlı bir dönüş için. Daha yavaş için 0.002 veya 0.003 deneyin.
+    step_delay = 0.0015  # Biraz yavaşlatalım, 0.001 çok hızlı olabilir
 
-    current_step = 0
+    current_step_index = 0  # Sekans içindeki adım indeksi
 
     try:
-        print("Motor saat yönünde bir devir dönecek...")
-        # Bir tam devir için (half-step)
+        print("\nMotor saat yönünde bir devir dönecek...")
         for _ in range(steps_per_revolution_half_step):
-            motor_step(current_step % len(step_sequence))
-            current_step += 1
+            motor_step(current_step_index)
+            current_step_index = (current_step_index + 1) % len(step_sequence)  # Sekans içinde dön
             time.sleep(step_delay)
 
-        cleanup_pins()  # Arada pinleri serbest bırakmak iyi olabilir
-        time.sleep(1)
+        print("Saat yönünde dönüş tamamlandı.")
+        time.sleep(1)  # İki dönüş arasında kısa bir bekleme
+
         print("\nMotor saat yönünün tersine bir devir dönecek...")
-        # Saat yönünün tersi için sekansı tersten uygula veya current_step'i azalt
         for _ in range(steps_per_revolution_half_step):
-            motor_step(current_step % len(step_sequence))  # Sekansı tersten almak için current_step'i azalt
-            current_step -= 1
-            if current_step < 0:  # Negatife düşerse başa sar
-                current_step = len(step_sequence) - 1
+            # current_step_index'i azaltarak ters yönde git
+            current_step_index = (current_step_index - 1 + len(step_sequence)) % len(step_sequence)
+            motor_step(current_step_index)
             time.sleep(step_delay)
 
         print("\nTest tamamlandı!")
@@ -118,6 +114,9 @@ if __name__ == "__main__":
         print("\nTest kullanıcı tarafından durduruldu.")
     except Exception as e:
         print(f"Test sırasında bir hata oluştu: {e}")
+        # Hata oluştuğunda traceback'i görmek için:
+        # import traceback
+        # traceback.print_exc()
     finally:
-        cleanup_pins()
+        cleanup_pins()  # Pinleri SADECE en sonda temizle
         print("Program sonlandı.")
