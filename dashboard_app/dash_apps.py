@@ -364,7 +364,7 @@ def update_realtime_values(n_intervals):
     [Input('interval-component-main', 'n_intervals')]
 )
 def update_all_graphs(n_intervals):
-    # 1. VERİTABANI BAĞLANTISI VE TEMEL HAZIRLIKLAR
+    # 1. Veritabanı bağlantısı ve temel hazırlıklar
     conn, error_msg_conn = get_db_connection()
     id_to_plot = get_latest_scan_id_from_db(conn_param=conn) if conn else None
     ui_revision_key = str(id_to_plot) if id_to_plot else "no_scan"
@@ -383,7 +383,7 @@ def update_all_graphs(n_intervals):
         return fig_map, fig_polar, fig_time, estimation_text
 
     try:
-        # 2. VERİLERİ VERİTABANINDAN ÇEKME
+        # 2. Veritabanından verileri çekme
         df_scan_info = pd.read_sql_query(f"SELECT status, start_time FROM servo_scans WHERE id = {id_to_plot}", conn)
         df_points = pd.read_sql_query(
             f"SELECT x_cm, y_cm, angle_deg, mesafe_cm, timestamp FROM scan_points WHERE scan_id = {id_to_plot} ORDER BY id ASC",
@@ -394,18 +394,17 @@ def update_all_graphs(n_intervals):
         start_time_str = time.strftime('%H:%M:%S (%d-%m-%y)', time.localtime(start_time_epoch))
         title_suffix = f"(ID: {id_to_plot}, Başl: {start_time_str}, Durum: {scan_status_str.capitalize()})"
 
-        # 3. VERİ İŞLEME, GÖRSELLEŞTİRME VE ANALİZ
+        # 3. Veri işleme ve analiz
         if not df_points.empty:
             df_valid = df_points[(df_points['mesafe_cm'] > 1.0) & (df_points['mesafe_cm'] < 200.0)].copy()
 
             if len(df_valid) > 10:  # Analiz için yeterli nokta varsa devam et
 
-                # --- A. Tüm Ham Veri Grafikleri ---
-
+                # --- A. Ham Veri Grafikleri ---
                 # 2D Harita: Ham noktalar ve sensör konumu
                 fig_map.add_trace(
                     go.Scatter(x=df_valid['y_cm'], y=df_valid['x_cm'], mode='markers', name='Taranan Noktalar',
-                               marker=dict(size=4, color='rgba(0, 0, 255, 0.6)')))
+                               marker=dict(size=4, color='blue')))
                 fig_map.add_trace(
                     go.Scatter(x=[0], y=[0], mode='markers', marker=dict(size=10, symbol='diamond', color='red'),
                                name='Sensör'))
@@ -421,38 +420,35 @@ def update_all_graphs(n_intervals):
                 fig_time.add_trace(
                     go.Scatter(x=datetime_series, y=df_time['mesafe_cm'], mode='lines+markers', name='Mesafe (cm)'))
 
-                # --- B. Gelişmiş Şekil Tahmini Analizi ---
+                # --- B. Gelişmiş Şekil Tahmini ---
                 points = df_valid[['y_cm', 'x_cm']].to_numpy()
 
                 # Adım 1: Dışbükey Zarf (Convex Hull)
                 hull = ConvexHull(points)
                 hull_points = points[hull.vertices]
 
-                # Adım 2: Önce Dairesellik Oranını Hesapla
-                hull_area = hull.volume  # 2D'de alan
-                hull_perimeter = hull.area  # 2D'de çevre
-                circularity = 0.0
-                if hull_perimeter > 0:
-                    circularity = (4 * np.pi * hull_area) / (hull_perimeter ** 2)
+                # Adım 2: Poligonu Basitleştirme (Douglas-Peucker)
+                epsilon = 3.0  # cm cinsinden basitleştirme toleransı
+                simplified_points = simplify_coords(hull_points, epsilon)
 
-                # Adım 3: Şekli Sınıflandır (Dairesel mi, Poligon mu?)
-                if circularity > 0.82:  # Eşiği 0.82 olarak ayarladık, gerekirse değiştirilebilir
-                    estimation_text = "Dairesel Alan"
-                    # Daireyi daha pürüzsüz çizmek için epsilon'u düşürelim
-                    simplified_points = simplify_coords(hull_points, 1.0)
-                else:
-                    # Dairesel değilse, poligon olarak sınıflandır
-                    epsilon = 3.0  # Poligon basitleştirme toleransı
-                    simplified_points = simplify_coords(hull_points, epsilon)
-                    num_vertices = len(simplified_points) - 1
-                    shape_map = {3: "Üçgensel Alan", 4: "Dörtgensel Alan", 5: "Beşgensel Alan", 6: "Altıgensel Alan"}
-                    estimation_text = shape_map.get(num_vertices, f"{num_vertices} Köşeli Alan")
+                # Adım 3: Köşe Sayısına Göre Sınıflandırma
+                num_vertices = len(simplified_points) - 1  # Kapalı poligonun köşe sayısı
+                shape_map = {3: "Üçgensel Alan", 4: "Dörtgensel Alan", 5: "Beşgensel Alan", 6: "Altıgensel Alan"}
+                estimation_text = shape_map.get(num_vertices, f"{num_vertices} Köşeli Alan")
 
-                # Adım 4: Tespit Edilen Şekli 2D Haritada Çiz
+                # Adım 4: Dairesellik Kontrolü
+                if num_vertices > 6:  # Çok köşeli ise dairesel olma ihtimali artar
+                    hull_area = hull.volume  # 2D'de alan
+                    hull_perimeter = hull.area  # 2D'de çevre
+                    if hull_perimeter > 0:
+                        circularity = (4 * np.pi * hull_area) / (hull_perimeter ** 2)
+                        if circularity > 0.85:  # 1'e çok yakınsa daireseldir
+                            estimation_text = "Dairesel Alan"
+
+                # Adım 5: Tespit Edilen Şekli 2D Haritada Çiz
                 fig_map.add_trace(go.Scatter(
-                    x=np.append(simplified_points[:, 0], simplified_points[0, 0]),
-                    # Poligonu kapatmak için ilk noktayı sona ekle
-                    y=np.append(simplified_points[:, 1], simplified_points[0, 1]),
+                    x=np.append(simplified_points[:, 0], simplified_points[0, 0]),  # Poligonu kapat
+                    y=np.append(simplified_points[:, 1], simplified_points[0, 1]),  # Poligonu kapat
                     mode='lines',
                     fill='toself',
                     fillcolor='rgba(255, 0, 0, 0.1)',
@@ -461,13 +457,10 @@ def update_all_graphs(n_intervals):
                 ))
             else:
                 estimation_text = "Tahmin: Yetersiz Veri"
-        else:
-            estimation_text = "Tahmin: Veri Yok"
 
-        # --- C. Tüm Grafik Başlıklarını ve Eksenlerini Güncelleme ---
+        # --- C. Grafik Başlıklarını ve Eksenlerini Güncelleme ---
         fig_map.update_layout(title_text='2D Harita ve Şekil Tahmini ' + title_suffix, xaxis_title="Yatay (cm)",
-                              yaxis_title="İleri (cm)", yaxis_scaleanchor="x", yaxis_scaleratio=1,
-                              legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
+                              yaxis_title="İleri (cm)", yaxis_scaleanchor="x", yaxis_scaleratio=1)
         fig_polar.update_layout(title_text='Polar Grafik ' + title_suffix,
                                 polar=dict(radialaxis=dict(visible=True, range=[0, 200]),
                                            angularaxis=dict(direction="clockwise", ticksuffix="°")))
