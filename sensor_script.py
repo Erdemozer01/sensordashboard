@@ -202,13 +202,14 @@ def acquire_lock_and_pid():
         return False
 
 
-def calculate_polygon_area_shoelace(cartesian_points_with_origin):
-    n = len(cartesian_points_with_origin)
-    if n < 3: return 0.0
+def shoelace_formula(noktalar):
+    n = len(noktalar)
+    if n < 3:
+        return 0.0
     area = 0.0
     for i in range(n):
-        x1, y1 = cartesian_points_with_origin[i]
-        x2, y2 = cartesian_points_with_origin[(i + 1) % n]
+        x1, y1 = noktalar[i]
+        x2, y2 = noktalar[(i + 1) % n]
         area += (x1 * y2) - (x2 * y1)
     return abs(area) / 2.0
 
@@ -450,7 +451,7 @@ if __name__ == "__main__":
 
             if len(collected_cartesian_points_for_area) >= 2:
                 polygon_vertices_for_area_calc = [(0.0, 0.0)] + collected_cartesian_points_for_area
-                hesaplanan_alan_cm2 = calculate_polygon_area_shoelace(polygon_vertices_for_area_calc)
+                hesaplanan_alan_cm2 = shoelace_formula(polygon_vertices_for_area_calc)
                 perimeter_cm = calculate_perimeter(polygon_vertices_for_area_calc)
 
                 x_coords = [p[0] for p in collected_cartesian_points_for_area if p[0] is not None]
@@ -459,9 +460,10 @@ if __name__ == "__main__":
                 if y_coords: max_genislik_cm_scan = (max(y_coords) - min(y_coords)) if y_coords else 0.0
 
                 print(f"\n[{os.getpid()}] TARANAN SEKTÖR ALANI: {hesaplanan_alan_cm2:.2f} cm^2")
+
                 if lcd:
-                    lcd.clear();
-                    lcd.cursor_pos = (0, 0);
+                    lcd.clear()
+                    lcd.cursor_pos = (0, 0)
                     lcd.write_string("Tarama Tamamlandi".ljust(LCD_COLS)[:LCD_COLS])
                     if LCD_ROWS > 1: lcd.cursor_pos = (1, 0); lcd.write_string(
                         f"Alan:{hesaplanan_alan_cm2:.0f}cm2".ljust(LCD_COLS)[:LCD_COLS])

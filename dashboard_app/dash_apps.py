@@ -439,11 +439,11 @@ def update_all_graphs(n_intervals):
     id_to_plot = get_latest_scan_id_from_db(conn_param=conn) if conn else None
     ui_revision_key = str(id_to_plot) if id_to_plot else "no_scan"
 
-    fig_map = go.Figure().update_layout(title_text='2D Harita (Veri bekleniyor...)', uirevision=ui_revision_key,
+    fig_map = go.Figure().update_layout(title_text='2D Harita ', uirevision=ui_revision_key,
                                         plot_bgcolor='rgba(248,248,248,0.95)')
-    fig_polar = go.Figure().update_layout(title_text='Polar Grafik (Veri bekleniyor...)', uirevision=ui_revision_key,
+    fig_polar = go.Figure().update_layout(title_text='Polar Grafik ', uirevision=ui_revision_key,
                                           plot_bgcolor='rgba(248,248,248,0.95)')
-    fig_time = go.Figure().update_layout(title_text='Zaman Serisi - Mesafe (Veri bekleniyor...)',
+    fig_time = go.Figure().update_layout(title_text='Zaman Serisi - Mesafe ',
                                          uirevision=ui_revision_key, plot_bgcolor='rgba(248,248,248,0.95)')
     estimation_text = "Tahmin: Veri Yok"
 
@@ -460,7 +460,6 @@ def update_all_graphs(n_intervals):
         scan_status_str = df_scan_info['status'].iloc[0] if not df_scan_info.empty else "Bilinmiyor"
         start_time_epoch = df_scan_info['start_time'].iloc[0] if not df_scan_info.empty else time.time()
         start_time_str = time.strftime('%H:%M:%S (%d-%m-%y)', time.localtime(start_time_epoch))
-        title_suffix = f"(ID: {id_to_plot}, Başl: {start_time_str}, Durum: {scan_status_str.capitalize()})"
 
         if not df_points.empty:
             df_valid = df_points[(df_points['mesafe_cm'] > 1.0) & (df_points['mesafe_cm'] < 200.0)].copy()
@@ -520,13 +519,13 @@ def update_all_graphs(n_intervals):
         else:
             estimation_text = "Tahmin: Veri Yok"
 
-        fig_map.update_layout(title_text='2D Harita ve Şekil Tahmini ' + title_suffix, xaxis_title="Yatay (cm)",
+        fig_map.update_layout(title_text='2D Harita ve Şekil Tahmini ', xaxis_title="Yatay (cm)",
                               yaxis_title="İleri (cm)", yaxis_scaleanchor="x", yaxis_scaleratio=1,
                               legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
-        fig_polar.update_layout(title_text='Polar Grafik ' + title_suffix,
+        fig_polar.update_layout(title_text='Polar Grafik ',
                                 polar=dict(radialaxis=dict(visible=True, range=[0, 200]),
                                            angularaxis=dict(direction="clockwise", ticksuffix="°")))
-        fig_time.update_layout(title_text='Zaman Serisi - Mesafe ' + title_suffix, xaxis_title="Zaman",
+        fig_time.update_layout(title_text='Zaman Serisi - Mesafe', xaxis_title="Zaman",
                                yaxis_title="Mesafe (cm)")
 
     except Exception as e:
