@@ -2,7 +2,7 @@
 from gpiozero import OutputDevice
 import time
 
-# --- Pin Tanımlamaları (Kendi bağlantılarınıza göre güncelleyin) ---
+
 IN1_PIN = 5
 IN2_PIN = 6
 IN3_PIN = 13
@@ -20,11 +20,6 @@ step_sequence = [
     [1, 0, 0, 1]
 ]
 
-# --- GPIO Pinlerini OutputDevice olarak başlatma ---
-# Bu değişkeni global yapmak yerine, doğrudan __main__ içinde tanımlayıp
-# fonksiyonlara parametre olarak geçmek daha iyi olabilir veya
-# fonksiyonlar içinde erişilebilir olmasını sağlamak gerekir.
-# Şimdilik global bırakalım ama try bloğu içinde initialize edelim.
 motor_pins = []
 
 
