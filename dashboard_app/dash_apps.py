@@ -258,9 +258,9 @@ def handle_start_scan_script(n_clicks_start, start_angle_val, end_angle_val, ste
                     pid_str_new = pf_new.read().strip()
                 if pid_str_new: new_pid = int(pid_str_new)
                 if new_pid and is_process_running(new_pid):
-                    return dbc.Alert(f"Sensör okumaları başladı (PID: {new_pid}).", color="success")
+                    return dbc.Alert(f"Sensör okumaları başladı...", color="success")
                 else:
-                    return dbc.Alert(f"Betik başlatıldı ancak process (PID: {new_pid}) bulunamadı.", color="warning")
+                    return dbc.Alert(f"Sensör okumaları başlatıldı ancak process (PID: {new_pid}) bulunamadı.", color="warning")
             except Exception as e:
                 return dbc.Alert(f"PID dosyası okunurken hata: {e}", color="warning")
         else:
