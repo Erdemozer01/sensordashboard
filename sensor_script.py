@@ -173,16 +173,45 @@ def acquire_lock_and_pid():
         lock_file_handle = None  # Handle'ı sıfırla
         return False
 
-def calculate_polygon_area_shoelace(points): # Aynı
-    n = len(points); area = 0.0; if n < 3: return 0.0
-    for i in range(n): x1, y1 = points[i]; x2, y2 = points[(i + 1) % n]; area += (x1 * y2) - (x2 * y1)
+def calculate_polygon_area_shoelace(cartesian_points_with_origin):
+    n = len(cartesian_points_with_origin)
+    area = 0.0  # Ayrı satırda
+    if n < 3:   # Ayrı satırda
+        return 0.0
+
+    for i in range(n):
+        x1, y1 = cartesian_points_with_origin[i]
+        x2, y2 = cartesian_points_with_origin[(i + 1) % n]
+        area += (x1 * y2)
+        area -= (y1 * x2)
+
     return abs(area) / 2.0
 
-def calculate_perimeter(points_with_origin): # Aynı
-    perimeter = 0.0; n = len(points_with_origin);
-    if n > 1: perimeter += math.sqrt(points_with_origin[1][0]**2 + points_with_origin[1][1]**2)
-    for i in range(1, n - 1): x1, y1 = points_with_origin[i]; x2, y2 = points_with_origin[i+1]; perimeter += math.sqrt((x2 - x1)**2 + (y2 - y1)**2)
-    if n > 1: perimeter += math.sqrt(points_with_origin[-1][0]**2 + points_with_origin[-1][1]**2)
+def calculate_perimeter(cartesian_points_for_perimeter_calc):
+    perimeter = 0.0
+    n = len(cartesian_points_for_perimeter_calc)
+    if n == 0: # Daha önce n < 2 idi, 0 nokta durumu için de kontrol
+        return 0.0
+    if n == 1: # Tek nokta varsa, orijine olan mesafesinin iki katı (gidip gelme gibi) veya 0. Sektör çevresi için bu mantıksız olabilir.
+              # Bu fonksiyonun girdisi orijin dahil değil, sadece taranan noktalar olmalı.
+              # Orijinden ilk ve son noktaya olan mesafeler ayrıca eklenmeli.
+              # Bir önceki tam kodumda (Yanıt #52) bu fonksiyonun girdisi points_with_origin idi.
+              # Eğer sadece taranan noktalar ise, orijine olan bağlantılar ayrıca hesaplanmalı.
+              # Şimdilik Yanıt #52'deki mantığı koruyalım (girdinin [(0,0), p1, p2...] olduğunu varsayarak):
+        if n > 1: # Yani en az orijin ve bir tarama noktası var
+             # Orijinden ilk tarama noktasına (points_with_origin[1])
+            perimeter += math.sqrt(cartesian_points_for_perimeter_calc[1][0]**2 + cartesian_points_for_perimeter_calc[1][1]**2)
+             # Son tarama noktasından (points_with_origin[-1]) orijine
+            perimeter += math.sqrt(cartesian_points_for_perimeter_calc[-1][0]**2 + cartesian_points_for_perimeter_calc[-1][1]**2)
+        # Eğer sadece 1 tarama noktası varsa (orijin + 1 nokta = 2 nokta), bu iki kenar aynı olur.
+        # Hiç tarama noktası yoksa (sadece orijin = 1 nokta), çevre 0 olur.
+
+    # Taranan noktalar arası (orijin hariç)
+    for i in range(1, n - 1): # points_with_origin[1] ile points_with_origin[n-1] arası
+        x1, y1 = cartesian_points_for_perimeter_calc[i]
+        x2, y2 = cartesian_points_for_perimeter_calc[i+1]
+        perimeter += math.sqrt((x2 - x1)**2 + (y2 - y1)**2)
+
     return perimeter
 
 def release_resources_on_exit():
