@@ -17,7 +17,7 @@ import signal
 import psutil
 import numpy as np
 from scipy.spatial import ConvexHull
-from simplification.cutil import simplify_coords  # pip install simplification
+from simplification.cutil import simplify_coords
 
 # --- Sabitler ---
 try:
