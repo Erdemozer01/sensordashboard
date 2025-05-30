@@ -82,7 +82,7 @@ if __name__ == "__main__":
     initialize_motor_pins()  # Pinleri burada başlat
 
     steps_per_revolution_half_step = 4096
-    step_delay = 0.001  # Biraz yavaşlatalım, 0.001 çok hızlı olabilir
+    step_delay = 0.0015  # Biraz yavaşlatalım, 0.001 çok hızlı olabilir
 
     current_step_index = 0  # Sekans içindeki adım indeksi
 
