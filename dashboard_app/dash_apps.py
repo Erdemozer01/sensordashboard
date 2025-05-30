@@ -85,22 +85,38 @@ app.layout = dbc.Container(fluid=True, children=[
     [Output('scan-map-graph', 'figure'),
      Output('polar-graph', 'figure'),
      Output('time-series-graph', 'figure'),
-     Output('environment-estimation-text', 'children'),
-     Output('calculated-area', 'children')],
+     Output('environment-estimation-text', 'children')],
     [Input('interval-component-main', 'n_intervals')]
 )
-def temporary_test_callback(n_intervals):
-    print(f"DEBUG: GEÇİCİ TEST CALLBACK'İ ÇALIŞIYOR! (n={n_intervals})")
+def update_all_graphs(n_intervals):
+    print("DEBUG ADIM 1: Veri çekme testi başlatıldı.")
 
-    # Basit, statik bir test grafiği oluşturuyoruz
-    test_fig = go.Figure(data=go.Scatter(x=[1, 2, 3, 4], y=[2, 1, 3, 2]))
-    test_fig.update_layout(
-        title_text=f"TEST GRAFİĞİ GÖRÜNÜYORSA, TEMEL YAPI SAĞLAM DEMEKTİR.",
-        font=dict(size=18, color="green")
-    )
+    conn, error = get_db_connection()
+    if not conn:
+        print("HATA: Adım 1'de veritabanı bağlantısı kurulamadı.")
+        return go.Figure(), go.Figure(), go.Figure(), "DB Bağlantı Hatası"
 
-    # Tüm grafiklere ve panellere test verisi gönderiyoruz
-    estimation_text = "Test Modu Aktif"
-    analysis_text = "Test..."
+    try:
+        id_to_plot = get_latest_scan_id_from_db(conn_param=conn)
+        if not id_to_plot:
+            print("UYARI: Adım 1'de son tarama ID'si bulunamadı.")
+            return go.Figure(), go.Figure(), go.Figure(), "Tarama ID Yok"
 
-    return test_fig, go.Figure(), go.Figure(), estimation_text, analysis_text
+        df_points = pd.read_sql_query(f"SELECT * FROM scan_points WHERE scan_id = {id_to_plot}", conn)
+
+        if df_points.empty:
+            print("UYARI: Adım 1'de tarama noktası bulunamadı.")
+            return go.Figure(), go.Figure(), go.Figure(), "Veri Yok"
+
+        print(f"DEBUG ADIM 1 BAŞARILI: Veri çekildi. Toplam {len(df_points)} nokta bulundu.")
+        print(df_points.head().to_string())
+
+    except Exception as e:
+        print(f"HATA: Adım 1 sırasında bir istisna oluştu: {e}")
+    finally:
+        if conn:
+            conn.close()
+
+    # Bu adımda henüz grafik çizmiyoruz, boş figürler döndürüyoruz.
+    fig = go.Figure().update_layout(title_text="Adım 1 Tamamlandı. Terminali Kontrol Edin.")
+    return fig, go.Figure(), go.Figure(), "Veri Çekildi"
