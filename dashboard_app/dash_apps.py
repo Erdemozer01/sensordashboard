@@ -485,6 +485,7 @@ def update_all_graphs(n_intervals):
                 distance_deltas = np.diff(distances)
                 print(distance_deltas)
                 std_dev_of_deltas = np.std(distance_deltas) if len(distance_deltas) > 0 else float('inf')
+                print(f"std_dev_of_deltas: {std_dev_of_deltas}")
 
                 points_for_hull = df_valid[['y_cm', 'x_cm']].to_numpy()
                 hull = ConvexHull(points_for_hull)
