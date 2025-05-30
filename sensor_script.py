@@ -25,8 +25,8 @@ I2C_PORT = 1
 
 # --- Eşik ve Tarama Değerleri ---
 TERMINATION_DISTANCE_CM = 10.0
-DEFAULT_SCAN_START_ANGLE = -135 # <<< Simetrik tarama için başlangıç
-DEFAULT_SCAN_END_ANGLE = 135   # <<< Simetrik tarama için bitiş
+DEFAULT_SCAN_START_ANGLE = -110 # <<< Simetrik tarama için başlangıç
+DEFAULT_SCAN_END_ANGLE = 110   # <<< Simetrik tarama için bitiş
 DEFAULT_SCAN_STEP_ANGLE = 10
 SERVO_SETTLE_TIME = 0.05
 LOOP_TARGET_INTERVAL_S = 0.15
