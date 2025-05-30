@@ -492,7 +492,7 @@ def update_all_graphs(n_intervals):
                 circularity = (4 * np.pi * hull_area) / (hull_perimeter ** 2) if hull_perimeter > 0 else 0
 
                 if std_dev_of_deltas < 1.0:  # Eşik değeri ayarlanabilir
-                    estimation_text = "Dairesel Alan (Tutarlı Yüzey)"
+                    estimation_text = "Dairesel Alan"
                 elif circularity > 0.82:
                     estimation_text = "Dairesel Alan (Geometrik)"
                 else:
