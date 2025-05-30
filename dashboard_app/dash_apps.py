@@ -82,7 +82,7 @@ system_card = dbc.Card([
     dbc.CardHeader("Sistem Durumu", className="bg-secondary text-white"),
     dbc.CardBody([
         dbc.Row([dbc.Col(html.Div(
-            [html.H6("Sensör Betiği:"), html.H5(id='script-status', children="Beklemede")]))], className="mb-2"),
+            [html.H6("Sensör Durumu:"), html.H5(id='script-status', children="Beklemede")]))], className="mb-2"),
         dbc.Row([
             dbc.Col(html.Div([html.H6("Pi CPU Kullanımı:"),
                               dbc.Progress(id='cpu-usage', value=0, color="success", style={"height": "20px"},
