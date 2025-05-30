@@ -465,7 +465,7 @@ def update_all_graphs(n_intervals):
         if not df_points.empty:
             df_valid = df_points[(df_points['mesafe_cm'] > 1.0) & (df_points['mesafe_cm'] < 200.0)].copy()
 
-            if len(df_valid) > 20:
+            if len(df_valid) >= 20:
                 fig_map.add_trace(
                     go.Scatter(x=df_valid['y_cm'], y=df_valid['x_cm'], mode='markers', name='Taranan Noktalar',
                                marker=dict(size=4, color='rgba(0, 0, 255, 0.6)')))
