@@ -465,7 +465,7 @@ def update_all_graphs(n_intervals):
         if not df_points.empty:
             df_valid = df_points[(df_points['mesafe_cm'] > 1.0) & (df_points['mesafe_cm'] < 200.0)].copy()
 
-            if len(df_valid) <= 20:
+            if 2 <= len(df_valid) :
                 fig_map.add_trace(
                     go.Scatter(x=df_valid['y_cm'], y=df_valid['x_cm'], mode='markers', name='Taranan Noktalar',
                                marker=dict(size=4, color='rgba(0, 0, 255, 0.6)')))
@@ -491,10 +491,10 @@ def update_all_graphs(n_intervals):
                 hull_perimeter = hull.area
                 circularity = (4 * np.pi * hull_area) / (hull_perimeter ** 2) if hull_perimeter > 0 else 0
 
-                if std_dev_of_deltas < 1.0:  # Eşik değeri ayarlanabilir
+                if std_dev_of_deltas < 1.0:
                     estimation_text = "Dairesel Alan"
                 elif circularity > 0.82:
-                    estimation_text = "Dairesel Alan (Geometrik)"
+                    estimation_text = "Dairesel Alan"
                 else:
                     hull_points = points_for_hull[hull.vertices]
                     epsilon = 3.0
