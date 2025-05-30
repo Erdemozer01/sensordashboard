@@ -400,8 +400,8 @@ if __name__ == "__main__":
             hiz_cm_s = 0.0
             if ölçüm_tamponu_hız_için_yerel:
                 son_veri_noktasi = ölçüm_tamponu_hız_için_yerel[-1]
-                delta_mesafe = distance_cm - son_veri_noktasi['mesafe_cm']
-                delta_zaman = current_timestamp - son_veri_noktasi['zaman_s']
+                delta_mesafe = abs(distance_cm - son_veri_noktasi['mesafe_cm'])
+                delta_zaman = abs(current_timestamp - son_veri_noktasi['zaman_s'])
                 if delta_zaman > 0.001: hiz_cm_s = delta_mesafe / delta_zaman
 
             if lcd:
