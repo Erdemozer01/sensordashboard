@@ -1,7 +1,7 @@
 # dashboard_app/dash_apps.py
 
 from django_plotly_dash import DjangoDash
-import dash
+
 from dash import html, dcc, Output, Input, State, no_update, dash_table
 import dash_bootstrap_components as dbc
 import plotly.graph_objects as go
