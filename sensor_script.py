@@ -253,7 +253,11 @@ def acquire_lock_and_pid():  # Aynı
         with open(PID_FILE_PATH, 'w') as pf:
             pf.write(str(os.getpid())); return True
     except BlockingIOError:
-        print(f"Kilit dosyası mevcut."); if lock_file_handle: lock_file_handle.close(); lock_file_handle = None; return False
+        print(f"[{os.getpid()}] '{LOCK_FILE_PATH}' kilitli. Sensör betiği zaten çalışıyor olabilir.")
+        if lock_file_handle:
+            lock_file_handle.close()
+        lock_file_handle = None  # lock_file_handle'ı None yapmayı unutmayın
+        return False
     except Exception as e: print(f"Kilit/PID hatası: {e}");
     if lock_file_handle: lock_file_handle.close(); lock_file_handle = None; return False
 
