@@ -429,88 +429,54 @@ class Scanner:
                 self.lcd = None; print(f"[{pid}] LCD kapatıldı.")
         print(f"[{pid}] `Scanner.cleanup` tamamlandı.")
 
+    # sensor_script.py -> Scanner sınıfı -> run() metodu:
     def run(self):
-        if not self._init_hardware(): self.script_exit_status = 'error_hardware_init'; sys.exit(1)
-        if not self._init_db_for_scan(): self.script_exit_status = 'error_db_init'; sys.exit(1)
-        print(f"[{os.getpid()}] Yeni Tarama Deseni Başlıyor (ID: {self.current_scan_id})...")
-        if self.lcd:
-            try:
-                self.lcd.clear();
-                self.lcd.cursor_pos = (0, 0);
-                self.lcd.write_string(f"ID:{self.current_scan_id} Basliyor".ljust(LCD_COLS)[:LCD_COLS])
-                if LCD_ROWS > 1: self.lcd.cursor_pos = (1, 0); self.lcd.write_string(
-                    f"{self.initial_goto_angle}to{self.actual_scan_end_angle}".ljust(LCD_COLS)[:LCD_COLS])
-            except:
-                pass
-        scan_aborted_flag = False
-        try:
-            self.db_conn_local = sqlite3.connect(DB_PATH, timeout=10)
-            print(f"[{os.getpid()}] İlk pozisyon: {self.initial_goto_angle}°'ye gidiliyor...")
-            self._move_motor_to_target_angle_incremental(float(self.initial_goto_angle));
-            time.sleep(0.5)
-            print(f"[{os.getpid()}] Motor şimdi {self.current_motor_angle:.1f}° pozisyonunda. Ana tarama başlıyor.")
-            scan_direction_step = -self.actual_scan_step if self.initial_goto_angle > self.actual_scan_end_angle else self.actual_scan_step
-            effective_end_for_scan_range = int(self.actual_scan_end_angle + (
-                scan_direction_step / abs(scan_direction_step) if scan_direction_step != 0 else -1))
-            current_scan_angle = self.current_motor_angle
-            print(
-                f"[{os.getpid()}] Ana Tarama: {current_scan_angle:.1f}° -> {self.actual_scan_end_angle}° (Adım: {scan_direction_step}°)")
-            if self.lcd:
-                try:
-                    self.lcd.cursor_pos = (1, 0); self.lcd.write_string(
-                        f"T:{current_scan_angle:.0f}to{self.actual_scan_end_angle:.0f}".ljust(LCD_COLS)[:LCD_COLS])
-                except:
-                    pass
-            continue_scan, _ = self._do_scan_at_angle_and_log(current_scan_angle, f"Scan:{current_scan_angle:.0f}°")
-            if not continue_scan: scan_aborted_flag = True
-            if not scan_aborted_flag:
-                target_angles = list(range(int(current_scan_angle + scan_direction_step), effective_end_for_scan_range,
-                                           scan_direction_step))
-                for target_angle_in_scan_float in target_angles:
-                    target_angle_in_scan = float(target_angle_in_scan_float);
-                    loop_iter_start_time = time.time()
-                    continue_scan, _ = self._do_scan_at_angle_and_log(target_angle_in_scan,
-                                                                      f"Scan:{target_angle_in_scan}°")
-                    if not continue_scan: scan_aborted_flag = True; break
-                    loop_proc_time = time.time() - loop_iter_start_time;
-                    sleep_dur = max(0, LOOP_TARGET_INTERVAL_S - loop_proc_time)
-                    is_last_scan_step = (
-                                abs(target_angle_in_scan - self.actual_scan_end_angle) < abs(scan_direction_step / 2.0))
-                    if sleep_dur > 0 and not is_last_scan_step: time.sleep(sleep_dur)
-                if not scan_aborted_flag and abs(self.current_motor_angle - self.actual_scan_end_angle) > abs(
-                        scan_direction_step / 2.0):  # Tolerans eklendi
-                    print(f"[{os.getpid()}] Son hedef açı ({self.actual_scan_end_angle}°) için ek ölçüm yapılıyor.")
-                    continue_scan, _ = self._do_scan_at_angle_and_log(self.actual_scan_end_angle,
-                                                                      f"ScanEnd:{self.actual_scan_end_angle}°")
-                    if not continue_scan: scan_aborted_flag = True
-            if not scan_aborted_flag: self.script_exit_status = 'completed'
-        except KeyboardInterrupt:
-            self.script_exit_status = 'interrupted_ctrl_c';
-            print(f"\n[{os.getpid()}] Ctrl+C ile durduruldu.")
-            if self.lcd:
-                try:
-                    self.lcd.clear();
-                    self.lcd.cursor_pos = (0, 0);
-                    self.lcd.write_string("DURDURULDU (C)".ljust(LCD_COLS)[:LCD_COLS])
-                except: pass
-        except KeyboardInterrupt:
-            self.script_exit_status = 'interrupted_ctrl_c'; print(f"\n[{os.getpid()}] Ctrl+C ile durduruldu.")
-            if self.lcd:
-                try: self.lcd.clear(); self.lcd.cursor_pos = (0, 0); self.lcd.write_string("DURDURULDU (C)".ljust(LCD_COLS)[:LCD_COLS])
-                except: pass
-        except Exception as e_main:
-            if self.script_exit_status != 'terminated_close_object': self.script_exit_status = 'error_in_loop'
-            print(f"[{os.getpid()}] Ana döngü hatası: {e_main}"); import traceback; traceback.print_exc()
-            if self.lcd and self.script_exit_status != 'terminated_close_object':
-                try: self.lcd.clear(); self.lcd.cursor_pos = (0, 0); self.lcd.write_string(f"Hata:{str(e_main)[:8]}".ljust(LCD_COLS)[:LCD_COLS])
-                except: pass
-        finally:
-            if self.db_conn_local:
-                try: self.db_conn_local.close(); self.db_conn_local = None; print(f"[{os.getpid()}] Tarama sonrası yerel DB bağlantısı kapatıldı.")
-                except Exception as e: print(f"[{os.getpid()}] Tarama sonrası yerel DB kapatma hatası: {e}")
-        if not scan_aborted_flag and self.script_exit_status == 'completed' and self.current_scan_id:
-            self._final_analysis()
-        print(f"[{os.getpid()}] Ana işlem bloğu sonlandı. Son durum: {self.script_exit_status}")
+        if not self._init_hardware():
+            self.script_exit_status = 'error_hardware_init'
+            sys.exit(1)  # atexit cleanup'ı çağıracak
+
+        # Veritabanı başlatmayı bu test için atlayabiliriz veya açık bırakabiliriz
+        # if not self._init_db_for_scan():
+        #     self.script_exit_status = 'error_db_init'
+        #     sys.exit(1)
+
+        print(f"[{os.getpid()}] >>> Basit Açı Testi Başlıyor... <<<")
+
+        # TEST 1: Sağa 90 derece
+        test_target_angle_1 = 90.0
+        print(f"Motor +{test_target_angle_1}° pozisyonuna götürülüyor...")
+        print(f"Mevcut Açı (önce): {self.current_motor_angle:.2f}°")
+        self._move_motor_to_target_angle_incremental(test_target_angle_1)
+        print(f"Motor hareket tamamlandı. Sonraki Mevcut Açı: {self.current_motor_angle:.2f}°")
+        time.sleep(3)  # Motorun pozisyonunu gözlemlemek için 3 saniye bekle
+
+        # TEST 2: Sola (-45 dereceye, yani 0'dan -45'e)
+        test_target_angle_2 = -45.0
+        print(f"Motor {test_target_angle_2}° pozisyonuna götürülüyor...")
+        print(f"Mevcut Açı (önce): {self.current_motor_angle:.2f}°")
+        self._move_motor_to_target_angle_incremental(test_target_angle_2)
+        print(f"Motor hareket tamamlandı. Sonraki Mevcut Açı: {self.current_motor_angle:.2f}°")
+        time.sleep(3)
+
+        # TEST 3: Tekrar 0 dereceye (merkeze)
+        test_target_angle_3 = 0.0
+        print(f"Motor {test_target_angle_3}° pozisyonuna götürülüyor...")
+        print(f"Mevcut Açı (önce): {self.current_motor_angle:.2f}°")
+        self._move_motor_to_target_angle_incremental(test_target_angle_3)
+        print(f"Motor hareket tamamlandı. Sonraki Mevcut Açı: {self.current_motor_angle:.2f}°")
+        time.sleep(3)
+
+        print(f"[{os.getpid()}] >>> Basit Açı Testi Bitti. Betik sonlandırılıyor. <<<")
+        self.script_exit_status = 'test_completed'  # Durumu ayarla
+        # Testten sonra betiğin normal tarama döngüsüne girmesini engelle:
+        return  # veya sys.exit("Açı testi tamamlandı.") kullanabilirsiniz.
+        # return, __main__ bloğundaki finally'nin çalışmasını sağlar,
+        # sys.exit() ise atexit'leri doğrudan tetikler.
+        # atexit zaten kayıtlı olduğu için return yeterli.
+
+        # --- BURADAN SONRASI NORMAL run() METODUNUN DEVAMIYDI, TEST İÇİN YORUMA ALINDI ---
+        # print(f"[{os.getpid()}] Yeni Tarama Deseni Başlıyor (ID: {self.current_scan_id})...")
+        # ... (run metodunun geri kalanı)
 
 
 if __name__ == "__main__":
