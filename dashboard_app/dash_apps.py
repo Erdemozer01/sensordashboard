@@ -39,7 +39,7 @@ app = DjangoDash('RealtimeSensorDashboard', external_stylesheets=[dbc.themes.BOO
 # ... (title_card, control_panel, stats_panel, system_card, export_card,
 #      analysis_card, visualization_tabs - Yanıt #50'deki gibi,
 #      layout ID'lerinin doğru olduğundan emin olun.)
-title_card = dbc.Row([dbc.Col(html.H1("Dream Pi - 2D Alan Tarama Sistemi", className="text-center my-3"), width=12)])
+title_card = dbc.Row([dbc.Col(html.H1("Dream Pi Kullanıcı Paneli", className="text-center my-3"), width=12)])
 control_panel = dbc.Card(
     [dbc.CardHeader("Tarama Kontrol ve Ayarları", className="bg-primary text-white"), dbc.CardBody([
         dbc.Row([dbc.Col(html.Button('2D Taramayı Başlat', id='start-scan-button', n_clicks=0,
