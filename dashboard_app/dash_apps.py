@@ -20,11 +20,7 @@ from scipy.spatial import ConvexHull
 from simplification.cutil import simplify_coords
 
 # --- Sabitler ---
-try:
-    PROJECT_ROOT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..')
-except NameError:
-    PROJECT_ROOT_DIR = os.getcwd()
-
+PROJECT_ROOT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..')
 DB_FILENAME = 'live_scan_data.sqlite3'
 DB_PATH = os.path.join(PROJECT_ROOT_DIR, DB_FILENAME)
 SENSOR_SCRIPT_FILENAME = 'sensor_script.py'
