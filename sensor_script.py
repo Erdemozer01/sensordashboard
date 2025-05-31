@@ -443,7 +443,7 @@ class Scanner:
         print(f"[{os.getpid()}] >>> Basit Açı Testi Başlıyor... <<<")
 
         # TEST 1: Sağa 90 derece
-        test_target_angle_1 = 135
+        test_target_angle_1 = 120
         print(f"Motor +{test_target_angle_1}° pozisyonuna götürülüyor...")
         print(f"Mevcut Açı (önce): {self.current_motor_angle:.2f}°")
         self._move_motor_to_target_angle_incremental(test_target_angle_1)
@@ -451,7 +451,7 @@ class Scanner:
         time.sleep(3)  # Motorun pozisyonunu gözlemlemek için 3 saniye bekle
 
         # TEST 2: Sola (-45 dereceye, yani 0'dan -45'e)
-        test_target_angle_2 = -135
+        test_target_angle_2 = -120
         print(f"Motor {test_target_angle_2}° pozisyonuna götürülüyor...")
         print(f"Mevcut Açı (önce): {self.current_motor_angle:.2f}°")
         self._move_motor_to_target_angle_incremental(test_target_angle_2)
