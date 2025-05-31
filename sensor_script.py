@@ -443,7 +443,7 @@ class Scanner:
         print(f"[{os.getpid()}] >>> Basit Açı Testi Başlıyor... <<<")
 
         # TEST 1: Sağa 90 derece
-        test_target_angle_1 = 90.0
+        test_target_angle_1 = 135
         print(f"Motor +{test_target_angle_1}° pozisyonuna götürülüyor...")
         print(f"Mevcut Açı (önce): {self.current_motor_angle:.2f}°")
         self._move_motor_to_target_angle_incremental(test_target_angle_1)
