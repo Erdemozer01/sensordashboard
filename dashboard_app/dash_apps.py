@@ -120,7 +120,7 @@ visualization_tabs = dbc.Tabs([dbc.Tab(dcc.Graph(id='scan-map-graph', style={'he
                                dbc.Tab(dcc.Graph(id='polar-graph', style={'height': '70vh'}), label="Polar Grafik"),
                                dbc.Tab(dcc.Graph(id='time-series-graph', style={'height': '70vh'}),
                                        label="Zaman Serisi"), dbc.Tab(
-        dash_table.DataTable(id='raw-data-table', columns=[], data=[], page_size=20, page_size_selector=10,
+        dash_table.DataTable(id='raw-data-table', columns=[], data=[], page_size=20,
                              style_table={'overflowX': 'auto', 'height': '65vh', 'overflowY': 'auto'},
                              style_header={'backgroundColor': 'lightgrey', 'fontWeight': 'bold'},
                              style_cell={'textAlign': 'left', 'padding': '5px'}, filter_action="native",
