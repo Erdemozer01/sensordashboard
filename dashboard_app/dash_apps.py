@@ -32,7 +32,7 @@ LOCK_FILE_PATH_FOR_DASH = '/tmp/sensor_scan_script.lock'
 PID_FILE_PATH_FOR_DASH = '/tmp/sensor_scan_script.pid'
 
 DEFAULT_UI_INITIAL_ANGLE = 45
-DEFAULT_UI_SCAN_ARC = 270  # Varsayılan toplam tarama açısı
+DEFAULT_UI_SCAN_ARC = 135  # Varsayılan toplam tarama açısı
 DEFAULT_UI_SCAN_STEP_ANGLE = 10
 
 app = DjangoDash('RealtimeSensorDashboard', external_stylesheets=[dbc.themes.BOOTSTRAP])
