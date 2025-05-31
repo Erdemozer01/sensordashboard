@@ -411,4 +411,3 @@ if __name__ == "__main__":
         scanner_app.script_exit_status = 'error_unhandled_exception'
     finally:
         print(f"[{os.getpid()}] __main__ bloğu sonlanıyor.")
-
