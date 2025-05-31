@@ -1,4 +1,5 @@
 # dashboard_app/dash_apps.py
+import scipy
 from django_plotly_dash import DjangoDash
 import dash
 from dash import html, dcc, Output, Input, State, no_update, dash_table
@@ -64,10 +65,11 @@ export_card = dbc.Card([dbc.CardHeader("Veri Dışa Aktarma (En Son Tarama)", cl
      dbc.Button('En Son Taramayı Excel İndir', id='export-excel-button', color="success", className="w-100"),
      dcc.Download(id='download-excel')])], className="mb-3")
 
+# dash_apps.py içinde analysis_card tanımı
+
 analysis_card = dbc.Card([
     dbc.CardHeader("Tarama Analizi (En Son Tarama)", className="bg-dark text-white"),
-    dbc.CardBody([ # html.Div(id='analysis-output-container') yerine doğrudan içerik
-        # html.H5(id='analysis-info-header', children="Analiz bekleniyor...", style={'marginBottom':'15px'}), # İsteğe bağlı başlık
+    dbc.CardBody([
         dbc.Row([
             dbc.Col([html.H6("Hesaplanan Alan:"), html.H4(id='calculated-area', children="-- cm²")]),
             dbc.Col([html.H6("Çevre Uzunluğu:"), html.H4(id='perimeter-length', children="-- cm")])
@@ -78,8 +80,9 @@ analysis_card = dbc.Card([
         ], className="mt-2"),
         html.Hr(style={'marginTop':'15px', 'marginBottom':'10px'}),
         dbc.Row([
-            dbc.Col([html.H6("Basit Şekil Yorumu:"), html.P(id='shape-estimation-output', children="Veri bekleniyor...")])
-        ], className="mt-2")
+            dbc.Col(dbc.Button("Ortam Şekil Tahmini", id="estimate-shape-button", color="success", className="w-100"), width=6), # Tahmin Butonu
+            dbc.Col(html.H5(id="shape-estimation-text", children="Tahmin için butona basın...", className="text-info mt-2"), width=6) # Tahmin Sonucu Alanı
+        ], className="mt-2 align-items-center")
     ])
 ])
 visualization_tabs = dbc.Tabs([dbc.Tab(dcc.Graph(id='scan-map-graph', style={'height': '70vh'}), label="2D Harita"),
@@ -601,6 +604,108 @@ def export_excel_callback(n_clicks):
     return dash.no_update
 
 
+@app.callback(
+    Output('shape-estimation-text', 'children'),
+    [Input('estimate-shape-button', 'n_clicks')],
+    prevent_initial_call=True  # Sadece butona tıklandığında çalışsın
+)
+def estimate_environment_shape(n_clicks):
+    if n_clicks is None or n_clicks == 0:
+        return "Tahmin için butona basın..."
+
+    print(f"--- estimate_environment_shape tetiklendi --- n_clicks: {n_clicks}")
+    conn, error_msg_conn = get_db_connection()
+    shape_guess = "Şekil tahmini yapılamadı."
+
+    if error_msg_conn:
+        print(f"Şekil Tahmini: DB bağlantı hatası: {error_msg_conn}")
+        return f"DB Hatası: {error_msg_conn}"
+
+    latest_id = None
+    if conn:
+        latest_id = get_latest_scan_id_from_db(conn_param=conn)
+
+    if not latest_id:
+        print("Şekil Tahmini: İşlenecek tarama ID'si bulunamadı.")
+        if conn: conn.close()
+        return "Geçerli tarama bulunamadı."
+
+    df_points = pd.DataFrame()
+    df_scan_info = pd.DataFrame()  # scan_extent_angle_setting gibi bilgileri almak için
+    if conn:
+        try:
+            df_scan_info = pd.read_sql_query(
+                f"SELECT scan_extent_angle_setting, max_genislik_cm, max_derinlik_cm, hesaplanan_alan_cm2 "
+                f"FROM servo_scans WHERE id = {latest_id}", conn
+            )
+            df_points = pd.read_sql_query(
+                f"SELECT x_cm, y_cm, mesafe_cm FROM scan_points WHERE scan_id = {latest_id} AND mesafe_cm > 0.1 AND mesafe_cm < 200 ORDER BY angle_deg ASC",
+                conn
+            )
+            print(f"Şekil Tahmini: ID {latest_id} için {len(df_points)} nokta çekildi.")
+        except Exception as e:
+            print(f"Şekil Tahmini: Veri çekme hatası (ID: {latest_id}): {e}")
+            if conn: conn.close()
+            return "Veri çekme hatası."
+        finally:
+            if conn: conn.close()  # Bağlantıyı burada kapatabiliriz, çünkü bir daha kullanılmayacak bu fonksiyonda.
+
+    if df_points.empty or len(df_points) < 5:  # Yeterli nokta yoksa
+        return "Şekil tahmini için yetersiz nokta."
+
+    # Basit Sezgisel Şekil Tahminleri
+    # Bu kısım çok daha karmaşık algoritmalarla geliştirilebilir (Convex Hull, RANSAC vb.)
+
+    # Önceki analizden gelen değerleri kullanalım (eğer varsa)
+    max_g = None
+    max_d = None
+    scan_extent = DEFAULT_UI_SCAN_EXTENT_ANGLE  # Varsayılan
+
+    if not df_scan_info.empty:
+        max_g = df_scan_info['max_genislik_cm'].iloc[0]
+        max_d = df_scan_info['max_derinlik_cm'].iloc[0]
+        scan_extent = df_scan_info['scan_extent_angle_setting'].iloc[0] if pd.notnull(
+            df_scan_info['scan_extent_angle_setting'].iloc[0]) else scan_extent
+
+    if pd.notnull(max_g) and pd.notnull(max_d) and max_d > 0:
+        aspect_ratio = max_g / max_d
+
+        # Basit sınıflandırma
+        if abs(scan_extent * 2 - 270) < 30:  # Yaklaşık 270 derece geniş bir tarama
+            if 0.75 < aspect_ratio < 1.33:
+                shape_guess = "Geniş, Dairesel/Karemsi Alan"
+            elif aspect_ratio >= 1.33:
+                shape_guess = "Geniş ve Yayvan Alan"
+            else:  # aspect_ratio <= 0.75
+                shape_guess = "Dar ve Uzun Alan (Koridor?)"
+        elif abs(scan_extent * 2 - 180) < 30:  # Yaklaşık 180 derece yarım daire tarama
+            if 0.75 < aspect_ratio < 1.33:
+                shape_guess = "Yarım Daireye Benzer Alan"
+            else:
+                shape_guess = "Genişleyen Sektör"
+        else:
+            shape_guess = "Belirli Bir Açısal Sektör"
+
+        # Mesafe dağılımına göre ek yorumlar yapılabilir
+        # Örneğin, mesafelerin çoğu birbirine yakınsa "Düz Duvar" gibi.
+        # Veya mesafelerde büyük sıçramalar varsa "Köşeli Yapı" gibi.
+        # Bu kısımlar daha fazla algoritma gerektirir.
+        # Şimdilik Convex Hull'ı buraya ekleyelim:
+        try:
+            points_for_hull_np = df_points[['y_cm', 'x_cm']].dropna().values  # NaNsiz al
+            if len(points_for_hull_np) >= 3:
+                hull = scipy.spatial.ConvexHull(points_for_hull_np)
+                shape_guess += f" (Dış Sınır: {len(hull.vertices)} Köşeli)"
+            else:
+                shape_guess += " (Dış sınır için yetersiz nokta)"
+        except Exception as e_hull:
+            print(f"Convex Hull hesaplama hatası: {e_hull}")
+            shape_guess += " (Dış sınır hesaplanamadı)"
+
+    else:
+        shape_guess = "Genişlik/derinlik verisiyle temel yorum yapılamadı."
+
+    return shape_guess
 
 @app.callback(
     [Output('raw-data-table', 'data'), Output('raw-data-table', 'columns')],
