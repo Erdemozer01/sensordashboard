@@ -840,3 +840,4 @@ if __name__ == "__main__":
         # bir exception ile kesildiğinde (sys.exit() dahil) çağrılır.
         # Bu yüzden burada ayrıca kilit serbest bırakmaya gerek yok, atexit halleder.
         print(f"[{os.getpid()}] __main__ bloğu sonlanıyor.")
+
