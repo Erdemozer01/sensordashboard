@@ -31,7 +31,7 @@ SENSOR_SCRIPT_PATH = os.path.join(PROJECT_ROOT_DIR, SENSOR_SCRIPT_FILENAME)
 LOCK_FILE_PATH_FOR_DASH = '/tmp/sensor_scan_script.lock'
 PID_FILE_PATH_FOR_DASH = '/tmp/sensor_scan_script.pid'
 
-DEFAULT_UI_INITIAL_ANGLE = 45
+DEFAULT_UI_INITIAL_ANGLE = 0
 DEFAULT_UI_SCAN_ARC = 135  # Varsayılan toplam tarama açısı
 DEFAULT_UI_SCAN_STEP_ANGLE = 10
 
