@@ -201,6 +201,69 @@ def handle_start_scan_script(n_clicks_start, scan_extent_val, step_angle_val):
 
 
 @app.callback(
+    Output('scan-status-message', 'children', allow_duplicate=True),
+    # allow_duplicate=True, birden fazla callback aynı Output'u güncelleyebilir
+    [Input('stop-scan-button', 'n_clicks')],
+    prevent_initial_call=True
+)
+def handle_stop_scan_script(n_clicks_stop):
+    if n_clicks_stop is None or n_clicks_stop == 0:
+        return dash.no_update
+
+    pid_to_kill = None
+    if os.path.exists(PID_FILE_PATH_FOR_DASH):
+        try:
+            with open(PID_FILE_PATH_FOR_DASH, 'r') as pf:
+                pid_str = pf.read().strip()
+                if pid_str: pid_to_kill = int(pid_str)
+        except (FileNotFoundError, ValueError, TypeError):
+            pid_to_kill = None
+
+    if pid_to_kill and is_process_running(pid_to_kill):
+        try:
+            print(f"Dash: Sensör betiği (PID: {pid_to_kill}) için SIGTERM gönderiliyor...")
+            os.kill(pid_to_kill, signal.SIGTERM)  # Önce nazikçe sonlandırmayı dene (atexit çalışır)
+            time.sleep(2.0)  # atexit'in çalışması ve dosyaları silmesi için süre tanı
+            if is_process_running(pid_to_kill):  # Hala çalışıyorsa
+                print(f"Dash: Sensör betiği (PID: {pid_to_kill}) SIGTERM'e yanıt vermedi, SIGKILL gönderiliyor...")
+                os.kill(pid_to_kill, signal.SIGKILL)  # Zorla kapat
+                time.sleep(0.5)  # SIGKILL sonrası
+
+            # Kilit ve PID dosyalarının silindiğini kontrol et
+            if not os.path.exists(PID_FILE_PATH_FOR_DASH) and not os.path.exists(LOCK_FILE_PATH_FOR_DASH):
+                return dbc.Alert(f"Sensör betiği (PID: {pid_to_kill}) durduruldu ve kilit dosyaları temizlendi.",
+                                 color="info", duration=4000)
+            else:
+                # Eğer hala dosyalar varsa, manuel silmeyi deneyebiliriz veya kullanıcıya bildirebiliriz
+                cleaned_after_kill = False
+                if os.path.exists(PID_FILE_PATH_FOR_DASH): os.remove(PID_FILE_PATH_FOR_DASH); cleaned_after_kill = True
+                if os.path.exists(LOCK_FILE_PATH_FOR_DASH): os.remove(
+                    LOCK_FILE_PATH_FOR_DASH); cleaned_after_kill = True
+                if cleaned_after_kill:
+                    return dbc.Alert(
+                        f"Sensör betiği (PID: {pid_to_kill}) durduruldu, kalan kilit/PID dosyaları temizlendi.",
+                        color="info", duration=5000)
+                else:
+                    return dbc.Alert(
+                        f"Sensör betiği (PID: {pid_to_kill}) durduruldu, ancak kilit/PID dosyaları hala mevcut olabilir. Manuel kontrol edin.",
+                        color="warning", duration=5000)
+
+        except ProcessLookupError:  # Process zaten yoksa (nadir durum)
+            return dbc.Alert(f"Sensör betiği (PID: {pid_to_kill}) zaten çalışmıyor.", color="info", duration=4000)
+        except Exception as e:
+            return dbc.Alert(f"Sensör betiği (PID: {pid_to_kill}) durdurulurken hata: {e}", color="danger",
+                             duration=5000)
+    else:
+        msg = "Çalışan bir sensör betiği bulunamadı veya PID dosyası geçersiz."
+        cleaned_stale = False
+        if os.path.exists(LOCK_FILE_PATH_FOR_DASH): os.remove(LOCK_FILE_PATH_FOR_DASH); cleaned_stale = True
+        if os.path.exists(PID_FILE_PATH_FOR_DASH): os.remove(PID_FILE_PATH_FOR_DASH); cleaned_stale = True
+        if cleaned_stale: msg += " Kalıntı kilit/PID dosyaları temizlendi."
+        return dbc.Alert(msg, color="warning", duration=4000)
+    return dash.no_update
+
+
+@app.callback(
     [Output('calculated-area', 'children'),  # 1. Output
      Output('perimeter-length', 'children'),  # 2. Output
      Output('max-width', 'children'),  # 3. Output
