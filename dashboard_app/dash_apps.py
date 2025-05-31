@@ -199,6 +199,85 @@ def handle_start_scan_script(n_clicks_start, scan_extent_val, step_angle_val):
         return dbc.Alert(f"Sensör betiği başlatılırken genel hata: {str(e)}", color="danger")
     return dash.no_update
 
+
+@app.callback(
+    [Output('calculated-area', 'children'),  # 1. Output
+     Output('perimeter-length', 'children'),  # 2. Output
+     Output('max-width', 'children'),  # 3. Output
+     Output('max-depth', 'children')],  # 4. Output
+    [Input('interval-component-main', 'n_intervals')]
+    # Dropdown kaldırıldığı için selected_scan_id Input'u artık yok
+)
+def update_analysis_panel(n_intervals):
+    print(f"--- update_analysis_panel tetiklendi --- n_intervals: {n_intervals}")  # Debug
+    conn, error = get_db_connection()
+    area_str, perimeter_str, width_str, depth_str = "-- cm²", "-- cm", "-- cm", "-- cm"  # Varsayılanlar
+
+    latest_id = None
+    if conn:  # Sadece bağlantı varsa ID almayı dene
+        latest_id = get_latest_scan_id_from_db(conn_param=conn)
+
+    print(f"Analiz için kullanılacak Tarama ID: {latest_id}")  # Debug
+
+    if conn and latest_id:
+        try:
+            df_scan = pd.read_sql_query(
+                f"SELECT hesaplanan_alan_cm2, cevre_cm, max_genislik_cm, max_derinlik_cm FROM servo_scans WHERE id = {latest_id}",
+                conn
+            )
+            print(f"Analiz için çekilen df_scan verisi (ID: {latest_id}):\n{df_scan.to_string()}")  # Debug
+            if not df_scan.empty:
+                area_val = df_scan['hesaplanan_alan_cm2'].iloc[0]
+                per_val = df_scan['cevre_cm'].iloc[0]
+                w_val = df_scan['max_genislik_cm'].iloc[0]
+                d_val = df_scan['max_derinlik_cm'].iloc[0]
+
+                area_str = f"{area_val:.2f} cm²" if pd.notnull(area_val) else "Hesaplanmadı"
+                perimeter_str = f"{per_val:.2f} cm" if pd.notnull(per_val) else "Hesaplanmadı"
+                width_str = f"{w_val:.2f} cm" if pd.notnull(w_val) else "Hesaplanmadı"
+                depth_str = f"{d_val:.2f} cm" if pd.notnull(d_val) else "Hesaplanmadı"
+                print(
+                    f"İşlenmiş analiz değerleri: Alan={area_str}, Çevre={perimeter_str}, Genişlik={width_str}, Derinlik={depth_str}")  # Debug
+            else:
+                print(f"Analiz: Tarama ID {latest_id} için servo_scans tablosunda veri yok veya sütunlar eksik.")
+        except Exception as e:
+            print(f"Analiz paneli DB sorgu hatası (ID: {latest_id}): {e}")
+            area_str, perimeter_str, width_str, depth_str = "Hata", "Hata", "Hata", "Hata"
+        # finally: conn.close() # get_latest_scan_id_from_db kendi bağlantısını açıp kapattıysa bu gereksiz
+        # get_db_connection burada açtıysa en sonda kapatılmalı.
+    elif error:  # get_db_connection'dan hata geldiyse
+        print(f"DB Bağlantı Hatası (Analiz Paneli): {error}")
+        area_str, perimeter_str, width_str, depth_str = "DB Yok", "DB Yok", "DB Yok", "DB Yok"
+    else:  # Ne bağlantı var ne de hata mesajı (get_db_connection None döndürdüyse ve latest_id de None ise)
+        print("Analiz: Gösterilecek tarama ID'si bulunamadı (DB bağlantısı sonrası).")
+
+    # Layout'ta analysis-output ID'li Div'in children'ını güncelliyoruz.
+    # Bu children, daha önce layout'ta tanımladığımız Row/Col yapısını içermeli.
+    analysis_children_content = [
+        dbc.Row([
+            dbc.Col([html.H6("Hesaplanan Alan:"), html.H4(children=area_str)]),
+            # id='calculated-area' kaldırıldı, doğrudan children
+            dbc.Col([html.H6("Çevre Uzunluğu:"), html.H4(children=perimeter_str)])
+        ]),
+        dbc.Row([
+            dbc.Col([html.H6("Max Genişlik:"), html.H4(children=width_str)]),
+            dbc.Col([html.H6("Max Derinlik:"), html.H4(children=depth_str)])
+        ], className="mt-2")
+    ]
+    print(f"Analiz paneli için döndürülen children: {analysis_children_content}")
+
+    # Bu callback artık doğrudan analysis-output div'inin children'ını güncelliyor.
+    # Output('calculated-area', 'children') gibi ayrı ayrı Output'lar yerine tek bir Output var.
+    # Eğer layout'unuzda 'calculated-area', 'perimeter-length' vb. ID'lere sahip
+    # ayrı H4'ler varsa ve onları ayrı ayrı güncellemek istiyorsanız, Output tanımı ve return
+    # bir önceki cevaptaki (#50) gibi olmalı.
+    # Şimdiki layout'unuzda (Yanıt #50'den gelen):
+    # analysis_card = dbc.Card([dbc.CardHeader(...), dbc.CardBody(html.Div(id='analysis-output'))])
+    # Bu durumda, analysis-output'un children'ını yukarıdaki `analysis_children_content` ile güncellemek doğru.
+
+    if conn: conn.close()  # Eğer bu fonksiyon içinde açıldıysa bağlantıyı kapat
+    return [analysis_children_content]  # Tek bir Output olduğu için tek bir değer listesi
+
 # handle_stop_scan_script (Yanıt #50'deki gibi)
 # update_realtime_values (Yanıt #50'deki gibi)
 # update_all_graphs (Yanıt #50'deki gibi, dropdown input'u olmadan en son taramayı alır)
