@@ -451,7 +451,7 @@ class Scanner:
         time.sleep(3)  # Motorun pozisyonunu gözlemlemek için 3 saniye bekle
 
         # TEST 2: Sola (-45 dereceye, yani 0'dan -45'e)
-        test_target_angle_2 = -45.0
+        test_target_angle_2 = -135
         print(f"Motor {test_target_angle_2}° pozisyonuna götürülüyor...")
         print(f"Mevcut Açı (önce): {self.current_motor_angle:.2f}°")
         self._move_motor_to_target_angle_incremental(test_target_angle_2)
