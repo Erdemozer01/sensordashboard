@@ -40,8 +40,7 @@ app = DjangoDash('RealtimeSensorDashboard', external_stylesheets=[dbc.themes.BOO
 #      analysis_card, visualization_tabs - Yanıt #50'deki gibi,
 #      layout ID'lerinin doğru olduğundan emin olun.)
 title_card = dbc.Row([dbc.Col(html.H1("Dream Pi Kullanıcı Paneli", className="text-center my-3"), width=12)])
-control_panel = dbc.Card(
-    [dbc.CardHeader("Tarama Kontrol ve Ayarları", className="bg-primary text-white"), dbc.CardBody([
+control_panel = dbc.Card([dbc.CardHeader("Tarama Kontrol ve Ayarları", className="bg-primary text-white"), dbc.CardBody([
         dbc.Row([dbc.Col(html.Button('2D Taramayı Başlat', id='start-scan-button', n_clicks=0,
                                      className="btn btn-success btn-lg w-100 mb-2"), width=6),
                  dbc.Col(html.Button('Taramayı Durdur', id='stop-scan-button', n_clicks=0,
@@ -64,10 +63,11 @@ export_card = dbc.Card([dbc.CardHeader("Veri Dışa Aktarma (En Son Tarama)", cl
      dcc.Download(id='download-csv'),
      dbc.Button('En Son Taramayı Excel İndir', id='export-excel-button', color="success", className="w-100"),
      dcc.Download(id='download-excel')])], className="mb-3")
+
 analysis_card = dbc.Card([
     dbc.CardHeader("Tarama Analizi (En Son Tarama)", className="bg-dark text-white"),
-    dbc.CardBody([
-        # html.H5(id='analysis-info-header', children="Analiz bekleniyor..."), # İsteğe bağlı başlık
+    dbc.CardBody([ # html.Div(id='analysis-output-container') yerine doğrudan içerik
+        # html.H5(id='analysis-info-header', children="Analiz bekleniyor...", style={'marginBottom':'15px'}), # İsteğe bağlı başlık
         dbc.Row([
             dbc.Col([html.H6("Hesaplanan Alan:"), html.H4(id='calculated-area', children="-- cm²")]),
             dbc.Col([html.H6("Çevre Uzunluğu:"), html.H4(id='perimeter-length', children="-- cm")])
@@ -419,12 +419,14 @@ def update_all_graphs(n_intervals):
 
 
 @app.callback(
-    [Output('calculated-area', 'children'),  # 1. Output
-     Output('perimeter-length', 'children'),  # 2. Output
-     Output('max-width', 'children'),  # 3. Output
-     Output('max-depth', 'children'),  # 4. Output
-     Output('shape-estimation-output', 'children')  # 5. Output (layout'ta bu ID'li bir P olmalı)
-     # Belki bir H5 başlığı için de ayrı bir Output: Output('analysis-info-header', 'children')
+    [Output('calculated-area', 'children'),  # 1. Output (Hesaplanan Alan için H4'ün children'ı)
+     Output('perimeter-length', 'children'),  # 2. Output (Çevre Uzunluğu için H4'ün children'ı)
+     Output('max-width', 'children'),  # 3. Output (Max Genişlik için H4'ün children'ı)
+     Output('max-depth', 'children'),  # 4. Output (Max Derinlik için H4'ün children'ı)
+     Output('shape-estimation-output', 'children')  # 5. Output (Şekil Yorumu için P'nin children'ı)
+     # Eğer analiz kartında bir başlık (örn: "Son Analiz (ID: X)") göstermek isterseniz,
+     # o başlık için de bir Output ekleyebilirsiniz ve bu fonksiyondan 6. bir değer döndürürsünüz.
+     # Şimdilik analysis_card'ın kendi başlığı sabit ("Tarama Analizi (En Son Tarama)")
      ],
     [Input('interval-component-main', 'n_intervals')]
 )
@@ -432,33 +434,82 @@ def update_analysis_panel(n_intervals):
     print(f"--- update_analysis_panel tetiklendi (Interval: {n_intervals}) ---")
     conn, error_msg_conn = get_db_connection()
 
-    area_str, perimeter_str, width_str, depth_str = "-- cm²", "-- cm", "-- cm", "-- cm"
-    shape_estimation_str = "Veri bekleniyor..."
-    # scan_info_header_str = "Analiz için veri bekleniyor..." # Bu belki ayrı bir output olabilir
-
-    if error_msg_conn:
-        print(f"Analiz Paneli: DB bağlantı hatası: {error_msg_conn}")
-        # Hata durumunda tüm output'lar için varsayılan/hata mesajları döndür
-        return "DB Hatası", "DB Hatası", "DB Hatası", "DB Hatası", "DB Hatası"
+    # Varsayılan değerler
+    area_str = "-- cm²"
+    perimeter_str = "-- cm"
+    width_str = "-- cm"
+    depth_str = "-- cm"
+    shape_estimation_str = "Analiz için veri bekleniyor..."
 
     latest_id = None
-    if conn:
-        latest_id = get_latest_scan_id_from_db(conn_param=conn)
 
-    if conn and latest_id:
+    if error_msg_conn:  # get_db_connection'dan hata geldiyse
+        print(f"Analiz Paneli: DB bağlantı hatası: {error_msg_conn}")
+        shape_estimation_str = f"DB Hatası: {error_msg_conn}"  # Hata mesajını şekil yorumuna yaz
+    elif conn:
         try:
-            # ... (df_scan çekme ve area_str, perimeter_str, vb. oluşturma - yukarıdaki gibi)
-            # ... (shape_estimation_str oluşturma - yukarıdaki gibi)
-            pass  # Bu kısmı yukarıdaki örnekten alın
+            latest_id = get_latest_scan_id_from_db(conn_param=conn)
+            print(f"Analiz için kullanılacak Tarama ID: {latest_id}")
+
+            if latest_id:
+                # sensor_script.py'nin yazdığı tüm analiz sütunlarını çek
+                df_scan = pd.read_sql_query(
+                    f"SELECT hesaplanan_alan_cm2, cevre_cm, max_genislik_cm, max_derinlik_cm, "
+                    f"scan_extent_angle_setting, status, start_time "  # Şekil yorumu ve başlık için ek bilgiler
+                    f"FROM servo_scans WHERE id = {latest_id}",
+                    conn
+                )
+
+                if not df_scan.empty:
+                    row = df_scan.iloc[0]
+                    print(f"Analiz için çekilen df_scan (ID: {latest_id}):\n{row.to_string()}")  # DEBUG
+
+                    area_str = f"{row['hesaplanan_alan_cm2']:.2f} cm²" if pd.notnull(
+                        row['hesaplanan_alan_cm2']) else "Hesaplanmadı"
+                    perimeter_str = f"{row['cevre_cm']:.2f} cm" if pd.notnull(row['cevre_cm']) else "Hesaplanmadı"
+                    width_str = f"{row['max_genislik_cm']:.2f} cm" if pd.notnull(
+                        row['max_genislik_cm']) else "Hesaplanmadı"
+                    depth_str = f"{row['max_derinlik_cm']:.2f} cm" if pd.notnull(
+                        row['max_derinlik_cm']) else "Hesaplanmadı"
+
+                    # Basit Şekil Yorumu
+                    if pd.notnull(row['max_genislik_cm']) and pd.notnull(row['max_derinlik_cm']) and row[
+                        'max_derinlik_cm'] > 0:
+                        aspect_ratio = row['max_genislik_cm'] / row['max_derinlik_cm']
+                        scan_extent = row['scan_extent_angle_setting'] if pd.notnull(
+                            row['scan_extent_angle_setting']) else DEFAULT_UI_SCAN_EXTENT_ANGLE
+
+                        if abs(scan_extent * 2 - 180) < 30:
+                            if 0.75 < aspect_ratio < 1.33:
+                                shape_estimation_str = "Yarım daireye benzer, dengeli bir alan."
+                            elif aspect_ratio >= 1.33:
+                                shape_estimation_str = "Geniş bir alana açılıyor."
+                            else:
+                                shape_estimation_str = "Dar ve uzun bir koridor/alan."
+                        elif abs(scan_extent * 2 - 270) < 30:
+                            shape_estimation_str = "Geniş açılı bir oda/alan tarandı."
+                        else:
+                            shape_estimation_str = "Belirli bir sektör tarandı."
+                        if pd.notnull(row['hesaplanan_alan_cm2']) and row['hesaplanan_alan_cm2'] < 1000:
+                            shape_estimation_str += " Muhtemelen kapalı/dar bir bölge."
+                    else:
+                        shape_estimation_str = "Genişlik/derinlik verisiyle yorum yapılamadı."
+                    print(
+                        f"İşlenmiş analiz değerleri: Alan={area_str}, Çevre={perimeter_str}, G={width_str}, D={depth_str}, Yorum={shape_estimation_str}")
+                else:
+                    shape_estimation_str = f"Tarama ID {latest_id} için analiz verisi (servo_scans) bulunamadı."
+                    print(shape_estimation_str)
+            else:
+                shape_estimation_str = "Analiz edilecek tarama bulunamadı."
+                print(shape_estimation_str)
         except Exception as e:
-            print(f"Analiz paneli DB sorgu/işleme hatası: {e}")
-            area_str, perimeter_str, width_str, depth_str, shape_estimation_str = "Hata", "Hata", "Hata", "Hata", "Hata"
+            print(f"Analiz paneli DB sorgu/işleme hatası (ID: {latest_id}): {e}")
+            shape_estimation_str = "Analiz verileri alınırken hata oluştu."
+            area_str, perimeter_str, width_str, depth_str = "Hata", "Hata", "Hata", "Hata"
         finally:
             if conn: conn.close()
-    else:
-        print("Analiz Paneli: İşlenecek tarama ID'si bulunamadı.")
 
-    print(f"Analiz Paneli: Değerler: {area_str}, {perimeter_str}, {width_str}, {depth_str}, {shape_estimation_str}")
+    print(f"Analiz paneli güncellendi. Yorum: {shape_estimation_str}")
     return area_str, perimeter_str, width_str, depth_str, shape_estimation_str
 
 
@@ -467,7 +518,6 @@ def update_analysis_panel(n_intervals):
     [Input('interval-component-system', 'n_intervals')]
 )
 def update_system_card(n_intervals):
-    # ... (İçeriği Yanıt #58'deki gibi, psutil ile, Output düzenlendi) ...
     script_status_text, status_class_name = "Beklemede", "text-secondary";
     pid = None
     if os.path.exists(PID_FILE_PATH_FOR_DASH):
