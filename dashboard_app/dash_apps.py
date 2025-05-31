@@ -484,7 +484,7 @@ def update_analysis_panel(n_intervals):
     # scan_info_header zaten ayarlı
 
     analysis_children_content = [  # Bu bir liste
-        html.H5(scan_info_header, style={'marginBottom': '15px'}),
+        html.H5(scan_info_header_str, style={'marginBottom': '15px'}),
         dbc.Row([
             dbc.Col([html.H6("Hesaplanan Alan:"), html.H4(children=area_str)]),
             dbc.Col([html.H6("Çevre Uzunluğu:"), html.H4(children=perimeter_str)])
