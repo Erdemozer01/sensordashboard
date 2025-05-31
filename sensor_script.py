@@ -306,21 +306,38 @@ def init_db_for_scan():
         if conn: conn.close()
 
 
-def acquire_lock_and_pid():  # Aynı
-    global lock_file_handle;
+# sensor_script.py içindeki acquire_lock_and_pid fonksiyonu
+
+def acquire_lock_and_pid():
+    global lock_file_handle
     try:
-        if os.path.exists(PID_FILE_PATH): os.remove(PID_FILE_PATH)
+        # Önceki çalıştırmadan kalmış olabilecek PID dosyasını temizle
+        if os.path.exists(PID_FILE_PATH):
+            os.remove(PID_FILE_PATH)
     except OSError:
+        print(f"[{os.getpid()}] Uyarı: Eski PID dosyası ({PID_FILE_PATH}) silinirken bir sorun oluştu, devam ediliyor.")
         pass
+
     try:
-        lock_file_handle = open(LOCK_FILE_PATH, 'w');
-        fcntl.flock(lock_file_handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB);
+        lock_file_handle = open(LOCK_FILE_PATH, 'w')
+        fcntl.flock(lock_file_handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+
         with open(PID_FILE_PATH, 'w') as pf:
-            pf.write(str(os.getpid())); return True
-    except BlockingIOError:
-        print(f"Kilit dosyası mevcut."); if lock_file_handle: lock_file_handle.close(); lock_file_handle = None; return False
-    except Exception as e: print(f"Kilit/PID hatası: {e}");
-    if lock_file_handle: lock_file_handle.close(); lock_file_handle = None; return False
+            pf.write(str(os.getpid()))
+        print(f"[{os.getpid()}] Betik kilidi ({LOCK_FILE_PATH}) ve PID ({PID_FILE_PATH}) başarıyla oluşturuldu.")
+        return True
+    except BlockingIOError: # Başka bir process kilit tutuyorsa
+        print(f"[{os.getpid()}] '{LOCK_FILE_PATH}' kilitli. Sensör betiği zaten çalışıyor olabilir.")
+        if lock_file_handle: # Eğer open() başarılı oldu ama flock başarısız olduysa
+            lock_file_handle.close()
+        lock_file_handle = None # Kilit alınamadığı için handle'ı sıfırla
+        return False
+    except Exception as e: # Diğer hatalar (örn: izin hatası)
+        print(f"[{os.getpid()}] Kilit/PID alınırken beklenmedik bir hata: {e}")
+        if lock_file_handle: # Eğer open() başarılı oldu ama başka bir hata oluştuysa
+            lock_file_handle.close()
+        lock_file_handle = None # Handle'ı sıfırla
+        return False
 
 
 def _apply_step_to_motor(sequence_index):  # Aynı
