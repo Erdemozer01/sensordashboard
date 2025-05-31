@@ -310,33 +310,35 @@ def init_db_for_scan():
 
 def acquire_lock_and_pid():
     global lock_file_handle
+    # Önceki çalıştırmadan kalmış olabilecek PID dosyasını temizle
     try:
-        # Önceki çalıştırmadan kalmış olabilecek PID dosyasını temizle
         if os.path.exists(PID_FILE_PATH):
             os.remove(PID_FILE_PATH)
     except OSError:
+        # PID dosyası silinemezse kritik bir sorun değil, fcntl kilidi esas
         print(f"[{os.getpid()}] Uyarı: Eski PID dosyası ({PID_FILE_PATH}) silinirken bir sorun oluştu, devam ediliyor.")
         pass
 
     try:
         lock_file_handle = open(LOCK_FILE_PATH, 'w')
-        fcntl.flock(lock_file_handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        fcntl.flock(lock_file_handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)  # Non-blocking lock
 
+        # Kilit başarıyla alındıysa, PID dosyasını oluştur/güncelle
         with open(PID_FILE_PATH, 'w') as pf:
             pf.write(str(os.getpid()))
         print(f"[{os.getpid()}] Betik kilidi ({LOCK_FILE_PATH}) ve PID ({PID_FILE_PATH}) başarıyla oluşturuldu.")
         return True
-    except BlockingIOError: # Başka bir process kilit tutuyorsa
+    except BlockingIOError:  # Başka bir process kilit tutuyorsa
         print(f"[{os.getpid()}] '{LOCK_FILE_PATH}' kilitli. Sensör betiği zaten çalışıyor olabilir.")
-        if lock_file_handle: # Eğer open() başarılı oldu ama flock başarısız olduysa
+        if lock_file_handle:  # Eğer open() başarılı oldu ama flock başarısız olduysa
             lock_file_handle.close()
-        lock_file_handle = None # Kilit alınamadığı için handle'ı sıfırla
+        lock_file_handle = None  # Kilit alınamadığı için handle'ı sıfırla
         return False
-    except Exception as e: # Diğer hatalar (örn: izin hatası)
+    except Exception as e:  # Diğer hatalar (örn: izin hatası)
         print(f"[{os.getpid()}] Kilit/PID alınırken beklenmedik bir hata: {e}")
-        if lock_file_handle: # Eğer open() başarılı oldu ama başka bir hata oluştuysa
+        if lock_file_handle:  # Eğer open() başarılı oldu ama başka bir hata oluştuysa
             lock_file_handle.close()
-        lock_file_handle = None # Handle'ı sıfırla
+        lock_file_handle = None  # Handle'ı sıfırla
         return False
 
 
