@@ -398,7 +398,8 @@ def handle_start_scan_script(n_clicks_start, initial_angle_val, scan_arc_val, st
         except IOError as e_io: print(f"PID dosyası okuma hatası: {e_io}"); current_pid = None
     if current_pid and is_process_running(current_pid): return dbc.Alert(f"Betik zaten çalışıyor (PID: {current_pid}). Önce durdurun.", color="warning", duration=4000)
     if os.path.exists(LOCK_FILE_PATH_FOR_DASH) and (not current_pid or not is_process_running(current_pid)):
-        print("Kalıntı kilit dosyası bulundu, temizleniyor..."); try:
+        print("Kalıntı kilit dosyası bulundu, temizleniyor...");
+        try:
             if os.path.exists(PID_FILE_PATH_FOR_DASH): os.remove(PID_FILE_PATH_FOR_DASH)
             if os.path.exists(LOCK_FILE_PATH_FOR_DASH): os.remove(LOCK_FILE_PATH_FOR_DASH)
         except OSError as e: return dbc.Alert(f"Kalıntı kilit/PID dosyası silinemedi: {e}. Manuel kontrol edin.", color="danger", duration=4000)
