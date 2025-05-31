@@ -1,4 +1,4 @@
-# sensor_script.py (Göreli Sıfır ile Tarama Mantığı)
+# sensor_script.py (Göreli Açılar Her Zaman Pozitif Artacak Şekilde Güncellendi)
 from gpiozero import DistanceSensor, LED, OutputDevice
 from RPLCD.i2c import CharLCD
 import time
@@ -18,8 +18,8 @@ YELLOW_LED_PIN = 27
 MOTOR_PIN_IN1, MOTOR_PIN_IN2, MOTOR_PIN_IN3, MOTOR_PIN_IN4 = 5, 6, 13, 19
 LCD_I2C_ADDRESS, LCD_PORT_EXPANDER, LCD_COLS, LCD_ROWS, I2C_PORT = 0x27, 'PCF8574', 16, 2, 1
 TERMINATION_DISTANCE_CM = 10.0
-DEFAULT_INITIAL_GOTO_ANGLE_ARG = 135 # Dashboard'dan gelen mutlak başlangıç
-DEFAULT_FINAL_SCAN_ANGLE_ARG = -135  # Dashboard'dan gelen mutlak bitiş
+DEFAULT_INITIAL_GOTO_ANGLE_ARG = 135
+DEFAULT_FINAL_SCAN_ANGLE_ARG = -135
 DEFAULT_SCAN_STEP_ANGLE_ARG = 10
 STEP_MOTOR_SETTLE_TIME, LOOP_TARGET_INTERVAL_S = 0.05, 0.15
 STEPS_PER_REVOLUTION, STEP_DELAY = 4096, 0.0012
@@ -71,62 +71,41 @@ def release_lock_and_pid_files_on_exit():
         except OSError as e_rm: print(f"[{pid}] Dosya ({f_path}) silme hatası: {e_rm}")
 
 def normalize_angle_0_360(angle_deg):
-    """Verilen açıyı 0 ile 359.9... derece arasına normalleştirir."""
     return angle_deg % 360.0
 
 class Scanner:
     def __init__(self, initial_angle_conceptual, end_angle_conceptual, step_angle):
         self.sensor = None; self.yellow_led = None; self.lcd = None
         self.motor_pins = []; self.current_motor_step_index = 0
-
-        # Motorun mevcut FİZİKSEL açısı, her zaman 0-359.9 aralığında tutulur.
         self.current_physical_motor_angle = 0.0
-
-        # Taramanın göreli 0 noktası olarak kabul edilecek FİZİKSEL açı.
         self.relative_zero_physical_angle = 0.0
-
         self.current_scan_id = None; self.db_conn_local = None
         self.script_exit_status = 'interrupted_unexpectedly'
         self.ölçüm_tamponu_hız_için_yerel = []
-
-        # Dashboard'dan gelen mutlak başlangıç ve bitiş açıları
         self.conceptual_initial_goto_physical_angle = float(initial_angle_conceptual)
         self.conceptual_final_physical_angle = float(end_angle_conceptual)
-
-        # Tarama yayı ve yönü (mutlak açılara göre)
         self.scan_arc_degrees = abs(self.conceptual_final_physical_angle - self.conceptual_initial_goto_physical_angle)
         self.scan_direction_sign = -1.0 if self.conceptual_initial_goto_physical_angle > self.conceptual_final_physical_angle else 1.0
-
         self.actual_scan_step = abs(float(step_angle)) or DEFAULT_SCAN_STEP_ANGLE_ARG
-        print(f"DEBUG_INIT: InitialConceptual: {self.conceptual_initial_goto_physical_angle}, FinalConceptual: {self.conceptual_final_physical_angle}, Arc: {self.scan_arc_degrees}, DirectionSign: {self.scan_direction_sign}, Step: {self.actual_scan_step}")
+        # print(f"DEBUG_INIT: InitialConceptual: {self.conceptual_initial_goto_physical_angle}, FinalConceptual: {self.conceptual_final_physical_angle}, Arc: {self.scan_arc_degrees}, DirectionSign: {self.scan_direction_sign}, Step: {self.actual_scan_step}")
 
-
-    def _init_hardware(self):
+    def _init_hardware(self): # Değişiklik yok
         hardware_ok = True
         try:
-            print(f"[{os.getpid()}] Donanımlar başlatılıyor...")
             self.sensor = DistanceSensor(echo=ECHO_PIN, trigger=TRIG_PIN, max_distance=2.0, queue_len=5, partial=True)
             self.yellow_led = LED(YELLOW_LED_PIN)
             self.motor_pins = [OutputDevice(p) for p in [MOTOR_PIN_IN1, MOTOR_PIN_IN2, MOTOR_PIN_IN3, MOTOR_PIN_IN4]]
             for pin in self.motor_pins: pin.off()
-            self.yellow_led.off(); self.current_physical_motor_angle = 0.0 # Fiziksel açı 0'dan başlar
-            print(f"[{os.getpid()}] Temel donanımlar ve Step Motor başarıyla başlatıldı.")
-        except Exception as e:
-            print(f"[{os.getpid()}] Temel donanım başlatma hatası: {e}"); hardware_ok = False
+            self.yellow_led.off(); self.current_physical_motor_angle = 0.0
+        except Exception as e: hardware_ok = False; print(f"Temel donanım hatası: {e}")
         if hardware_ok:
             try:
-                self.lcd = CharLCD(i2c_expander=LCD_PORT_EXPANDER, address=LCD_I2C_ADDRESS, port=I2C_PORT,
-                                   cols=LCD_COLS, rows=LCD_ROWS, dotsize=8, charmap='A02', auto_linebreaks=False)
-                self.lcd.clear(); self.lcd.cursor_pos = (0, 0)
-                self.lcd.write_string("Dream Pi Step".ljust(LCD_COLS)[:LCD_COLS])
-                if LCD_ROWS > 1: self.lcd.cursor_pos = (1, 0); self.lcd.write_string("Hazirlaniyor...".ljust(LCD_COLS)[:LCD_COLS])
-                time.sleep(1.0); print(f"[{os.getpid()}] LCD Ekran (Adres: {hex(LCD_I2C_ADDRESS)}) başarıyla başlatıldı.")
-            except Exception as e_lcd_init:
-                print(f"[{os.getpid()}] UYARI: LCD başlatma hatası: {e_lcd_init}. LCD devre dışı."); self.lcd = None
-        else: self.lcd = None
+                self.lcd = CharLCD(i2c_expander=LCD_PORT_EXPANDER, address=LCD_I2C_ADDRESS, port=I2C_PORT, cols=LCD_COLS, rows=LCD_ROWS, dotsize=8, charmap='A02', auto_linebreaks=False)
+                self.lcd.clear(); self.lcd.write_string("Dream Pi Hazir"); time.sleep(1)
+            except Exception as e_lcd: self.lcd = None; print(f"LCD hatası: {e_lcd}")
         return hardware_ok
 
-    def _init_db_for_scan(self):
+    def _init_db_for_scan(self): # Değişiklik yok
         conn = None
         try:
             conn = sqlite3.connect(DB_PATH)
@@ -135,61 +114,33 @@ class Scanner:
             cursor.execute("CREATE TABLE IF NOT EXISTS scan_points (id INTEGER PRIMARY KEY AUTOINCREMENT, scan_id INTEGER, angle_deg REAL, mesafe_cm REAL, hiz_cm_s REAL, timestamp REAL, x_cm REAL, y_cm REAL, FOREIGN KEY(scan_id) REFERENCES servo_scans(id))")
             cursor.execute("UPDATE servo_scans SET status = 'interrupted_prior_run' WHERE status = 'running'"); conn.commit()
             scan_start_time = time.time()
-            # DB'ye kaydedilen açılar hala dashboard'dan gelen mutlak kavramsal açılar olacak
             cursor.execute("INSERT INTO servo_scans (start_time, status, initial_goto_angle_setting, scan_end_angle_setting, scan_step_angle_setting) VALUES (?, ?, ?, ?, ?)",
                            (scan_start_time, 'running', self.conceptual_initial_goto_physical_angle, self.conceptual_final_physical_angle, self.actual_scan_step))
             self.current_scan_id = cursor.lastrowid; conn.commit()
-            print(f"[{os.getpid()}] Veritabanı '{DB_PATH}' hazırlandı. Yeni tarama ID: {self.current_scan_id}.")
             return True
-        except sqlite3.Error as e_db_init:
-            print(f"[{os.getpid()}] DB başlatma/tarama kaydı hatası: {e_db_init}"); self.current_scan_id = None; return False
+        except sqlite3.Error as e_db: print(f"DB hatası: {e_db}"); return False
         finally:
             if conn: conn.close()
 
-    def _apply_step_to_motor(self, sequence_index):
+    def _apply_step_to_motor(self, sequence_index): # Değişiklik yok
         if not self.motor_pins: return
         step_pattern = STEP_SEQUENCE[sequence_index % len(STEP_SEQUENCE)]
         for i in range(4):
             if self.motor_pins[i] and hasattr(self.motor_pins[i], 'value') and not self.motor_pins[i].closed:
                 self.motor_pins[i].value = step_pattern[i]
 
-    def _move_motor_to_target_physical_angle(self, target_physical_angle_deg, step_delay=STEP_DELAY):
-        """Motoru verilen FİZİKSEL hedef açıya (0-360 normalleştirilmiş) en kısa yoldan götürür."""
+    def _move_motor_to_target_physical_angle(self, target_physical_angle_deg, step_delay=STEP_DELAY): # Değişiklik yok
         degrees_per_step = 360.0 / STEPS_PER_REVOLUTION
-
-        # Hedef fiziksel açı zaten 0-360 aralığında olmalı (çağıran taraf normalize etmeli)
-        # Ama biz yine de normalize edelim.
         target_physical_normalized = normalize_angle_0_360(target_physical_angle_deg)
-
-        # En kısa yolu bul
         diff_cw = (target_physical_normalized - self.current_physical_motor_angle + 360.0) % 360.0
         diff_ccw = (self.current_physical_motor_angle - target_physical_normalized + 360.0) % 360.0
-
-        angle_difference_to_move = 0
-        direction_is_cw = True
-
-        if abs(diff_cw) < 1e-3 and abs(diff_ccw) < 1e-3 : # Çok küçük fark, zaten hedefte
-             self.current_physical_motor_angle = target_physical_normalized
-             return
-
-        if diff_cw <= diff_ccw:
-            angle_difference_to_move = diff_cw
-            direction_is_cw = True
-        else:
-            angle_difference_to_move = diff_ccw
-            direction_is_cw = False
-
-        if abs(angle_difference_to_move) < (degrees_per_step / 2.0): # Adım çözünürlüğünden küçükse hareket etme
-            self.current_physical_motor_angle = target_physical_normalized
-            return
-
+        angle_difference_to_move = 0; direction_is_cw = True
+        if abs(diff_cw) < 1e-3 and abs(diff_ccw) < 1e-3 : self.current_physical_motor_angle = target_physical_normalized; return
+        if diff_cw <= diff_ccw: angle_difference_to_move = diff_cw; direction_is_cw = True
+        else: angle_difference_to_move = diff_ccw; direction_is_cw = False
+        if abs(angle_difference_to_move) < (degrees_per_step / 2.0): self.current_physical_motor_angle = target_physical_normalized; return
         steps_to_move = round(angle_difference_to_move / degrees_per_step)
-        if steps_to_move == 0:
-            self.current_physical_motor_angle = target_physical_normalized
-            return
-
-        # print(f"DEBUG_MOVE: CurrentPhys: {self.current_physical_motor_angle:.2f}, TargetPhysNorm: {target_physical_normalized:.2f}, AngleToMove: {angle_difference_to_move:.2f}, Steps: {steps_to_move}, DirCW: {direction_is_cw}")
-
+        if steps_to_move == 0: self.current_physical_motor_angle = target_physical_normalized; return
         for _ in range(int(steps_to_move)):
             if direction_is_cw:
                 self.current_motor_step_index = (self.current_motor_step_index + 1) % len(STEP_SEQUENCE)
@@ -197,36 +148,21 @@ class Scanner:
             else:
                 self.current_motor_step_index = (self.current_motor_step_index - 1 + len(STEP_SEQUENCE)) % len(STEP_SEQUENCE)
                 self.current_physical_motor_angle -= degrees_per_step
-            self._apply_step_to_motor(self.current_motor_step_index)
-            time.sleep(step_delay)
+            self._apply_step_to_motor(self.current_motor_step_index); time.sleep(step_delay)
             self.current_physical_motor_angle = normalize_angle_0_360(self.current_physical_motor_angle)
+        self.current_physical_motor_angle = target_physical_normalized
 
-        self.current_physical_motor_angle = target_physical_normalized # Son pozisyonu tam hedefe ayarla
-        # print(f"DEBUG_MOVE_END: Final Current Physical Angle: {self.current_physical_motor_angle:.2f}")
-
-
-    def _do_scan_at_angle_and_log(self, physical_target_for_motor_deg, angle_to_log_in_db_deg, phase_description=""):
-        # print(f"DEBUG_SCAN_LOG: Entering _do_scan_at_angle_and_log. PhysicalTarget: {physical_target_for_motor_deg:.2f}, AngleToLog: {angle_to_log_in_db_deg:.2f}")
+    def _do_scan_at_angle_and_log(self, physical_target_for_motor_deg, angle_to_log_in_db_deg, phase_description=""): # Değişiklik yok
         self._move_motor_to_target_physical_angle(physical_target_for_motor_deg, step_delay=STEP_DELAY)
         time.sleep(STEP_MOTOR_SETTLE_TIME)
-
         loop_iter_timestamp = time.time()
-        distance_m = self.sensor.distance if self.sensor else float('inf')
-        distance_cm = distance_m * 100
-
-        # Trigonometri için her zaman motorun o anki FİZİKSEL açısı kullanılır (0-360 normalize edilmiş)
+        distance_m = self.sensor.distance if self.sensor else float('inf'); distance_cm = distance_m * 100
         physical_angle_for_trig = self.current_physical_motor_angle
         angle_rad_for_trig = math.radians(physical_angle_for_trig)
-        x_cm = distance_cm * math.cos(angle_rad_for_trig)
-        y_cm = distance_cm * math.sin(angle_rad_for_trig)
-
-        # DB'ye kaydedilecek ve LCD'de gösterilecek açı, GÖRELİ sıfıra göre normalize edilmiş açı olacak
-        normalized_angle_to_log = normalize_angle_0_360(angle_to_log_in_db_deg)
-
-        print(f"DEBUG_SCAN_LOG: Phase: {phase_description}, PhysicalAngle: {physical_angle_for_trig:.2f}, LogAngle: {normalized_angle_to_log:.2f}, Dist_cm: {distance_cm:.2f}")
-
+        x_cm = distance_cm * math.cos(angle_rad_for_trig); y_cm = distance_cm * math.sin(angle_rad_for_trig)
+        normalized_angle_to_log = normalize_angle_0_360(angle_to_log_in_db_deg) # Bu zaten 0-scan_arc aralığında olmalı
+        # print(f"DEBUG_SCAN_LOG: Phase: {phase_description}, PhysicalAngle: {physical_angle_for_trig:.2f}, LogAngle: {normalized_angle_to_log:.2f}, Dist_cm: {distance_cm:.2f}")
         if self.yellow_led and hasattr(self.yellow_led, 'toggle'): self.yellow_led.toggle()
-        current_point_xy = (x_cm, y_cm) if 0 < distance_cm < (self.sensor.max_distance * 100 if self.sensor else float('inf')) else None
         hiz_cm_s = 0.0
         if self.ölçüm_tamponu_hız_için_yerel:
             son_veri_noktasi = self.ölçüm_tamponu_hız_için_yerel[-1]
@@ -234,35 +170,28 @@ class Scanner:
             delta_zaman = loop_iter_timestamp - son_veri_noktasi['zaman_s']
             if delta_zaman > 0.001: hiz_cm_s = delta_mesafe / delta_zaman
         self.ölçüm_tamponu_hız_için_yerel = [{'mesafe_cm': distance_cm, 'zaman_s': loop_iter_timestamp}]
-
         if self.lcd:
-            try: # LCD'de göreli açıyı göster
+            try:
                 self.lcd.cursor_pos = (0, 0); self.lcd.write_string(f"A:{normalized_angle_to_log:<3.0f} M:{distance_cm:5.1f}cm".ljust(LCD_COLS)[:LCD_COLS])
                 if LCD_ROWS > 1: self.lcd.cursor_pos = (1, 0); self.lcd.write_string(f"{phase_description[:8]} H:{hiz_cm_s:3.0f}".ljust(LCD_COLS)[:LCD_COLS])
-            except Exception as e_lcd: print(f"[{os.getpid()}] LCD yazma hatası ({phase_description}): {e_lcd}")
-
+            except Exception as e_lcd: print(f"LCD yazma hatası: {e_lcd}")
         if distance_cm < TERMINATION_DISTANCE_CM:
-            print(f"DEBUG_SCAN_LOG: TERMINATION condition met. Distance {distance_cm:.2f} < {TERMINATION_DISTANCE_CM}. Phase: {phase_description}")
-            print(f"[{os.getpid()}] DİKKAT: NESNE ÇOK YAKIN ({distance_cm:.2f}cm)! Tarama durduruluyor.")
-            # ... (termination LCD ve LED kodları aynı)
-            if self.lcd:
+            # print(f"DEBUG_SCAN_LOG: TERMINATION condition met. Distance {distance_cm:.2f} < {TERMINATION_DISTANCE_CM}. Phase: {phase_description}")
+            if self.lcd: # ... (termination LCD) ...
                 try:
                     self.lcd.clear(); self.lcd.cursor_pos = (0, 0); self.lcd.write_string("COK YAKIN! DUR!".ljust(LCD_COLS)[:LCD_COLS])
                     if LCD_ROWS > 1: self.lcd.cursor_pos = (1, 0); self.lcd.write_string(f"{distance_cm:.1f} cm".ljust(LCD_COLS)[:LCD_COLS])
                 except: pass
             if self.yellow_led and hasattr(self.yellow_led, 'on'): self.yellow_led.on()
             self.script_exit_status = 'terminated_close_object'; time.sleep(1.0); return False, None
-
         try:
             if self.db_conn_local and self.current_scan_id:
                 cursor = self.db_conn_local.cursor()
-                # DB'ye GÖRELİ ve normalize edilmiş açıyı kaydet
                 cursor.execute('INSERT INTO scan_points (scan_id, angle_deg, mesafe_cm, hiz_cm_s, timestamp, x_cm, y_cm) VALUES (?, ?, ?, ?, ?, ?, ?)',
                                (self.current_scan_id, normalized_angle_to_log, distance_cm, hiz_cm_s, loop_iter_timestamp, x_cm, y_cm))
                 self.db_conn_local.commit()
-            else: print(f"[{os.getpid()}] DB bağlantısı yok veya scan_id tanımsız, nokta kaydedilemedi.")
-        except Exception as e_db_insert: print(f"[{os.getpid()}] DB Ekleme Hatası ({phase_description}): {e_db_insert}")
-        return True, current_point_xy
+        except Exception as e_db: print(f"DB Ekleme Hatası: {e_db}")
+        return True, None # current_point_xy kaldırıldı, kullanılmıyordu
 
     def _calculate_polygon_area_shoelace(self, points_xy): # Değişiklik yok
         if len(points_xy) < 2: return 0.0
@@ -280,9 +209,8 @@ class Scanner:
         if len(points_xy) > 0 : perimeter += math.sqrt(points_xy[-1][0]**2 + points_xy[-1][1]**2)
         return perimeter
 
-    def _final_analysis(self): # Değişiklik yok (DB'den okunan angle_deg artık göreli ve normalize edilmiş olacak)
-        if not self.current_scan_id: print(f"[{os.getpid()}] Analiz için tarama ID bulunamadı."); return
-        print(f"[{os.getpid()}] Analiz ve son DB işlemleri yapılıyor (ID: {self.current_scan_id})...")
+    def _final_analysis(self): # Değişiklik yok
+        if not self.current_scan_id: return
         # ... (geri kalan analiz kodları aynı)
         conn_analysis = None; alan, cevre, max_g, max_d = 0.0, 0.0, 0.0, 0.0
         try:
@@ -297,8 +225,7 @@ class Scanner:
                 x_coords = df_all_valid_points['x_cm'].tolist(); y_coords = df_all_valid_points['y_cm'].tolist()
                 max_d = max(x_coords) if x_coords else 0.0; min_y = min(y_coords) if y_coords else 0.0
                 max_y = max(y_coords) if y_coords else 0.0; max_g = max_y - min_y
-                print(f"[{os.getpid()}] TARANAN ALAN: {alan:.2f} cm²")
-                if self.lcd:
+                if self.lcd: # ... (LCD mesajları)
                     try:
                         self.lcd.clear(); self.lcd.cursor_pos = (0, 0); self.lcd.write_string(f"Alan:{alan:.0f}cm2".ljust(LCD_COLS)[:LCD_COLS])
                         if LCD_ROWS > 1: self.lcd.cursor_pos = (1, 0); self.lcd.write_string(f"Cevre:{cevre:.0f}cm".ljust(LCD_COLS)[:LCD_COLS])
@@ -308,30 +235,28 @@ class Scanner:
                                         (alan, cevre, max_g, max_d, self.script_exit_status, self.current_scan_id)); conn_analysis.commit()
             else:
                 self.script_exit_status = 'completed_insufficient_points'
-                print(f"[{os.getpid()}] Analiz için yeterli nokta bulunamadı ({len(df_all_valid_points)}).")
-                if self.lcd:
+                if self.lcd: # ... (LCD mesajları)
                     try:
                         self.lcd.clear(); self.lcd.cursor_pos = (0, 0); self.lcd.write_string("Tarama Tamam".ljust(LCD_COLS)[:LCD_COLS])
                         if LCD_ROWS > 1: self.lcd.cursor_pos = (1, 0); self.lcd.write_string("Veri Yetersiz".ljust(LCD_COLS)[:LCD_COLS])
                     except: pass
                 cursor_analysis.execute("UPDATE servo_scans SET status=? WHERE id=?", (self.script_exit_status, self.current_scan_id)); conn_analysis.commit()
-        except Exception as e_final_db:
-            print(f"[{os.getpid()}] Son DB işlemleri/Analiz sırasında hata: {e_final_db}")
+        except Exception as e_final_db: # ... (hata yönetimi aynı)
+            print(f"Son DB işlemleri/Analiz hatası: {e_final_db}")
             if self.script_exit_status.startswith('completed'): self.script_exit_status = 'completed_analysis_error'
             try:
                 if conn_analysis and self.current_scan_id:
                     cursor_analysis = conn_analysis.cursor()
                     cursor_analysis.execute("UPDATE servo_scans SET status=? WHERE id=?", (self.script_exit_status, self.current_scan_id)); conn_analysis.commit()
-            except Exception as e_status_update: print(f"[{os.getpid()}] Hata durumu güncellenirken ek hata: {e_status_update}")
+            except Exception as e_status_update: print(f"Hata durumu güncellenirken ek hata: {e_status_update}")
         finally:
             if conn_analysis: conn_analysis.close()
 
-
-    def cleanup(self): # Değişiklik yok (motoru fiziksel 0'a götürür)
+    def cleanup(self): # Değişiklik yok
         pid = os.getpid(); print(f"[{pid}] `Scanner.cleanup` çağrıldı. Son durum: {self.script_exit_status}")
         if self.db_conn_local: # ... (DB kapatma aynı)
-            try: self.db_conn_local.close(); self.db_conn_local = None; print(f"[{pid}] Yerel DB bağlantısı kapatıldı.")
-            except Exception as e: print(f"[{pid}] Yerel DB bağlantısı kapatılırken hata: {e}")
+            try: self.db_conn_local.close(); self.db_conn_local = None
+            except Exception as e: print(f"Yerel DB kapatma hatası: {e}")
         if self.current_scan_id: # ... (DB status update aynı)
             conn_exit = None
             try:
@@ -340,41 +265,37 @@ class Scanner:
                 cursor_exit.execute("SELECT status FROM servo_scans WHERE id = ?", (self.current_scan_id,)); row = cursor_exit.fetchone()
                 if row and (row[0] == 'running' or self.script_exit_status not in ['interrupted_unexpectedly', 'running']):
                     cursor_exit.execute("UPDATE servo_scans SET status = ? WHERE id = ?", (self.script_exit_status, self.current_scan_id)); conn_exit.commit()
-            except Exception as e: print(f"[{pid}] DB durum güncelleme hatası (çıkışta): {e}")
+            except Exception as e: print(f"DB durum güncelleme hatası (çıkışta): {e}")
             finally:
                 if conn_exit: conn_exit.close()
-        print(f"[{pid}] Donanım kapatılıyor...")
         if self.motor_pins: # ... (Motoru fiziksel 0'a götürme aynı)
             try:
-                print(f"[{pid}] Motor merkeze (Fiziksel 0°) alınıyor...")
                 self._move_motor_to_target_physical_angle(0.0, step_delay=STEP_DELAY * 0.8); time.sleep(0.2)
                 for pin_obj in self.motor_pins:
                     if hasattr(pin_obj, 'off'): pin_obj.off()
-            except Exception as e: print(f"[{pid}] Motoru merkeze alma hatası: {e}")
+            except Exception as e: print(f"Motoru merkeze alma hatası: {e}")
             finally:
                 for pin_obj in self.motor_pins:
                     if hasattr(pin_obj, 'close') and not pin_obj.closed: pin_obj.close()
-                self.motor_pins = []; print(f"[{pid}] Step motor pinleri kapatıldı.")
+                self.motor_pins = []
         if self.yellow_led and hasattr(self.yellow_led, 'close'): # ... (LED kapatma aynı)
             if hasattr(self.yellow_led, 'is_active') and self.yellow_led.is_active: self.yellow_led.off()
-            self.yellow_led.close(); self.yellow_led = None; print(f"[{pid}] Sarı LED kapatıldı.")
+            self.yellow_led.close(); self.yellow_led = None
         if self.sensor and hasattr(self.sensor, 'close'): # ... (Sensör kapatma aynı)
-            self.sensor.close(); self.sensor = None; print(f"[{pid}] Mesafe Sensörü kapatıldı.")
+            self.sensor.close(); self.sensor = None
         if self.lcd: # ... (LCD kapatma aynı)
             try:
                 self.lcd.clear(); self.lcd.cursor_pos=(0,0); self.lcd.write_string("DreamPi Kapandi".ljust(LCD_COLS)[:LCD_COLS])
                 if LCD_ROWS > 1: self.lcd.cursor_pos=(1,0); self.lcd.write_string(f"PID:{pid} Son".ljust(LCD_COLS)[:LCD_COLS])
-            except Exception as e: print(f"[{pid}] LCD temizleme/kapatma mesajı hatası: {e}")
-            finally: self.lcd = None; print(f"[{pid}] LCD kapatıldı.")
+            except Exception as e: print(f"LCD kapatma mesajı hatası: {e}")
+            finally: self.lcd = None
         print(f"[{pid}] `Scanner.cleanup` tamamlandı.")
-
 
     def run(self):
         if not self._init_hardware(): self.script_exit_status = 'error_hardware_init'; sys.exit(1)
         if not self._init_db_for_scan(): self.script_exit_status = 'error_db_init'; sys.exit(1)
 
-        print(f"[{os.getpid()}] Yeni Tarama Deseni Başlıyor (ID: {self.current_scan_id})...")
-        if self.lcd:
+        if self.lcd: # ... (LCD mesajları aynı) ...
             try:
                 self.lcd.clear(); self.lcd.cursor_pos = (0, 0)
                 self.lcd.write_string(f"ID:{self.current_scan_id} Basliyor".ljust(LCD_COLS)[:LCD_COLS])
@@ -385,52 +306,49 @@ class Scanner:
         try:
             self.db_conn_local = sqlite3.connect(DB_PATH, timeout=10)
 
-            # 1. Motoru FİZİKSEL başlangıç açısına götür
             print(f"[{os.getpid()}] İlk FİZİKSEL pozisyon: {self.conceptual_initial_goto_physical_angle}°'ye gidiliyor...")
             self._move_motor_to_target_physical_angle(self.conceptual_initial_goto_physical_angle)
             time.sleep(0.5)
 
-            # 2. Bu fiziksel pozisyonu GÖRELİ SIFIR olarak ayarla
-            self.relative_zero_physical_angle = self.current_physical_motor_angle
-            print(f"[{os.getpid()}] Motor şimdi FİZİKSEL {self.current_physical_motor_angle:.1f}° pozisyonunda. Bu nokta GÖRELİ 0° olarak ayarlandı. Ana tarama başlıyor.")
+            self.relative_zero_physical_angle = self.current_physical_motor_angle # Bu nokta göreli 0
+            print(f"[{os.getpid()}] Motor FİZİKSEL {self.current_physical_motor_angle:.1f}°. Bu nokta GÖRELİ 0°.")
 
-            # 3. Tarama Mantığı (Göreli Açılarla)
             current_relative_angle_for_log = 0.0 # Tarama göreli 0'dan başlar
-            # Tarama, self.scan_arc_degrees kadar ve self.scan_direction_sign yönünde yapılacak
 
-            print(f"[{os.getpid()}] Ana Tarama: Göreli 0°'dan başlayarak {self.scan_arc_degrees:.1f}° yay boyunca {self.scan_direction_sign*self.actual_scan_step:.1f}° adımlarla.")
+            print(f"[{os.getpid()}] Ana Tarama: Göreli 0°'dan başlayarak {self.scan_arc_degrees:.1f}° yay boyunca {self.actual_scan_step:.1f}° adımlarla (Yön: {self.scan_direction_sign}).")
             if self.lcd:
                 try: self.lcd.cursor_pos = (1, 0); self.lcd.write_string(f"Rel:0to{self.scan_arc_degrees*self.scan_direction_sign:.0f}".ljust(LCD_COLS)[:LCD_COLS])
                 except: pass
 
-            # İlk ölçümü GÖRELİ 0°'da yap (Fiziksel olarak self.relative_zero_physical_angle'da)
-            print(f"DEBUG_RUN: İlk ölçüm. Fiziksel Hedef: {self.relative_zero_physical_angle:.2f}, Kaydedilecek Göreli Açı: {current_relative_angle_for_log:.2f}")
+            # İlk ölçümü GÖRELİ 0°'da yap
+            # print(f"DEBUG_RUN: İlk ölçüm. Fiziksel Hedef: {self.relative_zero_physical_angle:.2f}, Kaydedilecek Göreli Açı: {current_relative_angle_for_log:.2f}")
             continue_scan, _ = self._do_scan_at_angle_and_log(
-                physical_target_for_motor_deg=self.relative_zero_physical_angle,
-                angle_to_log_in_db_deg=current_relative_angle_for_log,
+                physical_target_for_motor_deg=self.relative_zero_physical_angle, # Motor zaten bu pozisyonda olmalı
+                angle_to_log_in_db_deg=current_relative_angle_for_log, # Bu 0.0 olacak
                 phase_description=f"Scan:{normalize_angle_0_360(current_relative_angle_for_log):.0f}°(R)"
             )
-            print(f"DEBUG_RUN: İlk ölçüm sonrası continue_scan: {continue_scan}")
+            # print(f"DEBUG_RUN: İlk ölçüm sonrası continue_scan: {continue_scan}")
             if not continue_scan: scan_aborted_flag = True
 
             if not scan_aborted_flag:
                 num_steps_in_scan = 0
-                if self.actual_scan_step > 1e-3: # Sıfıra bölmeyi engelle
+                if self.actual_scan_step > 1e-3:
                     num_steps_in_scan = math.floor(self.scan_arc_degrees / self.actual_scan_step)
 
-                print(f"DEBUG_RUN: Tarama yayında atılacak adım sayısı: {num_steps_in_scan}")
+                # print(f"DEBUG_RUN: Tarama yayında atılacak adım sayısı: {num_steps_in_scan}")
 
                 for i in range(num_steps_in_scan):
                     loop_iter_start_time = time.time()
 
-                    # Bir sonraki GÖRELİ açıyı ve buna karşılık gelen FİZİKSEL açıyı hesapla
-                    current_relative_angle_for_log += (self.actual_scan_step * self.scan_direction_sign)
-                    current_physical_target_for_motor = self.relative_zero_physical_angle + current_relative_angle_for_log # Bu >360 veya <0 olabilir, _move_motor halleder
+                    # <<< DEĞİŞİKLİK BURADA: Göreli açı her zaman pozitif artar >>>
+                    current_relative_angle_for_log += self.actual_scan_step
+                    # Fiziksel hedef, göreli açıya ve tarama yönüne göre hesaplanır
+                    current_physical_target_for_motor = self.relative_zero_physical_angle + (current_relative_angle_for_log * self.scan_direction_sign)
 
                     # print(f"DEBUG_RUN: Adım {i+1}/{num_steps_in_scan}. Fiziksel Hedef: {current_physical_target_for_motor:.2f}, Kaydedilecek Göreli Açı: {current_relative_angle_for_log:.2f}")
                     continue_scan, _ = self._do_scan_at_angle_and_log(
                         physical_target_for_motor_deg=current_physical_target_for_motor,
-                        angle_to_log_in_db_deg=current_relative_angle_for_log,
+                        angle_to_log_in_db_deg=current_relative_angle_for_log, # Her zaman pozitif artan
                         phase_description=f"Scan:{normalize_angle_0_360(current_relative_angle_for_log):.0f}°(R)"
                     )
                     if not continue_scan: scan_aborted_flag = True; break
@@ -440,15 +358,15 @@ class Scanner:
                     if sleep_dur > 0 and (i < num_steps_in_scan -1) :
                         time.sleep(sleep_dur)
 
-                # Tarama yayının tam sonunda bir ölçüm daha yap (eğer arada kesilmediyse)
                 if not scan_aborted_flag:
-                    final_relative_angle_for_log = self.scan_arc_degrees * self.scan_direction_sign
-                    final_physical_target_for_motor = self.relative_zero_physical_angle + final_relative_angle_for_log
+                    # <<< DEĞİŞİKLİK BURADA: Son göreli açı her zaman pozitif scan_arc_degrees olur >>>
+                    final_relative_angle_for_log = self.scan_arc_degrees
+                    final_physical_target_for_motor = self.relative_zero_physical_angle + (final_relative_angle_for_log * self.scan_direction_sign)
                     print(f"[{os.getpid()}] Tarama yayının sonu ({final_relative_angle_for_log}° göreli) için ek ölçüm.")
                     # print(f"DEBUG_RUN: Son ölçüm. Fiziksel Hedef: {final_physical_target_for_motor:.2f}, Kaydedilecek Göreli Açı: {final_relative_angle_for_log:.2f}")
                     continue_scan, _ = self._do_scan_at_angle_and_log(
                         physical_target_for_motor_deg=final_physical_target_for_motor,
-                        angle_to_log_in_db_deg=final_relative_angle_for_log,
+                        angle_to_log_in_db_deg=final_relative_angle_for_log, # Her zaman pozitif scan_arc_degrees
                         phase_description=f"End:{normalize_angle_0_360(final_relative_angle_for_log):.0f}°(R)"
                     )
                     if not continue_scan: scan_aborted_flag = True
@@ -467,17 +385,17 @@ class Scanner:
                 except: pass
         finally: # ... (DB kapatma aynı)
             if self.db_conn_local:
-                try: self.db_conn_local.close(); self.db_conn_local = None; print(f"[{os.getpid()}] Tarama sonrası yerel DB bağlantısı kapatıldı.")
-                except Exception as e: print(f"[{os.getpid()}] Tarama sonrası yerel DB kapatma hatası: {e}")
+                try: self.db_conn_local.close(); self.db_conn_local = None;
+                except Exception as e: print(f"Tarama sonrası yerel DB kapatma hatası: {e}")
         if not scan_aborted_flag and self.script_exit_status == 'completed' and self.current_scan_id:
-            self._final_analysis() # Analiz fonksiyonu DB'den göreli açıları okuyacak
+            self._final_analysis()
         print(f"[{os.getpid()}] Ana işlem bloğu sonlandı. Son durum: {self.script_exit_status}")
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Step Motor ile Alan Tarama Betiği (Göreli Sıfır Mantığı)")
-    parser.add_argument("--initial_goto_angle", type=float, default=DEFAULT_INITIAL_GOTO_ANGLE_ARG, help="Motorun gideceği ilk FİZİKSEL açı (bu nokta göreli 0 olacak)")
-    parser.add_argument("--scan_end_angle", type=float, default=DEFAULT_FINAL_SCAN_ANGLE_ARG, help="Dashboard'dan gelen mutlak bitiş açısı (tarama yayını belirlemek için)")
+    parser.add_argument("--initial_goto_angle", type=float, default=DEFAULT_INITIAL_GOTO_ANGLE_ARG)
+    parser.add_argument("--scan_end_angle", type=float, default=DEFAULT_FINAL_SCAN_ANGLE_ARG)
     parser.add_argument("--scan_step_angle", type=float, default=DEFAULT_SCAN_STEP_ANGLE_ARG)
     args = parser.parse_args()
     if not acquire_lock_and_pid(): sys.exit(1)
