@@ -405,51 +405,93 @@ def update_all_graphs(n_intervals):
 
 
 @app.callback(
-    [Output('analysis-output', 'children')],
+    Output('analysis-output', 'children'),  # Layout'taki html.Div(id='analysis-output')'un içeriğini günceller
     [Input('interval-component-main', 'n_intervals')]
 )
 def update_analysis_panel(n_intervals):
-    # ... (İçeriği Yanıt #58'deki gibi) ...
     print(f"--- update_analysis_panel tetiklendi (Interval: {n_intervals}) ---")
-    conn, error_msg_conn = get_db_connection();
-    area_str, perimeter_str, width_str, depth_str = "-- cm²", "-- cm", "-- cm", "-- cm"
-    scan_info_header = "Analiz İçin Veri Bekleniyor...";
-    latest_id = None
+    conn, error_msg_conn = get_db_connection()
+
+    analysis_children_content = [html.P("Analiz verisi bekleniyor...")]  # Varsayılan içerik
+    latest_analyzed_id = None
+    scan_info_header_str = "Analiz için veri bekleniyor..."
+
     if error_msg_conn and not conn:
-        scan_info_header = f"DB Bağlantı Hatası: {error_msg_conn}"
+        print(f"Analiz Paneli: DB bağlantı hatası: {error_msg_conn}")
+        scan_info_header_str = f"DB Hatası: {error_msg_conn}"
     elif conn:
         try:
-            latest_id = get_latest_scan_id_from_db(conn_param=conn);
-            print(f"Analiz için ID: {latest_id}")
-            if latest_id:
-                df_scan = pd.read_sql_query(
-                    f"SELECT hesaplanan_alan_cm2, cevre_cm, max_genislik_cm, max_derinlik_cm, status, start_time FROM servo_scans WHERE id = {latest_id}",
-                    conn)
-                if not df_scan.empty:
-                    row = df_scan.iloc[0];
-                    st_str = time.strftime('%H:%M:%S', time.localtime(row['start_time']))
-                    scan_info_header = f"Son Analiz (ID: {latest_id}, {st_str}, Durum: {row['status']}):"
-                    area_str = f"{row['hesaplanan_alan_cm2']:.2f} cm²" if pd.notnull(
-                        row['hesaplanan_alan_cm2']) else "Hesaplanmadı";
-                    perimeter_str = f"{row['cevre_cm']:.2f} cm" if pd.notnull(row['cevre_cm']) else "Hesaplanmadı";
-                    width_str = f"{row['max_genislik_cm']:.2f} cm" if pd.notnull(
-                        row['max_genislik_cm']) else "Hesaplanmadı";
-                    depth_str = f"{row['max_derinlik_cm']:.2f} cm" if pd.notnull(
-                        row['max_derinlik_cm']) else "Hesaplanmadı"
-                else:
-                    scan_info_header = f"Tarama ID {latest_id} için analiz verisi bulunamadı."
+            # Sadece durumu 'completed_analysis' olan en son taramayı çek
+            df_latest_analyzed_scan = pd.read_sql_query(
+                "SELECT id, start_time, status, hesaplanan_alan_cm2, cevre_cm, max_genislik_cm, max_derinlik_cm "
+                "FROM servo_scans "
+                "WHERE status = 'completed_analysis' ORDER BY start_time DESC LIMIT 1",
+                conn
+            )
+
+            if not df_latest_analyzed_scan.empty:
+                row = df_latest_analyzed_scan.iloc[0]
+                latest_analyzed_id = int(row['id'])
+                start_time_str = time.strftime('%H:%M:%S (%d-%m)', time.localtime(row['start_time']))
+                scan_info_header_str = f"Son Analiz (ID: {latest_analyzed_id}, {start_time_str}, Durum: {row['status']}):"
+                print(f"Analiz Paneli: ID {latest_analyzed_id} için veri bulundu.")
+                print(row.to_string())  # Çekilen tüm satırı logla
+
+                area_str = f"{row['hesaplanan_alan_cm2']:.2f} cm²" if pd.notnull(
+                    row['hesaplanan_alan_cm2']) else "Hesaplanmadı"
+                perimeter_str = f"{row['cevre_cm']:.2f} cm" if pd.notnull(row['cevre_cm']) else "Hesaplanmadı"
+                width_str = f"{row['max_genislik_cm']:.2f} cm" if pd.notnull(row['max_genislik_cm']) else "Hesaplanmadı"
+                depth_str = f"{row['max_derinlik_cm']:.2f} cm" if pd.notnull(row['max_derinlik_cm']) else "Hesaplanmadı"
+
+                # Basit Şekil Yorumu (sensor_script.py'de scan_extent_angle_setting kaydediliyorsa)
+                # df_scan_settings = pd.read_sql_query(f"SELECT scan_extent_angle_setting FROM servo_scans WHERE id = {latest_analyzed_id}", conn)
+                # scan_extent = DEFAULT_UI_SCAN_EXTENT_ANGLE # Varsayılan
+                # if not df_scan_settings.empty and pd.notnull(df_scan_settings['scan_extent_angle_setting'].iloc[0]):
+                #     scan_extent = df_scan_settings['scan_extent_angle_setting'].iloc[0]
+
+                shape_estimation_str = "Şekil yorumu için ek veri veya mantık gerekli."
+                if pd.notnull(row['max_genislik_cm']) and pd.notnull(row['max_derinlik_cm']) and row[
+                    'max_derinlik_cm'] > 0:
+                    aspect_ratio = row['max_genislik_cm'] / row['max_derinlik_cm']
+                    if 0.8 < aspect_ratio < 1.25:
+                        shape_estimation_str = "Kabaca kare/dairesel bir alan."
+                    elif aspect_ratio > 1.5:
+                        shape_estimation_str = "Geniş bir alana açılıyor."
+                    else:
+                        shape_estimation_str = "Dar ve uzun bir koridor/alan."
+
+                analysis_children_content = [
+                    html.H5(scan_info_header, style={'marginBottom': '15px'}),
+                    dbc.Row([
+                        dbc.Col([html.H6("Hesaplanan Alan:"), html.H4(area_str)]),
+                        dbc.Col([html.H6("Çevre Uzunluğu:"), html.H4(perimeter_str)])
+                    ]),
+                    dbc.Row([
+                        dbc.Col([html.H6("Max Genişlik:"), html.H4(width_str)]),
+                        dbc.Col([html.H6("Max Derinlik:"), html.H4(depth_str)])
+                    ], className="mt-2"),
+                    html.Hr(style={'marginTop': '15px', 'marginBottom': '10px'}),
+                    dbc.Row([
+                        dbc.Col([html.H6("Basit Şekil Yorumu:"), html.P(shape_estimation_str)])
+                    ], className="mt-2")
+                ]
             else:
-                scan_info_header = "Analiz edilecek tarama bulunamadı."
+                print("Analiz Paneli: 'completed_analysis' durumunda tarama bulunamadı.")
+                scan_info_header_str = "Henüz tamamlanmış ve analizi yapılmış tarama yok."
+                analysis_children_content = [html.H5(scan_info_header_str)]  # Sadece bilgi mesajı
         except Exception as e:
-            print(f"Analiz paneli DB sorgu hatası: {e}"); scan_info_header = "Analiz verileri alınırken hata."
+            print(f"Analiz paneli için veri çekme/işleme hatası: {e}")
+            scan_info_header_str = "Analiz verileri alınırken hata oluştu."
+            analysis_children_content = [html.H5(scan_info_header_str, style={'color': 'red'})]
         finally:
-            if conn: conn.close()
-    analysis_children_content = [html.H5(scan_info_header, style={'marginBottom': '15px'}), dbc.Row(
-        [dbc.Col([html.H6("Hesaplanan Alan:"), html.H4(area_str)]),
-         dbc.Col([html.H6("Çevre Uzunluğu:"), html.H4(perimeter_str)])]), dbc.Row(
-        [dbc.Col([html.H6("Max Genişlik:"), html.H4(width_str)]),
-         dbc.Col([html.H6("Max Derinlik:"), html.H4(depth_str)])], className="mt-2")]
-    return [analysis_children_content]
+            if conn:
+                conn.close()
+    else:  # conn None ise (get_db_connection en başta hata verdiyse)
+        analysis_children_content = [
+            html.H5(scan_info_header_str, style={'color': 'orange'})]  # DB bağlantı hatası mesajı
+
+    print(f"Analiz paneli güncellendi. Başlık: {scan_info_header_str}")
+    return [analysis_children_content]  # html.Div(id='analysis-output')'un children'ı
 
 
 @app.callback(
