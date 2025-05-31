@@ -108,24 +108,52 @@ def get_db_connection():  # Aynı
         return None, f"DB Bağlantı Hatası: {e}"
 
 
-def get_latest_scan_id_from_db(conn_param=None):  # Aynı
-    internal_conn = False;
-    conn_to_use = conn_param;
+# dash_apps.py
+def get_latest_scan_id_from_db(conn_param=None):
+    print("DEBUG: get_latest_scan_id_from_db çağrıldı.")
+    internal_conn = False
+    conn_to_use = conn_param
     latest_id = None
-    if not conn_to_use: conn_to_use, error = get_db_connection();
-    if error and not conn_to_use: print(f"DB Hatası (get_latest_scan_id): {error}"); return None
-    internal_conn = (not conn_param and conn_to_use)
+    error = None # <<< error değişkenini burada None olarak başlatın
+
+    if not conn_to_use:
+        conn_to_use, error = get_db_connection() # get_db_connection'dan error değeri atanır
+        if error: # get_db_connection'dan hata geldiyse
+            print(f"DEBUG: get_latest_scan_id_from_db içinde DB Hatası (get_db_connection'dan): {error}")
+            return None
+        internal_conn = True
+
     if conn_to_use:
         try:
-            df_scan = pd.read_sql_query(
-                "SELECT id FROM servo_scans WHERE status = 'running' ORDER BY start_time DESC LIMIT 1", conn_to_use)
-            if df_scan.empty: df_scan = pd.read_sql_query("SELECT id FROM servo_scans ORDER BY start_time DESC LIMIT 1",
-                                                          conn_to_use)
-            if not df_scan.empty: latest_id = int(df_scan['id'].iloc[0])
-        except Exception as e:
-            print(f"Son tarama ID alınırken hata: {e}")
+            df_scan = pd.read_sql_query("SELECT id FROM servo_scans WHERE status = 'running' ORDER BY start_time DESC LIMIT 1", conn_to_use)
+            if df_scan.empty:
+                print("DEBUG (get_latest_scan_id): Çalışan tarama yok, en sonuncusu aranıyor.")
+                df_scan = pd.read_sql_query("SELECT id FROM servo_scans ORDER BY start_time DESC LIMIT 1", conn_to_use)
+
+            if not df_scan.empty:
+                latest_id = int(df_scan['id'].iloc[0])
+                print(f"DEBUG (get_latest_scan_id): Kullanılacak ID: {latest_id}")
+            else:
+                print("DEBUG (get_latest_scan_id): Veritabanında hiç tarama kaydı yok.")
+        except Exception as e_query: # Sorgu sırasında oluşabilecek hatalar için
+            print(f"DEBUG (get_latest_scan_id): Son tarama ID sorgulanırken hata: {e_query}")
+            error = str(e_query) # Hata mesajını ata
         finally:
-            if internal_conn and conn_to_use: conn_to_use.close()
+            if internal_conn and conn_to_use: # Sadece bu fonksiyon içinde açıldıysa bağlantıyı kapat
+                conn_to_use.close()
+                print("DEBUG (get_latest_scan_id): Dahili bağlantı kapatıldı.")
+    # else: # conn_to_use None ise (get_db_connection başarısız olduysa)
+        # error zaten get_db_connection'dan gelen mesajı içeriyor olmalı.
+        # Bu aşağıdaki 'if error and not conn_to_use:' satırı bu yüzden gereksiz veya yanlış olabilir.
+        # Bu satırı kaldıralım, çünkü conn_to_use None ise bu blok çalışmaz.
+        # Eğer get_db_connection hata döndürdüyse, yukarıda zaten return None yapıyoruz.
+        # print(f"DEBUG (get_latest_scan_id): Veritabanı bağlantısı yok/alınamadı.")
+
+    # Orijinal satırınız buydu ve 'error' burada tanımlı olmayabiliyordu:
+    # if error and not conn_to_use: print(f"DB Hatası (get_latest_scan_id): {error}"); return None
+    # Bu satır artık gereksiz çünkü `error` değişkeni `get_db_connection` çağrısından sonra ayarlanıyor
+    # ve eğer hata varsa zaten fonksiyonun başında `return None` yapılıyor.
+
     return latest_id
 
 

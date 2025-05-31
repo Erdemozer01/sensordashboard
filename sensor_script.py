@@ -191,10 +191,12 @@ def acquire_lock_and_pid():
             pf.write(str(os.getpid()))
         print(f"[{os.getpid()}] Betik kilidi ({LOCK_FILE_PATH}) ve PID ({PID_FILE_PATH}) başarıyla oluşturuldu.")
         return True
+    # sensor_script.py içindeki acquire_lock_and_pid fonksiyonunun except BlockingIOError bloğu
     except BlockingIOError:
         print(f"[{os.getpid()}] '{LOCK_FILE_PATH}' kilitli. Sensör betiği zaten çalışıyor olabilir.")
-        if lock_file_handle: lock_file_handle.close()
-        lock_file_handle = None;
+        if lock_file_handle: # Eğer open() başarılı oldu ama flock başarısız olduysa
+            lock_file_handle.close()
+        lock_file_handle = None # Kilit alınamadığı için handle'ı sıfırla
         return False
     except Exception as e:
         print(f"[{os.getpid()}] Kilit/PID alınırken beklenmedik bir hata: {e}")
@@ -413,6 +415,7 @@ if __name__ == "__main__":
     ölçüm_tamponu_hız_için_yerel = []
     collected_cartesian_points_for_area = []
     current_motor_angle_global = 0.0
+    current_timestamp = time.time()
 
     print(
         f"[{os.getpid()}] İki Fazlı Simetrik Tarama Başlıyor (ID: {current_scan_id_global}). +/-{SCAN_EXTENT_ARG}° , Adım: {SCAN_STEP_ARG}°")
