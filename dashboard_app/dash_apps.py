@@ -379,9 +379,8 @@ def update_all_graphs(n_intervals):
                                             colorbar_title_text="Mesafe(cm)")));
             fig_polar.update_layout(title_text='Polar Grafik ' + title_suffix,
                                     polar=dict(radialaxis=dict(visible=True, range=[0, max_plot_dist]),
-                                               angularaxis=dict(direction="counterclockwise", ticksuffix="°", range=[
-                                                   float(scan_extent_str) * -1 if scan_extent_str != "?" else -180,
-                                                   float(scan_extent_str) if scan_extent_str != "?" else 180])))
+                                               angularaxis=dict(direction="counterclockwise", ticksuffix="°",)))
+
             if 'timestamp' in df_valid.columns: df_time = df_valid.sort_values(
                 by='timestamp'); datetime_series = pd.to_datetime(df_time['timestamp'], unit='s'); fig_time.add_trace(
                 go.Scatter(x=datetime_series, y=df_time['mesafe_cm'], mode='lines+markers',
