@@ -448,7 +448,7 @@ class Scanner:
         print(f"Mevcut Açı (önce): {self.current_motor_angle:.2f}°")
         self._move_motor_to_target_angle_incremental(test_target_angle_1)
         print(f"Motor hareket tamamlandı. Sonraki Mevcut Açı: {self.current_motor_angle:.2f}°")
-        time.sleep(3)  # Motorun pozisyonunu gözlemlemek için 3 saniye bekle
+        time.sleep(1)  # Motorun pozisyonunu gözlemlemek için 3 saniye bekle
 
         # TEST 2: Sola (-45 dereceye, yani 0'dan -45'e)
         test_target_angle_2 = -120
@@ -456,7 +456,7 @@ class Scanner:
         print(f"Mevcut Açı (önce): {self.current_motor_angle:.2f}°")
         self._move_motor_to_target_angle_incremental(test_target_angle_2)
         print(f"Motor hareket tamamlandı. Sonraki Mevcut Açı: {self.current_motor_angle:.2f}°")
-        time.sleep(3)
+        time.sleep(1)
 
         # TEST 3: Tekrar 0 dereceye (merkeze)
         test_target_angle_3 = 0.0
@@ -464,7 +464,7 @@ class Scanner:
         print(f"Mevcut Açı (önce): {self.current_motor_angle:.2f}°")
         self._move_motor_to_target_angle_incremental(test_target_angle_3)
         print(f"Motor hareket tamamlandı. Sonraki Mevcut Açı: {self.current_motor_angle:.2f}°")
-        time.sleep(3)
+        time.sleep(1)
 
         print(f"[{os.getpid()}] >>> Basit Açı Testi Bitti. Betik sonlandırılıyor. <<<")
         self.script_exit_status = 'test_completed'  # Durumu ayarla
