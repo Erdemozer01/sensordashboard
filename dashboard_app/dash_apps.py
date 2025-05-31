@@ -369,14 +369,17 @@ def update_all_graphs(n_intervals):
                            line=dict(color='rgba(255,255,255,0)'), showlegend=False));
             fig_map.add_trace(
                 go.Scatter(x=[0], y=[0], mode='markers', marker=dict(size=10, symbol='diamond', color='red'),
-                           name='Sensör'));
+                           name='Sensör'))
+
             fig_map.update_layout(title_text='2D Harita ' + title_suffix, xaxis_title="Yatay (cm)",
                                   yaxis_title="İleri (cm)", yaxis_scaleanchor="x", yaxis_scaleratio=1)
+
             fig_polar.add_trace(
                 go.Scatterpolar(r=df_valid['mesafe_cm'], theta=df_valid['angle_deg'], mode='lines+markers',
                                 name='Mesafe',
                                 marker=dict(color=df_valid['mesafe_cm'], colorscale='Viridis', showscale=True,
-                                            colorbar_title_text="Mesafe(cm)")));
+                                            colorbar_title_text="Mesafe(cm)")))
+
             fig_polar.update_layout(title_text='Polar Grafik ' + title_suffix,
                                     polar=dict(radialaxis=dict(visible=True, range=[0, max_plot_dist]),
                                                angularaxis=dict(direction="counterclockwise", ticksuffix="°",)))
