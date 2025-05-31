@@ -30,7 +30,7 @@ I2C_PORT = 1  # Raspberry Pi'da genellikle 1
 # --- Eşik ve Tarama Değerleri ---
 TERMINATION_DISTANCE_CM = 10.0
 # Varsayılan tarama açıları: +135'ten -135'e (toplam 270 derece)
-DEFAULT_INITIAL_GOTO_ANGLE_ARG = 135
+DEFAULT_INITIAL_GOTO_ANGLE_ARG = 60
 DEFAULT_FINAL_SCAN_ANGLE_ARG = -135
 DEFAULT_SCAN_STEP_ANGLE_ARG = 10
 
