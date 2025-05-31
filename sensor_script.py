@@ -289,7 +289,34 @@ class Scanner:
                 self.motor_pins[i].value = step_pattern[i]
 
     def _move_motor_to_target_angle_incremental(self, target_angle_deg, step_delay=STEP_DELAY):
-        degrees_per_step_resolution = 360.0 / STEPS_PER_REVOLUTION / len(STEP_SEQUENCE)  # Gerçek adım başına açı
+        degrees_per_step = 360.0 / STEPS_PER_REVOLUTION  # DOĞRU
+
+        angle_difference = target_angle_deg - self.current_motor_angle
+
+        if abs(angle_difference) < (degrees_per_step / 2):  # Çok küçük farkları ihmal et
+            return
+
+        steps_to_move_float = angle_difference / degrees_per_step
+        steps_to_move = round(steps_to_move_float)
+
+        if steps_to_move == 0:
+            return
+
+        direction_is_cw = steps_to_move > 0  # Pozitif fark CW (saat yönü)
+
+        for _ in range(abs(int(steps_to_move))):
+            if direction_is_cw:
+                self.current_motor_step_index = (self.current_motor_step_index + 1) % len(STEP_SEQUENCE)
+            else:  # CCW
+                self.current_motor_step_index = (self.current_motor_step_index - 1 + len(STEP_SEQUENCE)) % len(
+                    STEP_SEQUENCE)
+
+            self._apply_step_to_motor(self.current_motor_step_index)
+            time.sleep(step_delay)
+
+        # Hareket tamamlandıktan sonra, birikmiş float hatalarını önlemek için
+        # mevcut açıyı tam olarak hedef açıya ayarlamak iyi bir pratiktir.
+        self.current_motor_angle = target_angle_deg
 
         # Hedef açıyı motorun kendi koordinat sistemine göre normalleştir (0-360 arasına sıkıştırma)
         # Bu, +/- açıların doğru yönetilmesini sağlar.
