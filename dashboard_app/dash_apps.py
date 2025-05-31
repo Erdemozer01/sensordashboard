@@ -537,6 +537,7 @@ def export_excel_callback(n_clicks):
     return dash.no_update
 
 
+
 @app.callback(
     [Output('raw-data-table', 'data'), Output('raw-data-table', 'columns')],
     [Input('interval-component-main', 'n_intervals')]
