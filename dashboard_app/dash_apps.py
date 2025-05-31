@@ -460,20 +460,24 @@ def handle_stop_scan_script(n_clicks_stop):
             if is_process_running(pid_to_kill):
                 print(f"Betik (PID: {pid_to_kill}) SIGTERM'e yanıt vermedi, SIGKILL gönderiliyor..."); os.kill(pid_to_kill, signal.SIGKILL); time.sleep(0.5)
             msg_suffix = ""
-            if os.path.exists(PID_FILE_PATH_FOR_DASH): try: os.remove(PID_FILE_PATH_FOR_DASH); msg_suffix += " PID dosyası silindi."
-            except OSError as e: msg_suffix += f" PID dosyası silinemedi ({e})."
-            if os.path.exists(LOCK_FILE_PATH_FOR_DASH): try: os.remove(LOCK_FILE_PATH_FOR_DASH); msg_suffix += " Kilit dosyası silindi."
-            except OSError as e: msg_suffix += f" Kilit dosyası silinemedi ({e})."
+            if os.path.exists(PID_FILE_PATH_FOR_DASH):
+                try: os.remove(PID_FILE_PATH_FOR_DASH); msg_suffix += " PID dosyası silindi."
+                except OSError as e: msg_suffix += f" PID dosyası silinemedi ({e})."
+            if os.path.exists(LOCK_FILE_PATH_FOR_DASH):
+                try: os.remove(LOCK_FILE_PATH_FOR_DASH); msg_suffix += " Kilit dosyası silindi."
+                except OSError as e: msg_suffix += f" Kilit dosyası silinemedi ({e})."
             if not is_process_running(pid_to_kill): return dbc.Alert(f"Sensör betiği (PID: {pid_to_kill}) durduruldu.{msg_suffix}", color="info", duration=5000)
             else: return dbc.Alert(f"Betik (PID: {pid_to_kill}) durdurulamadı.{msg_suffix}", color="danger", duration=5000)
         except ProcessLookupError: return dbc.Alert(f"Betik (PID: {pid_to_kill}) zaten çalışmıyor veya bulunamadı.", color="warning", duration=4000)
         except Exception as e: print(f"Betik durdurulurken hata: {e}"); return dbc.Alert(f"Betik (PID: {pid_to_kill}) durdurulurken hata: {e}", color="danger", duration=5000)
     else:
         msg = "Çalışan sensör betiği bulunamadı."; cleaned = False
-        if os.path.exists(LOCK_FILE_PATH_FOR_DASH): try: os.remove(LOCK_FILE_PATH_FOR_DASH); cleaned = True
-        except OSError: pass
-        if os.path.exists(PID_FILE_PATH_FOR_DASH): try: os.remove(PID_FILE_PATH_FOR_DASH); cleaned = True
-        except OSError: pass
+        if os.path.exists(LOCK_FILE_PATH_FOR_DASH):
+            try: os.remove(LOCK_FILE_PATH_FOR_DASH); cleaned = True
+            except OSError: pass
+        if os.path.exists(PID_FILE_PATH_FOR_DASH):
+            try: os.remove(PID_FILE_PATH_FOR_DASH); cleaned = True
+            except OSError: pass
         if cleaned: msg += " Kalıntı dosyalar temizlendi."
         return dbc.Alert(msg, color="warning", duration=4000)
 
