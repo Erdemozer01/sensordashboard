@@ -26,7 +26,7 @@ I2C_PORT = 1
 
 # --- Varsayılan Eşik ve Tarama Değerleri ---
 DEFAULT_TERMINATION_DISTANCE_CM = 1
-BUZZER_DISTANCE_CM = 10
+DEFAULT_BUZZER_DISTANCE = 10
 DEFAULT_SCAN_START_ANGLE = 0
 DEFAULT_SCAN_END_ANGLE = 180
 DEFAULT_SCAN_STEP_ANGLE = 10
@@ -346,6 +346,9 @@ if __name__ == "__main__":
                         help="Tarama başlangıç açısı (derece)")
     parser.add_argument("--end_angle", type=int, default=DEFAULT_SCAN_END_ANGLE, help="Tarama bitiş açısı (derece)")
     parser.add_argument("--step_angle", type=int, default=DEFAULT_SCAN_STEP_ANGLE, help="Tarama adım açısı (derece)")
+    # YENİ: BU SATIRIN MUTLAKA OLMASI GEREKİYOR
+    parser.add_argument("--buzzer_distance", type=int, default=DEFAULT_BUZZER_DISTANCE,
+                        help="Buzzer'ın hangi mesafede (cm) ötmeye başlayacağı.")
     args = parser.parse_args()
 
     SCAN_START_ANGLE = args.start_angle
@@ -399,7 +402,7 @@ if __name__ == "__main__":
             distance_cm = distance_m * 100
 
             if buzzer:
-                if distance_cm <= BUZZER_DISTANCE_CM:
+                if distance_cm <= DEFAULT_BUZZER_DISTANCE:
                     if not buzzer.is_active: buzzer.on()
                 else:
                     if buzzer.is_active: buzzer.off()
