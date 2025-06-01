@@ -38,7 +38,7 @@ DEFAULT_UI_SCAN_STEP_ANGLE = 10
 app = DjangoDash('RealtimeSensorDashboard', external_stylesheets=[dbc.themes.BOOTSTRAP])
 
 # --- LAYOUT BİLEŞENLERİ ---
-title_card = dbc.Row([dbc.Col(html.H1("Dream Pi", className="text-center my-3"),  width=12), html.Hr(),])
+title_card = dbc.Row([dbc.Col(html.H1("Dream Pi Kullanıcı Paneli", className="text-center my-3 mb-2"),  width=12), html.Hr(),])
 
 control_panel = dbc.Card([
     dbc.CardHeader("Tarama Kontrol ve Ayarları", className="bg-primary text-white"),
