@@ -34,11 +34,13 @@ PID_FILE_PATH_FOR_DASH = '/tmp/sensor_scan_script.pid'
 DEFAULT_UI_SCAN_START_ANGLE = 0
 DEFAULT_UI_SCAN_END_ANGLE = 180
 DEFAULT_UI_SCAN_STEP_ANGLE = 10
+DEFAULT_UI_BUZZER_DISTANCE = 10  # YENİ: Arayüz için varsayılan buzzer mesafesi
 
 app = DjangoDash('RealtimeSensorDashboard', external_stylesheets=[dbc.themes.BOOTSTRAP])
 
 # --- LAYOUT BİLEŞENLERİ ---
-title_card = dbc.Row([dbc.Col(html.H1("Dream Pi Kullanıcı Paneli", className="text-center my-3 mb-2"),  width=12), html.Hr(),])
+title_card = dbc.Row(
+    [dbc.Col(html.H1("Dream Pi Kullanıcı Paneli", className="text-center my-3 mb-5"), width=12), html.Hr(), ])
 
 control_panel = dbc.Card([
     dbc.CardHeader("Tarama Kontrol ve Ayarları", className="bg-primary text-white"),
@@ -61,6 +63,10 @@ control_panel = dbc.Card([
                                   step=5)], className="mb-2"),
         dbc.InputGroup([dbc.InputGroupText("Adım Açısı (°)", style={"width": "120px"}),
                         dbc.Input(id="step-angle-input", type="number", value=DEFAULT_UI_SCAN_STEP_ANGLE, min=1, max=45,
+                                  step=1)], className="mb-2"),
+        dbc.InputGroup([dbc.InputGroupText("Buzzer Mes. (cm)", style={"width": "120px"}),  # Güncellenmiş etiket
+                        dbc.Input(id="buzzer-distance-input", type="number", value=DEFAULT_UI_BUZZER_DISTANCE, min=0,
+                                  max=100,  # max değeri ihtiyaca göre ayarlanabilir
                                   step=1)], className="mb-2"),
     ])
 ])
@@ -214,19 +220,40 @@ def get_latest_scan_id_from_db(conn_param=None):
 
 
 # --- CALLBACK FONKSİYONLARI ---
+# --- CALLBACK FONKSİYONLARI ---
 @app.callback(Output('scan-status-message', 'children'),
               [Input('start-scan-button', 'n_clicks')],
-              [State('start-angle-input', 'value'), State('end-angle-input', 'value'),
-               State('step-angle-input', 'value')],
+              [State('start-angle-input', 'value'),
+               State('end-angle-input', 'value'),
+               State('step-angle-input', 'value'),
+               State('buzzer-distance-input', 'value')],  # YENİ: Buzzer mesafesi state'i eklendi
               prevent_initial_call=True)
-def handle_start_scan_script(n_clicks_start, start_angle_val, end_angle_val, step_angle_val):
+def handle_start_scan_script(n_clicks_start, start_angle_val, end_angle_val, step_angle_val,
+                             buzzer_distance_val):  # YENİ: buzzer_distance_val parametresi eklendi
     if n_clicks_start == 0: return no_update
+
+    # Değerleri al ve varsayılanları ata
     start_a = start_angle_val if start_angle_val is not None else DEFAULT_UI_SCAN_START_ANGLE
     end_a = end_angle_val if end_angle_val is not None else DEFAULT_UI_SCAN_END_ANGLE
     step_a = step_angle_val if step_angle_val is not None else DEFAULT_UI_SCAN_STEP_ANGLE
-    if not (0 <= start_a <= 180 and 0 <= end_a <= 180 and start_a <= end_a): return dbc.Alert("Geçersiz açı!",
-                                                                                              color="danger")
-    if not (1 <= step_a <= 45): return dbc.Alert("Geçersiz adım açısı!", color="danger")
+    buzzer_d = buzzer_distance_val if buzzer_distance_val is not None else DEFAULT_UI_BUZZER_DISTANCE  # YENİ
+
+    # Doğrulamalar
+    if not (0 <= start_a <= 180 and 0 <= end_a <= 180):  # Başlangıç ve bitiş açısı kontrolü güncellendi
+        return dbc.Alert("Başlangıç ve Bitiş açıları 0-180 arasında olmalıdır!", color="danger")
+    if start_a > end_a and step_a > 0:  # Eğer başlangıç > bitiş ise adım negatif olmalı (sensor_script.py bunu kendi içinde hallediyor, burada temel mantık hatasını engelliyoruz)
+        return dbc.Alert(
+            "Başlangıç açısı bitiş açısındın büyükse, adım açısı negatif olmalıdır (sensor_script.py bunu ayarlar, ancak burada doğrudan kontrol eklenmesi daha iyi olabilir). Arayüz şu an sadece pozitif adım açısı destekliyor.",
+            color="warning")
+    elif start_a < end_a and step_a < 0:
+        return dbc.Alert("Başlangıç açısı bitiş açısındın küçükse, adım açısı pozitif olmalıdır.", color="danger")
+
+    if not (1 <= abs(step_a) <= 45):  # Adım açısı mutlak değer kontrolü
+        return dbc.Alert("Adım açısı 1-45 arasında olmalıdır!", color="danger")
+
+    if not (0 <= buzzer_d <= 200):  # YENİ: Buzzer mesafesi için bir doğrulama (0-200 cm aralığı örnek)
+        return dbc.Alert("Buzzer mesafesi 0-200 cm arasında olmalıdır!", color="danger")
+
     current_pid = None
     if os.path.exists(PID_FILE_PATH_FOR_DASH):
         try:
@@ -235,22 +262,35 @@ def handle_start_scan_script(n_clicks_start, start_angle_val, end_angle_val, ste
                 if pid_str: current_pid = int(pid_str)
         except (IOError, ValueError):
             current_pid = None
+
     if current_pid and is_process_running(current_pid):
         return dbc.Alert(f"Betik zaten çalışıyor (PID: {current_pid}).", color="warning")
+
     if os.path.exists(LOCK_FILE_PATH_FOR_DASH):
         try:
             os.remove(LOCK_FILE_PATH_FOR_DASH)
             if os.path.exists(PID_FILE_PATH_FOR_DASH): os.remove(PID_FILE_PATH_FOR_DASH)
         except OSError as e:
             return dbc.Alert(f"Kalıntı kilit/PID silinemedi: {e}.", color="danger")
+
     try:
         python_executable = sys.executable
         if not os.path.exists(SENSOR_SCRIPT_PATH): return dbc.Alert(f"Betik bulunamadı: {SENSOR_SCRIPT_PATH}",
                                                                     color="danger")
-        cmd = [python_executable, SENSOR_SCRIPT_PATH, "--start_angle", str(start_a), "--end_angle", str(end_a),
-               "--step_angle", str(step_a)]
+
+        # sensor_script.py'ye gönderilecek komutu güncelle
+        cmd = [
+            python_executable, SENSOR_SCRIPT_PATH,
+            "--start_angle", str(start_a),
+            "--end_angle", str(end_a),
+            "--step_angle", str(step_a),
+            "--buzzer_distance", str(buzzer_d)  # YENİ: Buzzer mesafesi argümanı eklendi
+        ]
+
         subprocess.Popen(cmd, start_new_session=True)
-        time.sleep(2.5)
+        time.sleep(2.5)  # Betiğin PID dosyasını oluşturması için zaman tanıyın
+
+        # ... (PID kontrolü ve geri kalan mesajlar aynı) ...
         if os.path.exists(PID_FILE_PATH_FOR_DASH):
             new_pid = None
             try:
@@ -258,16 +298,22 @@ def handle_start_scan_script(n_clicks_start, start_angle_val, end_angle_val, ste
                     pid_str_new = pf_new.read().strip()
                 if pid_str_new: new_pid = int(pid_str_new)
                 if new_pid and is_process_running(new_pid):
-                    return dbc.Alert(f"Sensör okumaları başladı...", color="success")
+                    return dbc.Alert(f"Sensör okumaları başladı (PID: {new_pid})...",
+                                     color="success")  # PID bilgisi eklendi
                 else:
-                    return dbc.Alert(f"Sensör okumaları başlatıldı ancak process (PID: {new_pid}) bulunamadı.", color="warning")
+                    return dbc.Alert(f"Sensör okumaları başlatıldı ancak process (PID: {new_pid}) bulunamadı.",
+                                     color="warning")
             except Exception as e:
                 return dbc.Alert(f"PID dosyası okunurken hata: {e}", color="warning")
         else:
             return dbc.Alert(f"PID dosyası ({PID_FILE_PATH_FOR_DASH}) oluşmadı. Betik loglarını kontrol edin.",
                              color="danger")
+
     except Exception as e:
         return dbc.Alert(f"Sensör başlatılırken hata: {str(e)}", color="danger")
+
+
+
 
 
 @app.callback(Output('scan-status-message', 'children', allow_duplicate=True),
@@ -464,7 +510,7 @@ def update_all_graphs(n_intervals):
         if not df_points.empty:
             df_valid = df_points[(df_points['mesafe_cm'] > 1.0) & (df_points['mesafe_cm'] < 200.0)].copy()
 
-            if 2 <= len(df_valid) :
+            if 2 <= len(df_valid):
                 fig_map.add_trace(
                     go.Scatter(x=df_valid['y_cm'], y=df_valid['x_cm'], mode='markers', name='Taranan Noktalar',
                                marker=dict(size=4, color='rgba(0, 0, 255, 0.6)')))
@@ -611,4 +657,3 @@ def update_data_table(n_intervals):
         return empty_table_data, empty_table_columns
     finally:
         if conn: conn.close()
-
