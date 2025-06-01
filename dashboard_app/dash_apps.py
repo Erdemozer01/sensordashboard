@@ -41,8 +41,7 @@ import time
 import io
 import signal
 import psutil
-import numpy as np
-import math  # math importu eksikti, eklendi (sensor_script'te vardı, burada da gerekebilir)
+
 
 scipy_available = False
 simplification_available = False
