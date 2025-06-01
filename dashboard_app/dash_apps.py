@@ -1,429 +1,436 @@
-# sensor_script.py (Başlangıç Kontrolü Eklendi)
-from gpiozero import DistanceSensor, LED, OutputDevice, Buzzer
-from RPLCD.i2c import CharLCD
-import time
-import sqlite3
+# dashboard_app/dash_apps.py (Import & App Definition Debugging)
+
 import os
 import sys
-import fcntl # Linux'a özgü
-import atexit
-import math
-import argparse
-import pandas as pd
-import traceback # Hata ayıklama için
+# <<< HATA AYIKLAMA PRINT'İ >>>
+# Bu print ifadesi, dosyanın en azından çalıştırılmaya başlandığını gösterir.
+# PID, birden fazla process varsa (örn: Django autoreloader) ayırt etmeye yardımcı olur.
+print(f"--- [PID:{os.getpid()}] Executing dash_apps.py: Top of file ---")
 
-# <<< YENİ KONTROL PRINT'İ >>>
-print(f"[{os.getpid()}] >>> SENSOR_SCRIPT.PY MODÜLÜ YÜKLENDİ VE BAŞLADI! <<<")
-# <<< YENİ KONTROL PRINT'İ SONU >>>
+# Temel Dash ve Django-Plotly-Dash importları
+try:
+    from django_plotly_dash import DjangoDash
+    print(f"--- [PID:{os.getpid()}] dash_apps.py: DjangoDash imported successfully ---")
+except ImportError as e_dpd:
+    print(f"!!!!!! [PID:{os.getpid()}] dash_apps.py: FAILED to import DjangoDash: {e_dpd} !!!!!!")
+    raise # Hatanın Django tarafından yakalanması için tekrar yükselt
+except Exception as e_dpd_other:
+    print(f"!!!!!! [PID:{os.getpid()}] dash_apps.py: UNEXPECTED ERROR importing DjangoDash: {e_dpd_other} !!!!!!")
+    raise
+
+try:
+    import dash
+    from dash import html, dcc, Output, Input, State, no_update, dash_table
+    import dash_bootstrap_components as dbc
+    import plotly.graph_objects as go
+    print(f"--- [PID:{os.getpid()}] dash_apps.py: Dash and Plotly components imported successfully ---")
+except ImportError as e_dash_core:
+    print(f"!!!!!! [PID:{os.getpid()}] dash_apps.py: FAILED to import core Dash/Plotly components: {e_dash_core} !!!!!!")
+    raise
+except Exception as e_dash_core_other:
+    print(f"!!!!!! [PID:{os.getpid()}] dash_apps.py: UNEXPECTED ERROR importing core Dash/Plotly components: {e_dash_core_other} !!!!!!")
+    raise
+
+# Diğer standart kütüphane importları
+import sqlite3
+import pandas as pd
+import subprocess
+import time
+import io
+import signal
+import psutil
+import numpy as np
+# scipy ve simplification opsiyonel olabilir, try-except ile sarmalayalım
+try:
+    from scipy.spatial import ConvexHull
+    scipy_available = True
+    print(f"--- [PID:{os.getpid()}] dash_apps.py: scipy.spatial imported successfully ---")
+except ImportError:
+    scipy_available = False
+    print(f"--- [PID:{os.getpid()}] dash_apps.py: scipy.spatial not found, ConvexHull will be disabled. ---")
+try:
+    from simplification.cutil import simplify_coords
+    simplification_available = True
+    print(f"--- [PID:{os.getpid()}] dash_apps.py: simplification.cutil imported successfully ---")
+except ImportError:
+    simplification_available = False
+    print(f"--- [PID:{os.getpid()}] dash_apps.py: simplification.cutil not found, simplification will be disabled. ---")
+
+print(f"--- [PID:{os.getpid()}] dash_apps.py: All other standard imports attempted ---")
+
 
 # --- Sabitler ---
-TRIG_PIN = 23
-# ... (sensor_script_v8'deki diğer tüm kodlar buraya gelecek, değişiklik yok) ...
-# ... (acquire_lock_and_pid, release_lock_and_pid_files_on_exit, normalize_angle_0_360 fonksiyonları) ...
-# ... (Scanner sınıfının tamamı, __init__, _init_hardware, _init_db_for_scan, ...) ...
-# ... (_apply_step_to_motor, _move_motor_to_target_physical_angle, _do_scan_at_angle_and_log, ...) ...
-# ... (_calculate_polygon_area_shoelace, _calculate_perimeter, _final_analysis - DEBUG_ANALYSIS print'leriyle birlikte) ...
-# ... (cleanup, run metodları ve en sondaki if __name__ == "__main__": bloğu) ...
+try:
+    PROJECT_ROOT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..')
+except NameError: # __file__ tanımlı değilse (örn: bazı interaktif ortamlarda)
+    PROJECT_ROOT_DIR = os.getcwd()
 
-# --- Pin Tanımlamaları ---
-TRIG_PIN = 23
-ECHO_PIN = 24
-YELLOW_LED_PIN = 27
-BUZZER_PIN = 17
-MOTOR_PIN_IN1, MOTOR_PIN_IN2, MOTOR_PIN_IN3, MOTOR_PIN_IN4 = 5, 6, 13, 19
-LCD_I2C_ADDRESS, LCD_PORT_EXPANDER, LCD_COLS, LCD_ROWS, I2C_PORT = 0x27, 'PCF8574', 16, 2, 1
-TERMINATION_DISTANCE_CM = 10.0
-BUZZER_THRESHOLD_CM = 2.0
-DEFAULT_INITIAL_GOTO_ANGLE_ARG = 135
-DEFAULT_FINAL_SCAN_ANGLE_ARG = -135
-DEFAULT_SCAN_STEP_ANGLE_ARG = 10
-STEP_MOTOR_SETTLE_TIME, LOOP_TARGET_INTERVAL_S = 0.05, 0.15
-STEPS_PER_REVOLUTION, STEP_DELAY = 4096, 0.0012
-STEP_SEQUENCE = [[1, 0, 0, 0], [1, 1, 0, 0], [0, 1, 0, 0], [0, 1, 1, 0],
-                 [0, 0, 1, 0], [0, 0, 1, 1], [0, 0, 0, 1], [1, 0, 0, 1]]
-PROJECT_ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
-DB_NAME_ONLY = 'live_scan_data.sqlite3'
-DB_PATH = os.path.join(PROJECT_ROOT_DIR, DB_NAME_ONLY)
-LOCK_FILE_PATH, PID_FILE_PATH = '/tmp/sensor_scan_script.lock', '/tmp/sensor_scan_script.pid'
+DB_FILENAME = 'live_scan_data.sqlite3'
+DB_PATH = os.path.join(PROJECT_ROOT_DIR, DB_FILENAME)
+SENSOR_SCRIPT_FILENAME = 'sensor_script.py'
+SENSOR_SCRIPT_PATH = os.path.join(PROJECT_ROOT_DIR, SENSOR_SCRIPT_FILENAME) # sensor_script.py'nin proje kök dizininde olduğunu varsayar
+LOCK_FILE_PATH_FOR_DASH = '/tmp/sensor_scan_script.lock'
+PID_FILE_PATH_FOR_DASH = '/tmp/sensor_scan_script.pid'
 
-_g_lock_file_handle = None
+DEFAULT_UI_SCAN_START_ANGLE = 0 # Kullanıcının UI'sından
+DEFAULT_UI_SCAN_END_ANGLE = 180 # Kullanıcının UI'sından
+DEFAULT_UI_SCAN_STEP_ANGLE = 10 # Kullanıcının UI'sından
 
-def acquire_lock_and_pid():
-    global _g_lock_file_handle
-    print(f"[{os.getpid()}] acquire_lock_and_pid çağrıldı.") # DEBUG
+print(f"--- [PID:{os.getpid()}] dash_apps.py: Constants defined. DB_PATH: {DB_PATH}, SENSOR_SCRIPT_PATH: {SENSOR_SCRIPT_PATH} ---")
+print(f"--- [PID:{os.getpid()}] dash_apps.py: About to define 'app' with DjangoDash for RealtimeSensorDashboard ---")
+
+app = None # Hata durumunda NameError almamak için önce None olarak tanımla
+try:
+    # external_stylesheets'ın geçerli bir liste olduğundan emin olalım
+    stylesheets = [dbc.themes.BOOTSTRAP]
+    if not all(isinstance(s, str) for s in stylesheets if s): # None veya boş stringleri kontrol etme
+        print(f"!!!!!! [PID:{os.getpid()}] dash_apps.py: Invalid external_stylesheets: {stylesheets} !!!!!!")
+        raise ValueError("external_stylesheets must be a list of strings.")
+
+    app = DjangoDash('RealtimeSensorDashboard', external_stylesheets=stylesheets)
+    print(f"--- [PID:{os.getpid()}] dash_apps.py: 'app' (DjangoDash instance) DEFINED SUCCESSFULLY! Type: {type(app)} ---")
+except Exception as e_django_dash:
+    print(f"!!!!!! [PID:{os.getpid()}] dash_apps.py: ERROR defining 'app' with DjangoDash: {e_django_dash} !!!!!!")
+    import traceback
+    traceback.print_exc()
+    # app None olarak kalacak ve __init__.py import edemeyecek
+
+if app is None:
+    print(f"!!!!!! [PID:{os.getpid()}] dash_apps.py: CRITICAL - 'app' could not be initialized. DjangoDash instantiation failed. Further imports from this module will fail. !!!!!!")
+    # Bu durumda, __init__.py'nin import etmesini engellemek için bir şey yapamayız,
+    # ama en azından loglarda net bir mesaj olur.
+
+# --- LAYOUT BİLEŞENLERİ ---
+title_card = dbc.Row([dbc.Col(html.H1("Dream Pi", className="text-center my-3"),  width=12), html.Hr(),])
+control_panel = dbc.Card([
+    dbc.CardHeader("Tarama Kontrol ve Ayarları", className="bg-primary text-white"),
+    dbc.CardBody([
+        dbc.Row([
+            dbc.Col(html.Button('2D Taramayı Başlat', id='start-scan-button', n_clicks=0,
+                                className="btn btn-success btn-lg w-100 mb-2"), width=6),
+            dbc.Col(html.Button('Taramayı Durdur', id='stop-scan-button', n_clicks=0,
+                                className="btn btn-danger btn-lg w-100 mb-2"), width=6)
+        ]),
+        html.Div(id='scan-status-message', style={'marginTop': '10px', 'minHeight': '40px', 'textAlign': 'center'},
+                 className="mb-3"),
+        html.Hr(),
+        html.H6("Tarama Parametreleri:", className="mt-2"),
+        dbc.InputGroup([dbc.InputGroupText("Başl. Açı (°)", style={"width": "120px"}),
+                        dbc.Input(id="start-angle-input", type="number", value=DEFAULT_UI_SCAN_START_ANGLE, min=0,
+                                  max=180, step=5)], className="mb-2"),
+        dbc.InputGroup([dbc.InputGroupText("Bitiş Açısı (°)", style={"width": "120px"}),
+                        dbc.Input(id="end-angle-input", type="number", value=DEFAULT_UI_SCAN_END_ANGLE, min=0, max=180,
+                                  step=5)], className="mb-2"),
+        dbc.InputGroup([dbc.InputGroupText("Adım Açısı (°)", style={"width": "120px"}),
+                        dbc.Input(id="step-angle-input", type="number", value=DEFAULT_UI_SCAN_STEP_ANGLE, min=1, max=45,
+                                  step=1)], className="mb-2"),
+    ])
+])
+stats_panel = dbc.Card([ dbc.CardHeader("Anlık Sensör Değerleri", className="bg-info text-white"), dbc.CardBody( dbc.Row([ dbc.Col(html.Div([html.H6("Mevcut Açı:"), html.H4(id='current-angle', children="--°")]), width=4, className="text-center"), dbc.Col(html.Div([html.H6("Mevcut Mesafe:"), html.H4(id='current-distance', children="-- cm")]), width=4, className="text-center"), dbc.Col(html.Div([html.H6("Anlık Hız:"), html.H4(id='current-speed', children="-- cm/s")]), width=4, className="text-center") ])) ], className="mb-3")
+system_card = dbc.Card([ dbc.CardHeader("Sistem Durumu", className="bg-secondary text-white"), dbc.CardBody([ dbc.Row([dbc.Col(html.Div( [html.H6("Sensör Durumu:"), html.H5(id='script-status', children="Beklemede")]))], className="mb-2"), dbc.Row([ dbc.Col(html.Div([html.H6("Pi CPU Kullanımı:"), dbc.Progress(id='cpu-usage', value=0, color="success", style={"height": "20px"}, className="mb-1", label="0%")])), dbc.Col(html.Div([html.H6("Pi RAM Kullanımı:"), dbc.Progress(id='ram-usage', value=0, color="info", style={"height": "20px"}, className="mb-1", label="0%")])) ])]) ], className="mb-3")
+export_card = dbc.Card([ dbc.CardHeader("Veri Dışa Aktarma (En Son Tarama)", className="bg-light"), dbc.CardBody([ dbc.Button('En Son Taramayı CSV İndir', id='export-csv-button', color="primary", className="w-100 mb-2"), dcc.Download(id='download-csv'), dbc.Button('En Son Taramayı Excel İndir', id='export-excel-button', color="success", className="w-100"), dcc.Download(id='download-excel'), ]) ], className="mb-3")
+analysis_card = dbc.Card([ dbc.CardHeader("Tarama Analizi (En Son Tarama)", className="bg-dark text-white"), dbc.CardBody([ dbc.Row([ dbc.Col([html.H6("Hesaplanan Alan:"), html.H4(id='calculated-area', children="-- cm²")]), dbc.Col([html.H6("Çevre Uzunluğu:"), html.H4(id='perimeter-length', children="-- cm")]) ]), dbc.Row([ dbc.Col([html.H6("Max Genişlik:"), html.H4(id='max-width', children="-- cm")]), dbc.Col([html.H6("Max Derinlik:"), html.H4(id='max-depth', children="-- cm")]) ], className="mt-2") ]) ])
+estimation_card = dbc.Card([ dbc.CardHeader("Ortam Şekli Tahmini", className="bg-success text-white"), dbc.CardBody( html.H4("Tahmin: Bekleniyor...", id='environment-estimation-text', className="text-center") ) ])
+visualization_tabs = dbc.Tabs([ dbc.Tab(dcc.Graph(id='scan-map-graph', style={'height': '75vh'}), label="2D Kartezyen Harita"), dbc.Tab(dcc.Graph(id='polar-graph', style={'height': '75vh'}), label="Polar Grafik"), dbc.Tab(dcc.Graph(id='time-series-graph', style={'height': '75vh'}), label="Zaman Serisi (Mesafe)"), dbc.Tab( dcc.Loading( children=[ dash_table.DataTable( id='scan-data-table', style_cell={'textAlign': 'left', 'padding': '5px'}, style_header={'backgroundColor': 'rgb(230, 230, 230)', 'fontWeight': 'bold'}, style_table={'height': '70vh', 'overflowY': 'auto'}, page_size=20, sort_action="native", filter_action="native", ) ] ), label="Veri Tablosu" ) ])
+
+if app: # Sadece app başarılı bir şekilde tanımlandıysa layout'u ata
+    app.layout = dbc.Container(fluid=True, children=[
+        title_card,
+        dbc.Row([
+            dbc.Col([control_panel,
+                     dbc.Row(html.Div(style={"height": "15px"})), stats_panel,
+                     dbc.Row(html.Div(style={"height": "15px"})), system_card,
+                     dbc.Row(html.Div(style={"height": "15px"})), export_card],
+                    md=4, className="mb-3"),
+            dbc.Col([
+                visualization_tabs,
+                dbc.Row(html.Div(style={"height": "15px"})),
+                dbc.Row([
+                    dbc.Col(analysis_card, md=8),
+                    dbc.Col(estimation_card, md=4)
+                ])
+            ], md=8)
+        ]),
+        dcc.Interval(id='interval-component-main', interval=3000, n_intervals=0), # Kullanıcının kodu 3000ms
+        dcc.Interval(id='interval-component-system', interval=3000, n_intervals=0), # Kullanıcının kodu 3000ms
+        dcc.Store(id='live-scan-data-store') # Bu dcc.Store'u kullanmıyoruz ama kalsın, belki sonraki adımlarda...
+                                            # Aslında kullanıcının kodunda yok, ama benimkinde vardı.
+                                            # Kullanıcının kodunda dcc.Store yok, o yüzden kaldırıyorum.
+                                            # Hayır, dcc.Store'u kullanıyor olmalıyız.
+                                            # Tekrar kontrol: Kullanıcının kodunda dcc.Store yok.
+                                            # Ancak, `fetch_data_for_store` gibi bir callback olmadan
+                                            # her grafik kendi DB sorgusunu yapacak. Bu verimsiz.
+                                            # `dcc.Store` mantığını geri ekliyorum, çünkü bu iyi bir pratik.
+    ])
+else:
+    # app None ise, layout'u tanımlamak anlamsız ve hata verebilir.
+    # __init__.py zaten import edemeyecek.
+    print(f"!!!!!! [PID:{os.getpid()}] dash_apps.py: 'app' is None, so app.layout is NOT being assigned. !!!!!!")
+
+
+# --- HELPER FONKSİYONLAR ---
+# ... (Kullanıcının helper fonksiyonları - get_db_connection, get_latest_scan_id_from_db, is_process_running) ...
+def is_process_running(pid):
+    if pid is None: return False
+    try: os.kill(pid, 0)
+    except OSError: return False
+    else: return True
+
+def get_db_connection():
     try:
-        if os.path.exists(PID_FILE_PATH): os.remove(PID_FILE_PATH)
-    except OSError as e: print(f"[{os.getpid()}] Uyarı: Eski PID dosyası silinemedi: {e}")
-    try:
-        _g_lock_file_handle = open(LOCK_FILE_PATH, 'w')
-        fcntl.flock(_g_lock_file_handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-        with open(PID_FILE_PATH, 'w') as pf: pf.write(str(os.getpid()))
-        print(f"[{os.getpid()}] Kilit ve PID ({os.getpid()}) oluşturuldu.")
-        return True
-    except (IOError, OSError) as e:
-        print(f"[{os.getpid()}] Kilit/PID hatası: {e}")
-        if _g_lock_file_handle: _g_lock_file_handle.close(); _g_lock_file_handle = None
-        return False
+        if not os.path.exists(DB_PATH): return None, f"Veritabanı dosyası ({DB_PATH}) bulunamadı."
+        conn = sqlite3.connect(f'file:{DB_PATH}?mode=ro', uri=True, timeout=5)
+        return conn, None
+    except sqlite3.OperationalError as e: return None, f"DB Kilitli/Hata: {e}"
+    except Exception as e: return None, f"DB Bağlantı Hatası: {e}"
 
-def release_lock_and_pid_files_on_exit():
-    global _g_lock_file_handle; pid = os.getpid()
-    print(f"[{pid}] `release_lock_and_pid_files_on_exit` çağrıldı.")
-    if _g_lock_file_handle:
+def get_latest_scan_id_from_db(conn_param=None):
+    internal_conn = False; conn_to_use = conn_param; latest_id = None
+    if not conn_to_use:
+        conn_to_use, error = get_db_connection()
+        if error: print(f"DB Hatası (get_latest_scan_id): {error}"); return None
+        internal_conn = True
+    if conn_to_use:
         try:
-            fcntl.flock(_g_lock_file_handle.fileno(), fcntl.LOCK_UN); _g_lock_file_handle.close(); _g_lock_file_handle = None
-            print(f"[{pid}] Kilit dosyası serbest bırakıldı.")
-        except Exception as e: print(f"[{pid}] Kilit serbest bırakma hatası: {e}")
-    for f_path in [PID_FILE_PATH, LOCK_FILE_PATH]:
-        try:
-            if os.path.exists(f_path):
-                if f_path == PID_FILE_PATH:
-                    can_delete = False
-                    try:
-                        with open(f_path, 'r') as pf:
-                            if int(pf.read().strip()) == pid: can_delete = True
-                    except: pass
-                    if can_delete: os.remove(f_path); print(f"[{pid}] Silindi: {f_path}")
-                    elif os.path.exists(f_path): print(f"[{pid}] {f_path} başka processe ait, silinmedi.")
-                else: os.remove(f_path); print(f"[{pid}] Silindi: {f_path}")
-        except OSError as e_rm: print(f"[{pid}] Dosya ({f_path}) silme hatası: {e_rm}")
+            df_scan = pd.read_sql_query("SELECT id FROM servo_scans WHERE status = 'running' ORDER BY start_time DESC LIMIT 1", conn_to_use)
+            if df_scan.empty: df_scan = pd.read_sql_query("SELECT id FROM servo_scans ORDER BY start_time DESC LIMIT 1", conn_to_use)
+            if not df_scan.empty: latest_id = int(df_scan['id'].iloc[0])
+        except Exception as e: print(f"Son tarama ID alınırken hata: {e}")
+        finally:
+            if internal_conn and conn_to_use: conn_to_use.close()
+    return latest_id
 
-def normalize_angle_0_360(angle_deg):
-    return angle_deg % 360.0
-
-class Scanner:
-    def __init__(self, initial_angle_conceptual, end_angle_conceptual, step_angle):
-        print(f"[{os.getpid()}] Scanner.__init__ çağrıldı.") # DEBUG
-        self.sensor = None; self.yellow_led = None; self.lcd = None; self.buzzer = None
-        self.motor_pins = []; self.current_motor_step_index = 0
-        self.current_physical_motor_angle = 0.0
-        self.relative_zero_physical_angle = 0.0
-        self.current_scan_id = None; self.db_conn_local = None
-        self.script_exit_status = 'interrupted_unexpectedly'
-        self.ölçüm_tamponu_hız_için_yerel = []
-        self.conceptual_initial_goto_physical_angle = float(initial_angle_conceptual)
-        self.conceptual_final_physical_angle = float(end_angle_conceptual)
-        self.scan_arc_degrees = abs(self.conceptual_final_physical_angle - self.conceptual_initial_goto_physical_angle)
-        self.scan_direction_sign = -1.0 if self.conceptual_initial_goto_physical_angle > self.conceptual_final_physical_angle else 1.0
-        self.actual_scan_step = abs(float(step_angle)) or DEFAULT_SCAN_STEP_ANGLE_ARG
-        print(f"DEBUG_INIT: InitialConceptual: {self.conceptual_initial_goto_physical_angle}, FinalConceptual: {self.conceptual_final_physical_angle}, Arc: {self.scan_arc_degrees}, DirectionSign: {self.scan_direction_sign}, Step: {self.actual_scan_step}")
-
-    def _init_hardware(self):
-        print(f"[{os.getpid()}] _init_hardware çağrıldı.") # DEBUG
-        hardware_ok = True
-        # ... (sensor_script_v8'deki _init_hardware içeriğinin geri kalanı) ...
-        try:
-            self.sensor = DistanceSensor(echo=ECHO_PIN, trigger=TRIG_PIN, max_distance=2.0, queue_len=5, partial=True)
-            self.yellow_led = LED(YELLOW_LED_PIN)
-            self.motor_pins = [OutputDevice(p) for p in [MOTOR_PIN_IN1, MOTOR_PIN_IN2, MOTOR_PIN_IN3, MOTOR_PIN_IN4]]
-            for pin in self.motor_pins: pin.off()
-            self.yellow_led.off(); self.current_physical_motor_angle = 0.0
+# --- CALLBACK FONKSİYONLARI ---
+if app: # Sadece app başarılı ise callback'leri tanımla
+    @app.callback(Output('scan-status-message', 'children'),
+                  [Input('start-scan-button', 'n_clicks')],
+                  [State('start-angle-input', 'value'), State('end-angle-input', 'value'), State('step-angle-input', 'value')],
+                  prevent_initial_call=True)
+    def handle_start_scan_script(n_clicks_start, start_angle_val, end_angle_val, step_angle_val):
+        # ... (Kullanıcının handle_start_scan_script fonksiyonu)
+        if n_clicks_start == 0: return no_update
+        start_a = start_angle_val if start_angle_val is not None else DEFAULT_UI_SCAN_START_ANGLE
+        end_a = end_angle_val if end_angle_val is not None else DEFAULT_UI_SCAN_END_ANGLE
+        step_a = step_angle_val if step_angle_val is not None else DEFAULT_UI_SCAN_STEP_ANGLE
+        if not (0 <= start_a <= 180 and 0 <= end_a <= 180 and start_a <= end_a): return dbc.Alert("Geçersiz açı!", color="danger")
+        if not (1 <= step_a <= 45): return dbc.Alert("Geçersiz adım açısı!", color="danger")
+        current_pid = None
+        if os.path.exists(PID_FILE_PATH_FOR_DASH):
             try:
-                self.buzzer = Buzzer(BUZZER_PIN); self.buzzer.off()
-                print(f"[{os.getpid()}] Buzzer (GPIO {BUZZER_PIN}) başarıyla başlatıldı.")
-            except Exception as e_buzzer: self.buzzer = None; print(f"[{os.getpid()}] UYARI: Buzzer başlatma hatası: {e_buzzer}. Buzzer devre dışı.")
-            print(f"[{os.getpid()}] Temel donanımlar başarıyla başlatıldı.")
-        except Exception as e:
-            print(f"[{os.getpid()}] Temel donanım başlatma hatası: {e}"); hardware_ok = False; traceback.print_exc() # DEBUG
-        if hardware_ok:
+                with open(PID_FILE_PATH_FOR_DASH, 'r') as pf: pid_str = pf.read().strip();
+                if pid_str: current_pid = int(pid_str)
+            except (IOError, ValueError): current_pid = None
+        if current_pid and is_process_running(current_pid): return dbc.Alert(f"Betik zaten çalışıyor (PID: {current_pid}).", color="warning")
+        if os.path.exists(LOCK_FILE_PATH_FOR_DASH):
             try:
-                self.lcd = CharLCD(i2c_expander=LCD_PORT_EXPANDER, address=LCD_I2C_ADDRESS, port=I2C_PORT, cols=LCD_COLS, rows=LCD_ROWS, dotsize=8, charmap='A02', auto_linebreaks=False)
-                self.lcd.clear(); self.lcd.cursor_pos = (0, 0)
-                self.lcd.write_string("Dream Pi Step".ljust(LCD_COLS)[:LCD_COLS])
-                if LCD_ROWS > 1: self.lcd.cursor_pos = (1, 0); self.lcd.write_string("Hazirlaniyor...".ljust(LCD_COLS)[:LCD_COLS])
-                time.sleep(1.0); print(f"[{os.getpid()}] LCD Ekran başarıyla başlatıldı.")
-            except Exception as e_lcd_init:
-                print(f"[{os.getpid()}] UYARI: LCD başlatma hatası: {e_lcd_init}. LCD devre dışı."); self.lcd = None; traceback.print_exc() # DEBUG
-        else: self.lcd = None
-        return hardware_ok
-
-    def _init_db_for_scan(self):
-        print(f"[{os.getpid()}] _init_db_for_scan çağrıldı.") # DEBUG
-        # ... (sensor_script_v8'deki _init_db_for_scan içeriğinin geri kalanı) ...
-        conn = None
+                os.remove(LOCK_FILE_PATH_FOR_DASH);
+                if os.path.exists(PID_FILE_PATH_FOR_DASH): os.remove(PID_FILE_PATH_FOR_DASH)
+            except OSError as e: return dbc.Alert(f"Kalıntı kilit/PID silinemedi: {e}.", color="danger")
         try:
-            conn = sqlite3.connect(DB_PATH)
-            cursor = conn.cursor();
-            cursor.execute("CREATE TABLE IF NOT EXISTS servo_scans (id INTEGER PRIMARY KEY AUTOINCREMENT, start_time REAL UNIQUE, status TEXT, hesaplanan_alan_cm2 REAL DEFAULT NULL, cevre_cm REAL DEFAULT NULL, max_genislik_cm REAL DEFAULT NULL, max_derinlik_cm REAL DEFAULT NULL, initial_goto_angle_setting REAL, scan_end_angle_setting REAL, scan_step_angle_setting REAL)")
-            cursor.execute("CREATE TABLE IF NOT EXISTS scan_points (id INTEGER PRIMARY KEY AUTOINCREMENT, scan_id INTEGER, angle_deg REAL, mesafe_cm REAL, hiz_cm_s REAL, timestamp REAL, x_cm REAL, y_cm REAL, FOREIGN KEY(scan_id) REFERENCES servo_scans(id))")
-            cursor.execute("UPDATE servo_scans SET status = 'interrupted_prior_run' WHERE status = 'running'"); conn.commit()
-            scan_start_time = time.time()
-            cursor.execute("INSERT INTO servo_scans (start_time, status, initial_goto_angle_setting, scan_end_angle_setting, scan_step_angle_setting) VALUES (?, ?, ?, ?, ?)",
-                           (scan_start_time, 'running', self.conceptual_initial_goto_physical_angle, self.conceptual_final_physical_angle, self.actual_scan_step))
-            self.current_scan_id = cursor.lastrowid; conn.commit()
-            print(f"[{os.getpid()}] Veritabanı '{DB_PATH}' hazırlandı. Yeni tarama ID: {self.current_scan_id}.")
-            return True
-        except sqlite3.Error as e_db: print(f"[{os.getpid()}] DB hatası: {e_db}"); traceback.print_exc(); self.current_scan_id=None; return False # DEBUG
+            python_executable = sys.executable
+            if not os.path.exists(SENSOR_SCRIPT_PATH): return dbc.Alert(f"Betik bulunamadı: {SENSOR_SCRIPT_PATH}", color="danger")
+            # ÖNEMLİ: sensor_script.py'ye gönderilen parametre adları sensor_script.py'deki argparse ile eşleşmeli.
+            # sensor_script_v3'e göre: --initial_goto_angle, --scan_end_angle, --scan_step_angle
+            cmd = [python_executable, SENSOR_SCRIPT_PATH, "--initial_goto_angle", str(start_a), "--scan_end_angle", str(end_a), "--scan_step_angle", str(step_a)]
+            subprocess.Popen(cmd, start_new_session=True)
+            time.sleep(2.5)
+            if os.path.exists(PID_FILE_PATH_FOR_DASH):
+                new_pid = None
+                try:
+                    with open(PID_FILE_PATH_FOR_DASH, 'r') as pf_new: pid_str_new = pf_new.read().strip()
+                    if pid_str_new: new_pid = int(pid_str_new)
+                    if new_pid and is_process_running(new_pid): return dbc.Alert(f"Sensör okumaları başladı...", color="success")
+                    else: return dbc.Alert(f"Sensör okumaları başlatıldı ancak process (PID: {new_pid}) bulunamadı.", color="warning")
+                except Exception as e: return dbc.Alert(f"PID dosyası okunurken hata: {e}", color="warning")
+            else: return dbc.Alert(f"PID dosyası ({PID_FILE_PATH_FOR_DASH}) oluşmadı. Betik loglarını kontrol edin.", color="danger")
+        except Exception as e: return dbc.Alert(f"Sensör başlatılırken hata: {str(e)}", color="danger")
+
+    @app.callback(Output('scan-status-message', 'children', allow_duplicate=True), [Input('stop-scan-button', 'n_clicks')], prevent_initial_call=True)
+    def handle_stop_scan_script(n_clicks_stop):
+        # ... (Kullanıcının handle_stop_scan_script fonksiyonu)
+        if n_clicks_stop == 0: return no_update
+        pid_to_kill = None
+        if os.path.exists(PID_FILE_PATH_FOR_DASH):
+            try:
+                with open(PID_FILE_PATH_FOR_DASH, 'r') as pf: pid_str = pf.read().strip();
+                if pid_str: pid_to_kill = int(pid_str)
+            except (IOError, ValueError): pid_to_kill = None
+        if pid_to_kill and is_process_running(pid_to_kill):
+            try:
+                os.kill(pid_to_kill, signal.SIGTERM); time.sleep(2.0)
+                if is_process_running(pid_to_kill): os.kill(pid_to_kill, signal.SIGKILL); time.sleep(0.5)
+                if not is_process_running(pid_to_kill): return dbc.Alert(f"Betik (PID: {pid_to_kill}) başarıyla durduruldu.", color="info")
+                else: return dbc.Alert(f"Betik (PID: {pid_to_kill}) durdurulamadı!", color="danger")
+            except Exception as e: return dbc.Alert(f"Betik (PID: {pid_to_kill}) durdurulurken hata: {e}", color="danger")
+        else:
+            msg = "Çalışan bir betik bulunamadı."; cleaned = False
+            try:
+                if os.path.exists(LOCK_FILE_PATH_FOR_DASH): os.remove(LOCK_FILE_PATH_FOR_DASH); cleaned = True
+                if os.path.exists(PID_FILE_PATH_FOR_DASH): os.remove(PID_FILE_PATH_FOR_DASH); cleaned = True
+            except OSError: pass
+            if cleaned: msg += " Kalıntı dosyalar temizlendi."
+            return dbc.Alert(msg, color="warning")
+
+    @app.callback(
+        [Output('current-angle', 'children'), Output('current-distance', 'children'), Output('current-speed', 'children')],
+        [Input('interval-component-main', 'n_intervals')]
+    )
+    def update_realtime_values(n_intervals):
+        # ... (Kullanıcının update_realtime_values fonksiyonu)
+        conn, error = get_db_connection(); angle_str, distance_str, speed_str = "--°", "-- cm", "-- cm/s"
+        if conn:
+            try:
+                latest_id = get_latest_scan_id_from_db(conn_param=conn)
+                if latest_id:
+                    df = pd.read_sql_query(f"SELECT angle_deg, mesafe_cm, hiz_cm_s FROM scan_points WHERE scan_id = {latest_id} ORDER BY id DESC LIMIT 1", conn)
+                    if not df.empty: angle_val, dist_val, speed_val = df.iloc[0]; angle_str = f"{angle_val:.0f}°" if pd.notnull(angle_val) else "--°"; distance_str = f"{dist_val:.1f} cm" if pd.notnull(dist_val) else "-- cm"; speed_str = f"{speed_val:.1f} cm/s" if pd.notnull(speed_val) else "-- cm/s"
+            except Exception as e: print(f"Anlık değerler güncellenirken hata: {e}")
+            finally:
+                if conn: conn.close()
+        return angle_str, distance_str, speed_str
+
+    @app.callback(
+        [Output('calculated-area', 'children'), Output('perimeter-length', 'children'), Output('max-width', 'children'), Output('max-depth', 'children')],
+        [Input('interval-component-main', 'n_intervals')]
+    )
+    def update_analysis_panel(n_intervals):
+        # ... (Kullanıcının update_analysis_panel fonksiyonu, DEBUG print'leri ile)
+        print(f"DEBUG: update_analysis_panel çağrıldı, n_intervals: {n_intervals}"); conn, error = get_db_connection(); area_str, perimeter_str, width_str, depth_str = "-- cm²", "-- cm", "-- cm", "-- cm"
+        if conn:
+            print("DEBUG: update_analysis_panel - Veritabanı bağlantısı başarılı.")
+            try:
+                latest_id = get_latest_scan_id_from_db(conn_param=conn); print(f"DEBUG: update_analysis_panel - Son tarama ID: {latest_id}")
+                if latest_id:
+                    df_scan = pd.read_sql_query(f"SELECT hesaplanan_alan_cm2, cevre_cm, max_genislik_cm, max_derinlik_cm FROM servo_scans WHERE id = {latest_id}", conn); print(f"DEBUG: update_analysis_panel - df_scan (ID: {latest_id}):\n{df_scan.to_string()}")
+                    if not df_scan.empty:
+                        scan_data_row = df_scan.iloc[0]; area_val = scan_data_row.get('hesaplanan_alan_cm2'); per_val = scan_data_row.get('cevre_cm'); w_val = scan_data_row.get('max_genislik_cm'); d_val = scan_data_row.get('max_derinlik_cm')
+                        area_str = f"{area_val:.2f} cm²" if pd.notnull(area_val) else "Hesaplanmadı"; perimeter_str = f"{per_val:.2f} cm" if pd.notnull(per_val) else "Hesaplanmadı"; width_str = f"{w_val:.2f} cm" if pd.notnull(w_val) else "Hesaplanmadı"; depth_str = f"{d_val:.2f} cm" if pd.notnull(d_val) else "Hesaplanmadı"
+                        print(f"DEBUG: update_analysis_panel - İşlenmiş değerler: Alan={area_str}, Çevre={perimeter_str}, Genişlik={width_str}, Derinlik={depth_str}")
+                    else: print(f"DEBUG: update_analysis_panel - ID {latest_id} için servo_scans tablosunda veri yok.")
+                else: print("DEBUG: update_analysis_panel - Gösterilecek son tarama ID'si bulunamadı.")
+            except Exception as e: print(f"HATA: Analiz paneli DB sorgu veya işleme hatası: {e}"); area_str, perimeter_str, width_str, depth_str = "Hata", "Hata", "Hata", "Hata"
+            finally:
+                if conn: conn.close(); print("DEBUG: update_analysis_panel - Veritabanı bağlantısı kapatıldı.")
+        elif error: print(f"HATA: DB Bağlantı Hatası (Analiz Paneli): {error}"); area_str, perimeter_str, width_str, depth_str = "DB Yok", "DB Yok", "DB Yok", "DB Yok"
+        print(f"DEBUG: update_analysis_panel tamamlandı, dönen değerler: {area_str}, {perimeter_str}, {width_str}, {depth_str}")
+        return area_str, perimeter_str, width_str, depth_str
+
+    @app.callback(
+        [Output('script-status', 'children'), Output('script-status', 'className'), Output('cpu-usage', 'value'), Output('cpu-usage', 'label'), Output('ram-usage', 'value'), Output('ram-usage', 'label')],
+        [Input('interval-component-system', 'n_intervals')]
+    )
+    def update_system_card(n_intervals):
+        # ... (Kullanıcının update_system_card fonksiyonu)
+        script_status_text, status_class_name = "Beklemede", "text-secondary"; pid = None
+        if os.path.exists(PID_FILE_PATH_FOR_DASH):
+            try:
+                with open(PID_FILE_PATH_FOR_DASH, 'r') as pf: pid_str = pf.read().strip();
+                if pid_str: pid = int(pid_str)
+            except (IOError, ValueError): pass
+        if pid and is_process_running(pid): script_status_text, status_class_name = "Çalışıyor", "text-success"
+        else:
+            if os.path.exists(LOCK_FILE_PATH_FOR_DASH): script_status_text, status_class_name = "Durum Belirsiz (Kilit Var)", "text-warning"
+            else: script_status_text, status_class_name = "Çalışmıyor", "text-danger"
+        cpu_percent, ram_percent = 0.0, 0.0
+        try: cpu_percent = round(psutil.cpu_percent(interval=0.1), 1); ram_percent = round(psutil.virtual_memory().percent, 1)
+        except Exception as e: print(f"CPU/RAM (psutil) okuma hatası: {e}")
+        return script_status_text, status_class_name, cpu_percent, f"{cpu_percent}%", ram_percent, f"{ram_percent}%"
+
+    @app.callback(
+        [Output('scan-map-graph', 'figure'), Output('polar-graph', 'figure'), Output('time-series-graph', 'figure'), Output('environment-estimation-text', 'children')],
+        [Input('interval-component-main', 'n_intervals')]
+    )
+    def update_all_graphs(n_intervals):
+        # ... (Kullanıcının update_all_graphs fonksiyonu)
+        conn, error_msg_conn = get_db_connection(); id_to_plot = get_latest_scan_id_from_db(conn_param=conn) if conn else None; ui_revision_key = str(id_to_plot) if id_to_plot else "no_scan"
+        fig_map = go.Figure().update_layout(title_text='2D Harita ', uirevision=ui_revision_key, plot_bgcolor='rgba(248,248,248,0.95)'); fig_polar = go.Figure().update_layout(title_text='Polar Grafik ', uirevision=ui_revision_key, plot_bgcolor='rgba(248,248,248,0.95)'); fig_time = go.Figure().update_layout(title_text='Zaman Serisi - Mesafe ', uirevision=ui_revision_key, plot_bgcolor='rgba(248,248,248,0.95)'); estimation_text = "Tahmin: Veri Yok"
+        if not conn or not id_to_plot:
+            if conn: conn.close()
+            return fig_map, fig_polar, fig_time, estimation_text
+        try:
+            df_scan_info = pd.read_sql_query(f"SELECT status, start_time FROM servo_scans WHERE id = {id_to_plot}", conn); df_points = pd.read_sql_query(f"SELECT x_cm, y_cm, angle_deg, mesafe_cm, timestamp FROM scan_points WHERE scan_id = {id_to_plot} ORDER BY angle_deg ASC", conn)
+            scan_status_str = df_scan_info['status'].iloc[0] if not df_scan_info.empty else "Bilinmiyor"; start_time_epoch = df_scan_info['start_time'].iloc[0] if not df_scan_info.empty else time.time(); start_time_str = time.strftime('%H:%M:%S (%d-%m-%y)', time.localtime(start_time_epoch))
+            if not df_points.empty:
+                df_valid = df_points[(df_points['mesafe_cm'] > 1.0) & (df_points['mesafe_cm'] < 200.0)].copy()
+                if 2 <= len(df_valid) :
+                    fig_map.add_trace(go.Scatter(x=df_valid['y_cm'], y=df_valid['x_cm'], mode='markers', name='Taranan Noktalar', marker=dict(size=4, color='rgba(0, 0, 255, 0.6)'))); fig_map.add_trace(go.Scatter(x=[0], y=[0], mode='markers', marker=dict(size=10, symbol='diamond', color='red'), name='Sensör')); fig_polar.add_trace(go.Scatterpolar(r=df_valid['mesafe_cm'], theta=df_valid['angle_deg'], mode='markers', name='Mesafe'))
+                    df_time_sorted = df_valid.sort_values(by='timestamp'); datetime_series = pd.to_datetime(df_time_sorted['timestamp'], unit='s'); fig_time.add_trace(go.Scatter(x=datetime_series, y=df_time_sorted['mesafe_cm'], mode='lines+markers', name='Mesafe (cm)'))
+                    distances = df_valid['mesafe_cm'].to_numpy(); distance_deltas = np.diff(distances); # print(distance_deltas)
+                    std_dev_of_deltas = np.std(distance_deltas) if len(distance_deltas) > 0 else float('inf'); # print(f"std_dev_of_deltas: {std_dev_of_deltas}")
+                    points_for_hull = df_valid[['y_cm', 'x_cm']].to_numpy()
+                    if scipy_available and simplification_available and len(points_for_hull) >=3: # Check if modules are available
+                        hull = ConvexHull(points_for_hull); hull_area = hull.volume; hull_perimeter = hull.area; circularity = (4 * np.pi * hull_area) / (hull_perimeter ** 2) if hull_perimeter > 0 else 0
+                        if 0 < std_dev_of_deltas < 1.0 and not std_dev_of_deltas > 1: estimation_text = "Dairesel Alan"
+                        elif circularity > 0.82: estimation_text = "Dairesel Alan"
+                        else:
+                            hull_points = points_for_hull[hull.vertices]; epsilon = 3.0; simplified_points = simplify_coords(hull_points, epsilon)
+                            num_vertices = len(simplified_points) - 1 if len(simplified_points) > 0 else 0
+                            shape_map = {3: "Üçgensel Alan", 4: "Dörtgensel Alan", 5: "Beşgensel Alan", 6: "Altıgensel Alan"}; estimation_text = shape_map.get(num_vertices, f"{num_vertices} Köşeli Alan")
+                        final_polygon_points = simplify_coords(points_for_hull[hull.vertices], 2.0)
+                        if len(final_polygon_points) > 1: fig_map.add_trace(go.Scatter(x=np.append(final_polygon_points[:, 0], final_polygon_points[0, 0]), y=np.append(final_polygon_points[:, 1], final_polygon_points[0, 1]), mode='lines', fill='toself', fillcolor='rgba(255, 0, 0, 0.1)', line=dict(color='red', width=2, dash='dash'), name=f'Tahmin: {estimation_text}'))
+                    else: estimation_text = "Tahmin: Gerekli kütüphane eksik veya yetersiz nokta."
+                else: estimation_text = "Tahmin: Yetersiz Veri"
+            else: estimation_text = "Tahmin: Veri Yok"
+            fig_map.update_layout(title_text='2D Harita ve Şekil Tahmini ', xaxis_title="Yatay (cm)", yaxis_title="İleri (cm)", yaxis_scaleanchor="x", yaxis_scaleratio=1, legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)); fig_polar.update_layout(title_text='Polar Grafik ', polar=dict(radialaxis=dict(visible=True, range=[0, 200]), angularaxis=dict(direction="clockwise", ticksuffix="°"))); fig_time.update_layout(title_text='Zaman Serisi - Mesafe', xaxis_title="Zaman", yaxis_title="Mesafe (cm)")
+        except Exception as e: estimation_text = "Tahmin: Analiz Hatası"; print(f"HATA: Gelişmiş analiz ve grafikleme hatası: {e}")
         finally:
             if conn: conn.close()
+        return fig_map, fig_polar, fig_time, estimation_text
 
-    def _apply_step_to_motor(self, sequence_index):
-        # ... (sensor_script_v8'deki _apply_step_to_motor içeriği) ...
-        if not self.motor_pins: return
-        step_pattern = STEP_SEQUENCE[sequence_index % len(STEP_SEQUENCE)]
-        for i in range(4):
-            if self.motor_pins[i] and hasattr(self.motor_pins[i], 'value') and not self.motor_pins[i].closed:
-                self.motor_pins[i].value = step_pattern[i]
-
-    def _move_motor_to_target_physical_angle(self, target_physical_angle_deg, step_delay=STEP_DELAY):
-        # ... (sensor_script_v8'deki _move_motor_to_target_physical_angle içeriği) ...
-        degrees_per_step = 360.0 / STEPS_PER_REVOLUTION
-        target_physical_normalized = normalize_angle_0_360(target_physical_angle_deg)
-        diff_cw = (target_physical_normalized - self.current_physical_motor_angle + 360.0) % 360.0
-        diff_ccw = (self.current_physical_motor_angle - target_physical_normalized + 360.0) % 360.0
-        angle_difference_to_move = 0; direction_is_cw = True
-        if abs(diff_cw) < 1e-3 and abs(diff_ccw) < 1e-3 : self.current_physical_motor_angle = target_physical_normalized; return
-        if diff_cw <= diff_ccw: angle_difference_to_move = diff_cw; direction_is_cw = True
-        else: angle_difference_to_move = diff_ccw; direction_is_cw = False
-        if abs(angle_difference_to_move) < (degrees_per_step / 2.0): self.current_physical_motor_angle = target_physical_normalized; return
-        steps_to_move = round(angle_difference_to_move / degrees_per_step)
-        if steps_to_move == 0: self.current_physical_motor_angle = target_physical_normalized; return
-        for _ in range(int(steps_to_move)):
-            if direction_is_cw:
-                self.current_motor_step_index = (self.current_motor_step_index + 1) % len(STEP_SEQUENCE)
-                self.current_physical_motor_angle += degrees_per_step
-            else:
-                self.current_motor_step_index = (self.current_motor_step_index - 1 + len(STEP_SEQUENCE)) % len(STEP_SEQUENCE)
-                self.current_physical_motor_angle -= degrees_per_step
-            self._apply_step_to_motor(self.current_motor_step_index); time.sleep(step_delay)
-            self.current_physical_motor_angle = normalize_angle_0_360(self.current_physical_motor_angle)
-        self.current_physical_motor_angle = target_physical_normalized
-
-
-    def _do_scan_at_angle_and_log(self, physical_target_for_motor_deg, angle_to_log_in_db_deg, phase_description=""):
-        # ... (sensor_script_v8'deki _do_scan_at_angle_and_log içeriği - DEBUG_SCAN_LOG print'leri dahil) ...
-        self._move_motor_to_target_physical_angle(physical_target_for_motor_deg, step_delay=STEP_DELAY)
-        time.sleep(STEP_MOTOR_SETTLE_TIME)
-        loop_iter_timestamp = time.time()
-        distance_m = self.sensor.distance if self.sensor else float('inf'); distance_cm = distance_m * 100
-        if self.buzzer:
-            if distance_cm < BUZZER_THRESHOLD_CM:
-                if not self.buzzer.is_active:
-                    try: self.buzzer.on() ; print(f"DEBUG_BUZZER: Buzzer ON (Distance: {distance_cm:.2f} cm < {BUZZER_THRESHOLD_CM} cm)")
-                    except Exception as e_buzz_on: print(f"Buzzer AÇMA hatası: {e_buzz_on}")
-            else:
-                if self.buzzer.is_active:
-                    try: self.buzzer.off() #; print(f"DEBUG_BUZZER: Buzzer OFF (Distance: {distance_cm:.2f} cm)")
-                    except Exception as e_buzz_off: print(f"Buzzer KAPATMA hatası: {e_buzz_off}")
-        physical_angle_for_trig = self.current_physical_motor_angle
-        angle_rad_for_trig = math.radians(physical_angle_for_trig)
-        x_cm = distance_cm * math.cos(angle_rad_for_trig); y_cm = distance_cm * math.sin(angle_rad_for_trig)
-        normalized_angle_to_log = normalize_angle_0_360(angle_to_log_in_db_deg)
-        print(f"DEBUG_SCAN_LOG: Phase: {phase_description}, PhysicalAngle: {physical_angle_for_trig:.2f}, LogAngle: {normalized_angle_to_log:.2f}, Dist_cm: {distance_cm:.2f}")
-        if self.yellow_led and hasattr(self.yellow_led, 'toggle'): self.yellow_led.toggle()
-        hiz_cm_s = 0.0
-        if self.ölçüm_tamponu_hız_için_yerel:
-            son_veri_noktasi = self.ölçüm_tamponu_hız_için_yerel[-1]; delta_mesafe = distance_cm - son_veri_noktasi['mesafe_cm']
-            delta_zaman = loop_iter_timestamp - son_veri_noktasi['zaman_s']
-            if delta_zaman > 0.001: hiz_cm_s = delta_mesafe / delta_zaman
-        self.ölçüm_tamponu_hız_için_yerel = [{'mesafe_cm': distance_cm, 'zaman_s': loop_iter_timestamp}]
-        if self.lcd:
-            try:
-                self.lcd.cursor_pos = (0, 0); self.lcd.write_string(f"A:{normalized_angle_to_log:<3.0f} M:{distance_cm:5.1f}cm".ljust(LCD_COLS)[:LCD_COLS])
-                if LCD_ROWS > 1: self.lcd.cursor_pos = (1, 0); self.lcd.write_string(f"{phase_description[:8]} H:{hiz_cm_s:3.0f}".ljust(LCD_COLS)[:LCD_COLS])
-            except Exception as e_lcd: print(f"LCD yazma hatası: {e_lcd}")
-        if distance_cm < TERMINATION_DISTANCE_CM:
-            print(f"DEBUG_SCAN_LOG: TERMINATION condition met. Distance {distance_cm:.2f} < {TERMINATION_DISTANCE_CM}. Phase: {phase_description}")
-            print(f"[{os.getpid()}] DİKKAT: NESNE ÇOK YAKIN ({distance_cm:.2f}cm)! Tarama durduruluyor.")
-            if self.lcd:
-                try: self.lcd.clear(); self.lcd.cursor_pos=(0,0); self.lcd.write_string("COK YAKIN! DUR!"); self.lcd.cursor_pos=(1,0); self.lcd.write_string(f"{distance_cm:.1f} cm")
-                except: pass
-            if self.yellow_led and hasattr(self.yellow_led, 'on'): self.yellow_led.on()
-            self.script_exit_status = 'terminated_close_object'; time.sleep(1.0); return False, None
+    @app.callback(Output('download-csv', 'data'), [Input('export-csv-button', 'n_clicks')], prevent_initial_call=True)
+    def export_csv_callback(n_clicks):
+        # ... (Kullanıcının export_csv_callback fonksiyonu)
+        if n_clicks == 0: return no_update; conn, _ = get_db_connection()
+        if not conn: return no_update
         try:
-            if self.db_conn_local and self.current_scan_id:
-                cursor = self.db_conn_local.cursor()
-                cursor.execute('INSERT INTO scan_points (scan_id, angle_deg, mesafe_cm, hiz_cm_s, timestamp, x_cm, y_cm) VALUES (?, ?, ?, ?, ?, ?, ?)',
-                               (self.current_scan_id, normalized_angle_to_log, distance_cm, hiz_cm_s, loop_iter_timestamp, x_cm, y_cm))
-                self.db_conn_local.commit()
-            else: print(f"[{os.getpid()}] DB bağlantısı yok veya scan_id tanımsız, nokta kaydedilemedi.")
-        except Exception as e_db: print(f"DB Ekleme Hatası: {e_db}")
-        return True, None
-
-    def _calculate_polygon_area_shoelace(self, points_xy):
-        # ... (sensor_script_v8'deki _calculate_polygon_area_shoelace içeriği) ...
-        if len(points_xy) < 2: return 0.0; polygon_vertices = [(0.0, 0.0)] + points_xy; area = 0.0; m = len(polygon_vertices)
-        if m < 3: return 0.0
-        for i in range(m): x1,y1=polygon_vertices[i]; x2,y2=polygon_vertices[(i+1)%m]; area += (x1*y2) - (x2*y1)
-        return abs(area)/2.0
-
-    def _calculate_perimeter(self, points_xy):
-        # ... (sensor_script_v8'deki _calculate_perimeter içeriği) ...
-        if not points_xy: return 0.0; perimeter = 0.0; perimeter += math.sqrt(points_xy[0][0]**2 + points_xy[0][1]**2)
-        for i in range(len(points_xy)-1): x1,y1=points_xy[i]; x2,y2=points_xy[i+1]; perimeter += math.sqrt((x2-x1)**2 + (y2-y1)**2)
-        if len(points_xy) > 0: perimeter += math.sqrt(points_xy[-1][0]**2 + points_xy[-1][1]**2)
-        return perimeter
-
-    def _final_analysis(self):
-        print(f"[{os.getpid()}] _final_analysis çağrıldı. current_scan_id: {self.current_scan_id}") # DEBUG
-        # ... (sensor_script_v8'deki _final_analysis içeriğinin geri kalanı - DEBUG_ANALYSIS print'leriyle birlikte) ...
-        if not self.current_scan_id:
-            print(f"DEBUG_ANALYSIS: Analiz için tarama ID bulunamadı. (current_scan_id: {self.current_scan_id})")
-            return
-        print(f"DEBUG_ANALYSIS: _final_analysis başlatıldı (ID: {self.current_scan_id})...")
-        conn_analysis = None; alan, cevre, max_g, max_d = 0.0, 0.0, 0.0, 0.0
-        analysis_performed_successfully = False
-        try:
-            conn_analysis = sqlite3.connect(DB_PATH)
-            cursor_analysis = conn_analysis.cursor()
-            max_dist_cm_sensor = (self.sensor.max_distance * 100 if self.sensor else 200.0)
-            query = f"SELECT x_cm, y_cm, angle_deg FROM scan_points WHERE scan_id = {self.current_scan_id} AND mesafe_cm > 0.1 AND mesafe_cm < {max_dist_cm_sensor} ORDER BY angle_deg ASC"
-            print(f"DEBUG_ANALYSIS: Veri çekme sorgusu: {query}")
-            df_all_valid_points = pd.read_sql_query(query, conn_analysis)
-            print(f"DEBUG_ANALYSIS: Analiz için bulunan geçerli nokta sayısı: {len(df_all_valid_points)}")
-            if len(df_all_valid_points) >= 2:
-                points_for_calc = list(zip(df_all_valid_points['x_cm'], df_all_valid_points['y_cm']))
-                alan = self._calculate_polygon_area_shoelace(points_for_calc); cevre = self._calculate_perimeter(points_for_calc)
-                x_coords = df_all_valid_points['x_cm'].tolist(); y_coords = df_all_valid_points['y_cm'].tolist()
-                max_d = max(x_coords) if x_coords else 0.0; min_y = min(y_coords) if y_coords else 0.0
-                max_y = max(y_coords) if y_coords else 0.0; max_g = max_y - min_y
-                print(f"DEBUG_ANALYSIS: Hesaplanan değerler -> Alan: {alan:.2f}, Çevre: {cevre:.2f}, Max Derinlik: {max_d:.2f}, Max Genişlik: {max_g:.2f}")
-                if self.lcd:
-                    try: self.lcd.clear(); self.lcd.write_string(f"Alan:{alan:.0f}cm2"); self.lcd.cursor_pos=(1,0); self.lcd.write_string(f"Cevre:{cevre:.0f}cm")
-                    except Exception as e_lcd_final: print(f"Analiz LCD hatası: {e_lcd_final}")
-                self.script_exit_status = 'completed_analysis'
-                print(f"DEBUG_ANALYSIS: Veritabanı güncelleniyor. Status: {self.script_exit_status}, Alan: {alan}, Çevre: {cevre}, Genişlik: {max_g}, Derinlik: {max_d}")
-                cursor_analysis.execute("UPDATE servo_scans SET hesaplanan_alan_cm2=?, cevre_cm=?, max_genislik_cm=?, max_derinlik_cm=?, status=? WHERE id=?", (alan, cevre, max_g, max_d, self.script_exit_status, self.current_scan_id)); conn_analysis.commit()
-                print(f"DEBUG_ANALYSIS: Analiz verileriyle veritabanı güncellemesi tamamlandı."); analysis_performed_successfully = True
-            else:
-                self.script_exit_status = 'completed_insufficient_points'
-                print(f"DEBUG_ANALYSIS: Analiz için YETERSİZ NOKTA ({len(df_all_valid_points)}). Status: {self.script_exit_status}")
-                if self.lcd:
-                    try: self.lcd.clear(); self.lcd.write_string("Tarama Tamam"); self.lcd.cursor_pos=(1,0); self.lcd.write_string("Veri Yetersiz")
-                    except Exception as e_lcd_final: print(f"Analiz (yetersiz veri) LCD hatası: {e_lcd_final}")
-                cursor_analysis.execute("UPDATE servo_scans SET status=? WHERE id=?", (self.script_exit_status, self.current_scan_id)); conn_analysis.commit()
-                print(f"DEBUG_ANALYSIS: Veritabanı (sadece status - yetersiz nokta) güncellemesi tamamlandı.")
-        except pd.io.sql.DatabaseError as e_pd_db: print(f"DEBUG_ANALYSIS: _final_analysis Pandas DB Hatası: {e_pd_db}"); traceback.print_exc(); self.script_exit_status = 'completed_analysis_error'
-        except sqlite3.Error as e_sql: print(f"DEBUG_ANALYSIS: _final_analysis SQLite Hatası: {e_sql}"); traceback.print_exc(); self.script_exit_status = 'completed_analysis_error'
-        except Exception as e_final_db: print(f"DEBUG_ANALYSIS: _final_analysis Genel HATA: {e_final_db}"); traceback.print_exc(); self.script_exit_status = 'completed_analysis_error'
+            latest_id = get_latest_scan_id_from_db(conn_param=conn)
+            if latest_id: df = pd.read_sql_query(f"SELECT * FROM scan_points WHERE scan_id = {latest_id} ORDER BY id ASC", conn); return dcc.send_data_frame(df.to_csv, f"tarama_id_{latest_id}_noktalar.csv", index=False)
+        except Exception as e: print(f"CSV indirme hatası: {e}")
         finally:
-            if not analysis_performed_successfully and self.script_exit_status == 'completed': self.script_exit_status = 'completed_analysis_error'; print(f"DEBUG_ANALYSIS: Analiz başarısız, status '{self.script_exit_status}' olarak ayarlandı.")
-            if conn_analysis:
-                try:
-                    if self.script_exit_status in ['completed_analysis_error', 'completed_insufficient_points'] or (self.script_exit_status == 'completed' and not analysis_performed_successfully):
-                        if not (analysis_performed_successfully and self.script_exit_status == 'completed_analysis'):
-                             print(f"DEBUG_ANALYSIS (finally): Status DB'ye yazılıyor: {self.script_exit_status}")
-                             cursor_final = conn_analysis.cursor(); cursor_final.execute("UPDATE servo_scans SET status=? WHERE id=?", (self.script_exit_status, self.current_scan_id)); conn_analysis.commit()
-                    conn_analysis.close()
-                except Exception as e_final_close: print(f"DEBUG_ANALYSIS: _final_analysis finally DB kapatma/güncelleme hatası: {e_final_close}")
-            print(f"DEBUG_ANALYSIS: _final_analysis tamamlandı. Son script_exit_status: {self.script_exit_status}")
+            if conn: conn.close()
+        return no_update
 
-    def cleanup(self):
-        # ... (sensor_script_v8'deki cleanup içeriği) ...
-        pid = os.getpid(); print(f"[{pid}] `Scanner.cleanup` çağrıldı. Son durum: {self.script_exit_status}")
-        if self.db_conn_local:
-            try: self.db_conn_local.close(); self.db_conn_local = None;
-            except Exception: pass
-        if self.current_scan_id:
-            conn_exit = None
-            try:
-                conn_exit = sqlite3.connect(DB_PATH)
-                cursor_exit = conn_exit.cursor()
-                cursor_exit.execute("SELECT status FROM servo_scans WHERE id = ?", (self.current_scan_id,)); row = cursor_exit.fetchone()
-                if row and (row[0] == 'running' or self.script_exit_status not in ['interrupted_unexpectedly', 'running']):
-                    cursor_exit.execute("UPDATE servo_scans SET status = ? WHERE id = ?", (self.script_exit_status, self.current_scan_id)); conn_exit.commit()
-            except Exception: pass
-            finally:
-                if conn_exit: conn_exit.close()
-        if self.motor_pins:
-            try: self._move_motor_to_target_physical_angle(0.0, step_delay=STEP_DELAY*0.8); time.sleep(0.2)
-            except Exception: pass # Hata olsa bile pinleri kapatmaya çalış
-            finally:
-                for pin_obj in self.motor_pins:
-                    try: pin_obj.off(); pin_obj.close()
-                    except: pass
-                self.motor_pins = []
-        if self.buzzer:
-            try: self.buzzer.off(); self.buzzer.close(); self.buzzer = None;
-            except Exception: pass
-        if self.yellow_led:
-            try: self.yellow_led.off(); self.yellow_led.close(); self.yellow_led = None;
-            except Exception: pass
-        if self.sensor:
-            try: self.sensor.close(); self.sensor = None;
-            except Exception: pass
-        if self.lcd:
-            try: self.lcd.clear(); self.lcd.write_string("Kapandi"); self.lcd = None;
-            except Exception: pass
-        print(f"[{pid}] `Scanner.cleanup` tamamlandı.")
-
-
-    def run(self):
-        print(f"[{os.getpid()}] Scanner.run() çağrıldı.") # DEBUG
-        # ... (sensor_script_v8'deki run içeriğinin geri kalanı - DEBUG_RUN print'leriyle birlikte) ...
-        if not self._init_hardware(): self.script_exit_status = 'error_hardware_init'; sys.exit(1)
-        if not self._init_db_for_scan(): self.script_exit_status = 'error_db_init'; sys.exit(1)
-        if self.lcd:
-            try: self.lcd.clear(); self.lcd.write_string(f"ID:{self.current_scan_id} Basliyor"); self.lcd.cursor_pos=(1,0); self.lcd.write_string(f"Fiz:{self.conceptual_initial_goto_physical_angle:.0f}to{self.conceptual_final_physical_angle:.0f}")
-            except: pass
-        scan_aborted_flag = False
+    @app.callback(Output('download-excel', 'data'), [Input('export-excel-button', 'n_clicks')], prevent_initial_call=True)
+    def export_excel_callback(n_clicks):
+        # ... (Kullanıcının export_excel_callback fonksiyonu)
+        if n_clicks == 0: return no_update; conn, _ = get_db_connection()
+        if not conn: return no_update
         try:
-            self.db_conn_local = sqlite3.connect(DB_PATH, timeout=10)
-            print(f"[{os.getpid()}] İlk FİZİKSEL pozisyon: {self.conceptual_initial_goto_physical_angle}°'ye gidiliyor...")
-            self._move_motor_to_target_physical_angle(self.conceptual_initial_goto_physical_angle); time.sleep(0.5)
-            self.relative_zero_physical_angle = self.current_physical_motor_angle
-            print(f"[{os.getpid()}] Motor FİZİKSEL {self.current_physical_motor_angle:.1f}°. Bu GÖRELİ 0°.")
-            current_relative_angle_for_log = 0.0
-            print(f"[{os.getpid()}] Ana Tarama: Göreli 0°'dan {self.scan_arc_degrees:.1f}° yay {self.actual_scan_step:.1f}° adim (Yon: {self.scan_direction_sign}).")
-            if self.lcd:
-                try: self.lcd.cursor_pos=(1,0); self.lcd.write_string(f"Rel:0to{self.scan_arc_degrees*self.scan_direction_sign:.0f}")
-                except: pass
-            print(f"DEBUG_RUN: Attempting first scan at conceptual angle: {current_relative_angle_for_log:.2f} (Physical: {self.relative_zero_physical_angle:.2f})")
-            continue_scan, _ = self._do_scan_at_angle_and_log(self.relative_zero_physical_angle, current_relative_angle_for_log, f"Scan:{normalize_angle_0_360(current_relative_angle_for_log):.0f}°(R)")
-            print(f"DEBUG_RUN: After first scan. continue_scan: {continue_scan}")
-            if not continue_scan: scan_aborted_flag = True; print(f"DEBUG_RUN: First scan failed or terminated. scan_aborted_flag set to True.")
-            if not scan_aborted_flag:
-                num_steps_in_scan = math.floor(self.scan_arc_degrees / self.actual_scan_step) if self.actual_scan_step > 1e-3 else 0
-                print(f"DEBUG_RUN: Total conceptual span: {self.scan_arc_degrees:.2f}, Num remaining steps in arc: {num_steps_in_scan}")
-                for i in range(num_steps_in_scan):
-                    loop_iter_start_time = time.time()
-                    current_relative_angle_for_log += self.actual_scan_step
-                    current_physical_target_for_motor = self.relative_zero_physical_angle + (current_relative_angle_for_log * self.scan_direction_sign)
-                    print(f"DEBUG_RUN: Loop {i+1}/{num_steps_in_scan}, RelTarget: {current_relative_angle_for_log:.2f}, PhysTarget: {current_physical_target_for_motor:.2f}")
-                    continue_scan, _ = self._do_scan_at_angle_and_log(current_physical_target_for_motor, current_relative_angle_for_log, f"Scan:{normalize_angle_0_360(current_relative_angle_for_log):.0f}°(R)")
-                    if not continue_scan: scan_aborted_flag = True; break
-                    loop_proc_time = time.time() - loop_iter_start_time; sleep_dur = max(0, LOOP_TARGET_INTERVAL_S - loop_proc_time)
-                    if sleep_dur > 0 and (i < num_steps_in_scan -1) : time.sleep(sleep_dur)
-                if not scan_aborted_flag:
-                    final_relative_angle_for_log = self.scan_arc_degrees
-                    final_physical_target_for_motor = self.relative_zero_physical_angle + (final_relative_angle_for_log * self.scan_direction_sign)
-                    print(f"[{os.getpid()}] Tarama yayının sonu ({final_relative_angle_for_log}° göreli) için ek ölçüm. Fiziksel Hedef: {final_physical_target_for_motor:.2f}")
-                    continue_scan, _ = self._do_scan_at_angle_and_log(final_physical_target_for_motor, final_relative_angle_for_log, f"End:{normalize_angle_0_360(final_relative_angle_for_log):.0f}°(R)")
-                    if not continue_scan: scan_aborted_flag = True
-            if not scan_aborted_flag: self.script_exit_status = 'completed'
-        except KeyboardInterrupt: self.script_exit_status = 'interrupted_ctrl_c'; print(f"\n[{os.getpid()}] Ctrl+C ile durduruldu.")
-        except Exception as e_main:
-            if self.script_exit_status != 'terminated_close_object': self.script_exit_status = 'error_in_loop'
-            print(f"[{os.getpid()}] Ana döngü hatası: {e_main}"); traceback.print_exc()
+            latest_id = get_latest_scan_id_from_db(conn_param=conn)
+            if latest_id:
+                df_points = pd.read_sql_query(f"SELECT * FROM scan_points WHERE scan_id = {latest_id} ORDER BY id ASC", conn); df_scan_info = pd.read_sql_query(f"SELECT * FROM servo_scans WHERE id = {latest_id}", conn); excel_buffer = io.BytesIO()
+                with pd.ExcelWriter(excel_buffer, engine='xlsxwriter') as writer: df_points.to_excel(writer, sheet_name=f'Scan_{latest_id}_Points', index=False); df_scan_info.to_excel(writer, sheet_name=f'Scan_{latest_id}_Info', index=False)
+                excel_buffer.seek(0); return dcc.send_bytes(excel_buffer.read(), f"tarama_detaylari_id_{latest_id}.xlsx")
+        except Exception as e: print(f"Excel indirme hatası: {e}")
         finally:
-            if self.db_conn_local:
-                try: self.db_conn_local.close(); self.db_conn_local = None;
-                except Exception: pass
-        if not scan_aborted_flag and self.script_exit_status == 'completed' and self.current_scan_id:
-            print(f"DEBUG_RUN: Calling _final_analysis. Scan ID: {self.current_scan_id}") # DEBUG
-            self._final_analysis()
-        else: # DEBUG
-            print(f"DEBUG_RUN: _final_analysis SKIPPED. scan_aborted_flag: {scan_aborted_flag}, script_exit_status: {self.script_exit_status}, current_scan_id: {self.current_scan_id}")
-        print(f"[{os.getpid()}] Ana işlem bloğu sonlandı. Son durum: {self.script_exit_status}")
+            if conn: conn.close()
+        return no_update
+
+    @app.callback(
+        [Output('scan-data-table', 'data'), Output('scan-data-table', 'columns')],
+        [Input('interval-component-main', 'n_intervals')]
+    )
+    def update_data_table(n_intervals):
+        # ... (Kullanıcının update_data_table fonksiyonu)
+        conn, error = get_db_connection(); empty_table_data, empty_table_columns = [], []
+        if not conn: print(f"Veri Tablosu: DB bağlantı hatası: {error if error else 'Bilinmeyen bağlantı hatası'}"); return empty_table_data, empty_table_columns
+        try:
+            latest_id = get_latest_scan_id_from_db(conn_param=conn)
+            if not latest_id: return empty_table_data, empty_table_columns
+            query = f"SELECT id, angle_deg, mesafe_cm, hiz_cm_s, x_cm, y_cm, timestamp FROM scan_points WHERE scan_id = {latest_id} ORDER BY id DESC"; df = pd.read_sql_query(query, conn)
+            if df.empty: return empty_table_data, empty_table_columns
+            df['timestamp'] = pd.to_datetime(df['timestamp'], unit='s').dt.strftime('%H:%M:%S.%f').str[:-3]
+            columns = [{"name": i.replace("_", " ").title(), "id": i} for i in df.columns]; data = df.to_dict('records'); return data, columns
+        except Exception as e: print(f"Veri tablosu güncellenirken hata: {e}"); return empty_table_data, empty_table_columns
+        finally:
+            if conn: conn.close()
+else:
+    print(f"!!!!!! [PID:{os.getpid()}] dash_apps.py: 'app' is None, callbacks are NOT being defined. !!!!!!")
 
 
-if __name__ == "__main__":
-    print(f"[{os.getpid()}] sensor_script.py __main__ bloğu çalıştırılıyor...") # DEBUG
-    parser = argparse.ArgumentParser(description="Step Motor ile Alan Tarama Betiği (Göreli Sıfır Mantığı)")
-    parser.add_argument("--initial_goto_angle", type=float, default=DEFAULT_INITIAL_GOTO_ANGLE_ARG)
-    parser.add_argument("--scan_end_angle", type=float, default=DEFAULT_FINAL_SCAN_ANGLE_ARG)
-    parser.add_argument("--scan_step_angle", type=float, default=DEFAULT_SCAN_STEP_ANGLE_ARG)
-    args = parser.parse_args()
-    print(f"[{os.getpid()}] Argümanlar: initial={args.initial_goto_angle}, end={args.scan_end_angle}, step={args.scan_step_angle}") # DEBUG
-    if not acquire_lock_and_pid(): sys.exit(1)
-    scanner_app = Scanner(initial_angle_conceptual=args.initial_goto_angle,
-                          end_angle_conceptual=args.scan_end_angle,
-                          step_angle=args.scan_step_angle)
-    atexit.register(scanner_app.cleanup)
-    atexit.register(release_lock_and_pid_files_on_exit) # Bu, _g_lock_file_handle'ı kullanır
-    try:
-        scanner_app.run()
-    except Exception as e:
-        print(f"[{os.getpid()}] __main__ bloğunda BEKLENMEDİK ANA HATA: {e}"); traceback.print_exc()
-        scanner_app.script_exit_status = 'error_unhandled_exception_main' # Farklı bir durum kodu
-    finally:
-        print(f"[{os.getpid()}] __main__ bloğu sonlanıyor.")
+# <<< HATA AYIKLAMA PRINT'İ >>>
+if app:
+    print(f"--- [PID:{os.getpid()}] dash_apps.py loaded successfully. 'app' object type: {type(app)} ---")
+else:
+    print(f"!!!!!! [PID:{os.getpid()}] dash_apps.py FAILED to load. 'app' object is None. !!!!!!")
+
