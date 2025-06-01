@@ -379,6 +379,8 @@ if __name__ == "__main__":
             f"A:{SCAN_START_ANGLE}-{SCAN_END_ANGLE} S:{abs(SCAN_STEP_ANGLE)}".ljust(LCD_COLS)[:LCD_COLS])
 
     scan_completed_successfully = False
+    lcd_warning_mode = False # YENİ: LCD'nin uyarı modunda olup olmadığını takip eder
+
     try:
         db_conn_main_script_global = sqlite3.connect(DB_PATH, timeout=10)
         cursor_main = db_conn_main_script_global.cursor()
