@@ -15,7 +15,7 @@ TRIG_PIN = 23
 ECHO_PIN = 24
 SERVO_PIN = 12
 YELLOW_LED_PIN = 27
-BUZZER_PIN = 17
+BUZZER_PIN = 16
 
 # --- LCD Ayarları ---
 LCD_I2C_ADDRESS = 0x27
@@ -50,7 +50,9 @@ current_scan_id_global = None
 db_conn_main_script_global = None
 script_exit_status_global = 'interrupted_unexpectedly'
 
+# --- Çalışma Zamanı Ayarları (Argümanlarla Değişebilir) ---
 TERMINATION_DISTANCE_CM = DEFAULT_TERMINATION_DISTANCE_CM
+BUZZER_DISTANCE_CM = DEFAULT_BUZZER_DISTANCE
 SCAN_START_ANGLE = DEFAULT_SCAN_START_ANGLE
 SCAN_END_ANGLE = DEFAULT_SCAN_END_ANGLE
 SCAN_STEP_ANGLE = DEFAULT_SCAN_STEP_ANGLE
@@ -102,70 +104,15 @@ def init_db_for_scan():
         cursor = conn.cursor()
         cursor.execute('''
                        CREATE TABLE IF NOT EXISTS servo_scans
-                       (
-                           id
-                           INTEGER
-                           PRIMARY
-                           KEY
-                           AUTOINCREMENT,
-                           start_time
-                           REAL
-                           UNIQUE,
-                           status
-                           TEXT,
-                           hesaplanan_alan_cm2
-                           REAL
-                           DEFAULT
-                           NULL,
-                           cevre_cm
-                           REAL
-                           DEFAULT
-                           NULL,
-                           max_genislik_cm
-                           REAL
-                           DEFAULT
-                           NULL,
-                           max_derinlik_cm
-                           REAL
-                           DEFAULT
-                           NULL,
-                           start_angle_setting
-                           REAL,
-                           end_angle_setting
-                           REAL,
-                           step_angle_setting
-                           REAL
-                       )''')
+                       (id INTEGER PRIMARY KEY AUTOINCREMENT, start_time REAL UNIQUE, status TEXT,
+                        hesaplanan_alan_cm2 REAL DEFAULT NULL, cevre_cm REAL DEFAULT NULL,
+                        max_genislik_cm REAL DEFAULT NULL, max_derinlik_cm REAL DEFAULT NULL,
+                        start_angle_setting REAL, end_angle_setting REAL, step_angle_setting REAL)''')
         cursor.execute('''
                        CREATE TABLE IF NOT EXISTS scan_points
-                       (
-                           id
-                           INTEGER
-                           PRIMARY
-                           KEY
-                           AUTOINCREMENT,
-                           scan_id
-                           INTEGER,
-                           angle_deg
-                           REAL,
-                           mesafe_cm
-                           REAL,
-                           hiz_cm_s
-                           REAL,
-                           timestamp
-                           REAL,
-                           x_cm
-                           REAL,
-                           y_cm
-                           REAL,
-                           FOREIGN
-                           KEY
-                       (
-                           scan_id
-                       ) REFERENCES servo_scans
-                       (
-                           id
-                       ))''')
+                       (id INTEGER PRIMARY KEY AUTOINCREMENT, scan_id INTEGER, angle_deg REAL, mesafe_cm REAL,
+                        hiz_cm_s REAL, timestamp REAL, x_cm REAL, y_cm REAL,
+                        FOREIGN KEY(scan_id) REFERENCES servo_scans(id))''')
         cursor.execute("UPDATE servo_scans SET status = 'interrupted_prior_run' WHERE status = 'running'")
         scan_start_time = time.time()
         cursor.execute("""
@@ -186,44 +133,28 @@ def init_db_for_scan():
 def acquire_lock_and_pid():
     global lock_file_handle
     try:
-        # Kilit dosyasını yazma modunda açmayı dene
         lock_file_handle = open(LOCK_FILE_PATH, 'w')
-
-        # Dosyaya özel (exclusive) ve engellemeyen (non-blocking) bir kilit koymayı dene
         fcntl.flock(lock_file_handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-
-        # Kilit başarıyla alındı, şimdi PID dosyasını yazabiliriz.
         with open(PID_FILE_PATH, 'w') as pf:
             pf.write(str(os.getpid()))
-
         print(f"[{os.getpid()}] Betik kilidi ve PID başarıyla oluşturuldu.")
         return True
-
     except BlockingIOError:
-        # Bu beklenen bir durum. Başka bir işlem dosyayı kilitlemiş.
         pid = 'Bilinmiyor'
         try:
-            with open(PID_FILE_PATH, 'r') as pf:
-                pid = pf.read().strip()
-        except (FileNotFoundError, ValueError):
-            # PID dosyası yoksa veya okunamıyorsa sorun değil.
-            pass
+            with open(PID_FILE_PATH, 'r') as pf: pid = pf.read().strip()
+        except (FileNotFoundError, ValueError): pass
         print(f"[{os.getpid()}] Kilit dosyası mevcut. Betik zaten çalışıyor olabilir (PID: {pid}). Çıkılıyor.")
         if lock_file_handle: lock_file_handle.close()
         lock_file_handle = None
         return False
-
     except PermissionError as e:
-        # Bu kritik bir izin hatasıdır.
         print(f"[{os.getpid()}] KRİTİK İZİN HATASI: '{e.filename}' dosyası oluşturulamıyor/yazılamıyor.")
-        print(
-            f"[{os.getpid()}] Çözüm: Betiği 'sudo' ile çalıştırmayı veya 'sudo rm {LOCK_FILE_PATH}' ile eski dosyayı silmeyi deneyin.")
+        print(f"[{os.getpid()}] Çözüm: Betiği 'sudo' ile çalıştırmayı veya 'sudo rm {LOCK_FILE_PATH}' ile eski dosyayı silmeyi deneyin.")
         if lock_file_handle: lock_file_handle.close()
         lock_file_handle = None
         return False
-
     except Exception as e:
-        # Diğer tüm beklenmedik hatalar.
         print(f"[{os.getpid()}] Kilit/PID alınırken beklenmedik bir hata oluştu: {type(e).__name__}: {e}")
         if lock_file_handle: lock_file_handle.close()
         lock_file_handle = None
@@ -245,14 +176,12 @@ def calculate_perimeter(cartesian_points_for_perimeter_calc):
     perimeter = 0.0
     n = len(cartesian_points_for_perimeter_calc)
     if n == 0: return 0.0
-    perimeter += math.sqrt(
-        cartesian_points_for_perimeter_calc[0][0] ** 2 + cartesian_points_for_perimeter_calc[0][1] ** 2)
+    perimeter += math.sqrt(cartesian_points_for_perimeter_calc[0][0] ** 2 + cartesian_points_for_perimeter_calc[0][1] ** 2)
     for i in range(n - 1):
         x1, y1 = cartesian_points_for_perimeter_calc[i]
         x2, y2 = cartesian_points_for_perimeter_calc[i + 1]
         perimeter += math.sqrt((x2 - x1) ** 2 + (y2 - y1) ** 2)
-    perimeter += math.sqrt(
-        cartesian_points_for_perimeter_calc[-1][0] ** 2 + cartesian_points_for_perimeter_calc[-1][1] ** 2)
+    perimeter += math.sqrt(cartesian_points_for_perimeter_calc[-1][0] ** 2 + cartesian_points_for_perimeter_calc[-1][1] ** 2)
     return perimeter
 
 
@@ -262,10 +191,8 @@ def release_resources_on_exit():
     pid = os.getpid()
     print(f"[{pid}] `release_resources_on_exit` çağrıldı. Betik çıkış durumu: {script_exit_status_global}")
     if db_conn_main_script_global:
-        try:
-            db_conn_main_script_global.close()
-        except:
-            pass
+        try: db_conn_main_script_global.close()
+        except: pass
     if current_scan_id_global:
         conn_exit = None
         try:
@@ -274,26 +201,20 @@ def release_resources_on_exit():
             cursor_exit.execute("SELECT status FROM servo_scans WHERE id = ?", (current_scan_id_global,))
             current_db_status_row = cursor_exit.fetchone()
             if current_db_status_row and current_db_status_row[0] == 'running':
-                if script_exit_status_global not in ['completed_analysis', 'terminated_close_object',
-                                                     'interrupted_ctrl_c', 'error_in_loop']:
+                if script_exit_status_global not in ['completed_analysis', 'terminated_close_object', 'interrupted_ctrl_c', 'error_in_loop']:
                     script_exit_status_global = 'interrupted_unexpectedly'
-                cursor_exit.execute("UPDATE servo_scans SET status = ? WHERE id = ?",
-                                    (script_exit_status_global, current_scan_id_global))
+                cursor_exit.execute("UPDATE servo_scans SET status = ? WHERE id = ?", (script_exit_status_global, current_scan_id_global))
                 conn_exit.commit()
         except Exception as e:
             print(f"DB status update error on exit: {e}")
         finally:
             if conn_exit: conn_exit.close()
-
+            
     print(f"[{pid}] Donanım kapatılıyor...")
     if servo and hasattr(servo, 'detach'):
         try:
-            servo.angle = (SCAN_START_ANGLE + SCAN_END_ANGLE) / 2;
-            time.sleep(0.5);
-            servo.detach();
-            servo.close()
-        except:
-            pass
+            servo.angle = (SCAN_START_ANGLE + SCAN_END_ANGLE) / 2; time.sleep(0.5); servo.detach(); servo.close()
+        except: pass
     if yellow_led and hasattr(yellow_led, 'close'):
         if hasattr(yellow_led, 'is_active') and yellow_led.is_active: yellow_led.off()
         yellow_led.close()
@@ -304,24 +225,18 @@ def release_resources_on_exit():
     if lcd:
         try:
             lcd.clear()
-            lcd.cursor_pos = (0, 0);
-            lcd.write_string("Dream Pi Kapandi".ljust(LCD_COLS)[:LCD_COLS])
+            lcd.cursor_pos = (0, 0); lcd.write_string("Dream Pi Kapandi".ljust(LCD_COLS)[:LCD_COLS])
             time.sleep(2.0)
             lcd.clear()
-            lcd.cursor_pos = (0, 0);
-            lcd.write_string("Mehmet Erdem".ljust(LCD_COLS)[:LCD_COLS])
-            lcd.cursor_pos = (1, 0);
-            lcd.write_string("OZER (PhD.) ".ljust(LCD_COLS)[:LCD_COLS])
-        except:
-            pass
-
+            lcd.cursor_pos = (0, 0); lcd.write_string("Mehmet Erdem".ljust(LCD_COLS)[:LCD_COLS])
+            lcd.cursor_pos = (1, 0); lcd.write_string("OZER (PhD.) ".ljust(LCD_COLS)[:LCD_COLS])
+        except: pass
+        
     print(f"[{pid}] Kalan donanımlar ve LCD kapatıldı.")
     if lock_file_handle:
         try:
-            fcntl.flock(lock_file_handle.fileno(), fcntl.LOCK_UN);
-            lock_file_handle.close()
-        except:
-            pass
+            fcntl.flock(lock_file_handle.fileno(), fcntl.LOCK_UN); lock_file_handle.close()
+        except: pass
     for f_path in [PID_FILE_PATH, LOCK_FILE_PATH]:
         try:
             if os.path.exists(f_path):
@@ -330,30 +245,27 @@ def release_resources_on_exit():
                     try:
                         with open(f_path, 'r') as pf_check:
                             if int(pf_check.read().strip()) == pid: can_delete_pid = True
-                    except:
-                        pass
+                    except: pass
                     if can_delete_pid: os.remove(f_path)
                 elif f_path == LOCK_FILE_PATH:
                     os.remove(f_path)
-        except:
-            pass
+        except: pass
     print(f"[{pid}] Temizleme fonksiyonu tamamlandı.")
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Servo Motorlu 2D Alan Tarama Betiği")
-    parser.add_argument("--start_angle", type=int, default=DEFAULT_SCAN_START_ANGLE,
-                        help="Tarama başlangıç açısı (derece)")
+    parser.add_argument("--start_angle", type=int, default=DEFAULT_SCAN_START_ANGLE, help="Tarama başlangıç açısı (derece)")
     parser.add_argument("--end_angle", type=int, default=DEFAULT_SCAN_END_ANGLE, help="Tarama bitiş açısı (derece)")
     parser.add_argument("--step_angle", type=int, default=DEFAULT_SCAN_STEP_ANGLE, help="Tarama adım açısı (derece)")
-    # YENİ: BU SATIRIN MUTLAKA OLMASI GEREKİYOR
-    parser.add_argument("--buzzer_distance", type=int, default=DEFAULT_BUZZER_DISTANCE,
-                        help="Buzzer'ın hangi mesafede (cm) ötmeye başlayacağı.")
+    parser.add_argument("--buzzer_distance", type=int, default=DEFAULT_BUZZER_DISTANCE, help="Buzzer uyarı mesafesi (cm)")
+    
     args = parser.parse_args()
 
     SCAN_START_ANGLE = args.start_angle
     SCAN_END_ANGLE = args.end_angle
     SCAN_STEP_ANGLE = args.step_angle
+    BUZZER_DISTANCE_CM = args.buzzer_distance
     if SCAN_STEP_ANGLE <= 0: SCAN_STEP_ANGLE = 1
 
     actual_scan_step = SCAN_STEP_ANGLE
@@ -372,15 +284,11 @@ if __name__ == "__main__":
 
     print(f"[{os.getpid()}] Servo ile 2D Tarama ve Alan Hesabı Başlıyor (Tarama ID: {current_scan_id_global})...")
     if lcd:
-        lcd.clear();
-        lcd.cursor_pos = (0, 0);
-        lcd.write_string(f"ScanID:{current_scan_id_global} Basladi".ljust(LCD_COLS)[:LCD_COLS])
-        if LCD_ROWS > 1: lcd.cursor_pos = (1, 0); lcd.write_string(
-            f"A:{SCAN_START_ANGLE}-{SCAN_END_ANGLE} S:{abs(SCAN_STEP_ANGLE)}".ljust(LCD_COLS)[:LCD_COLS])
+        lcd.clear(); lcd.cursor_pos = (0, 0); lcd.write_string(f"ScanID:{current_scan_id_global} Basladi".ljust(LCD_COLS)[:LCD_COLS])
+        if LCD_ROWS > 1: lcd.cursor_pos = (1, 0); lcd.write_string(f"A:{SCAN_START_ANGLE}-{SCAN_END_ANGLE} S:{abs(SCAN_STEP_ANGLE)}".ljust(LCD_COLS)[:LCD_COLS])
 
     scan_completed_successfully = False
-    lcd_warning_mode = False # YENİ: LCD'nin uyarı modunda olup olmadığını takip eder
-
+    lcd_warning_mode = False # LCD'nin uyarı modunda olup olmadığını takip eder
     try:
         db_conn_main_script_global = sqlite3.connect(DB_PATH, timeout=10)
         cursor_main = db_conn_main_script_global.cursor()
@@ -389,8 +297,7 @@ if __name__ == "__main__":
         if servo: servo.angle = SCAN_START_ANGLE
         time.sleep(1.0)
 
-        effective_end_angle = SCAN_END_ANGLE + (
-            actual_scan_step // abs(actual_scan_step) if actual_scan_step != 0 else 1)
+        effective_end_angle = SCAN_END_ANGLE + (actual_scan_step // abs(actual_scan_step) if actual_scan_step != 0 else 1)
 
         for angle_deg in range(SCAN_START_ANGLE, effective_end_angle, actual_scan_step):
             loop_iteration_start_time = time.time()
@@ -402,12 +309,6 @@ if __name__ == "__main__":
             current_timestamp = time.time()
             distance_m = sensor.distance
             distance_cm = distance_m * 100
-
-            if buzzer:
-                if distance_cm <= DEFAULT_BUZZER_DISTANCE:
-                    if not buzzer.is_active: buzzer.on()
-                else:
-                    if buzzer.is_active: buzzer.off()
 
             angle_rad = math.radians(angle_deg)
             x_cm = distance_cm * math.cos(angle_rad)
@@ -423,30 +324,44 @@ if __name__ == "__main__":
                 delta_zaman = abs(current_timestamp - son_veri_noktasi['zaman_s'])
                 if delta_zaman > 0.001: hiz_cm_s = delta_mesafe / delta_zaman
 
+            # --- LCD & Buzzer Kontrolü ---
+            is_object_close = distance_cm <= BUZZER_DISTANCE_CM
+
+            if buzzer:
+                if is_object_close and not buzzer.is_active:
+                    buzzer.on()
+                elif not is_object_close and buzzer.is_active:
+                    buzzer.off()
+
             if lcd:
                 try:
-                    lcd.cursor_pos = (0, 0);
-                    lcd.write_string(f"A:{angle_deg:<3} M:{distance_cm:5.1f}cm".ljust(LCD_COLS)[:LCD_COLS])
-                    if LCD_ROWS > 1: lcd.cursor_pos = (1, 0); lcd.write_string(
-                        f"X{x_cm:3.0f}Y{y_cm:3.0f} H{hiz_cm_s:3.0f}".ljust(LCD_COLS)[:LCD_COLS])
-                except:
+                    if is_object_close and not lcd_warning_mode:
+                        lcd.clear()
+                        lcd.cursor_pos = (0, 0); lcd.write_string("!!! UYARI !!!".center(LCD_COLS)[:LCD_COLS])
+                        if LCD_ROWS > 1: lcd.cursor_pos = (1, 0); lcd.write_string("DOKUNMA BANA!".center(LCD_COLS)[:LCD_COLS])
+                        lcd_warning_mode = True
+                    elif not is_object_close and lcd_warning_mode:
+                        lcd.clear()
+                        lcd.cursor_pos = (0, 0); lcd.write_string(f"A:{angle_deg:<3} M:{distance_cm:5.1f}cm".ljust(LCD_COLS)[:LCD_COLS])
+                        if LCD_ROWS > 1: lcd.cursor_pos = (1, 0); lcd.write_string(f"X{x_cm:3.0f}Y{y_cm:3.0f} H{hiz_cm_s:3.0f}".ljust(LCD_COLS)[:LCD_COLS])
+                        lcd_warning_mode = False
+                    elif not is_object_close and not lcd_warning_mode:
+                        lcd.cursor_pos = (0, 0); lcd.write_string(f"A:{angle_deg:<3} M:{distance_cm:5.1f}cm".ljust(LCD_COLS)[:LCD_COLS])
+                        if LCD_ROWS > 1: lcd.cursor_pos = (1, 0); lcd.write_string(f"X{x_cm:3.0f}Y{y_cm:3.0f} H{hiz_cm_s:3.0f}".ljust(LCD_COLS)[:LCD_COLS])
+                except Exception as e:
+                    print(f"LCD yazma hatası: {e}")
                     pass
 
             if distance_cm < TERMINATION_DISTANCE_CM:
                 print(f"DİKKAT: NESNE ÇOK YAKIN ({distance_cm:.2f}cm)!")
-                if lcd: lcd.clear(); lcd.cursor_pos = (0, 0); lcd.write_string(
-                    "COK YAKIN! DUR!".ljust(LCD_COLS)[:LCD_COLS])
-                if LCD_ROWS > 1: lcd.cursor_pos = (1, 0); lcd.write_string(
-                    f"{distance_cm:.1f} cm".ljust(LCD_COLS)[:LCD_COLS])
+                if lcd: lcd.clear(); lcd.cursor_pos = (0, 0); lcd.write_string("COK YAKIN! DUR!".ljust(LCD_COLS)[:LCD_COLS])
+                if LCD_ROWS > 1: lcd.cursor_pos = (1, 0); lcd.write_string(f"{distance_cm:.1f} cm".ljust(LCD_COLS)[:LCD_COLS])
                 if yellow_led: yellow_led.on()
                 script_exit_status_global = 'terminated_close_object'
-                time.sleep(1.5);
-                break
+                time.sleep(1.5); break
 
             try:
-                cursor_main.execute(
-                    '''INSERT INTO scan_points (scan_id, angle_deg, mesafe_cm, hiz_cm_s, timestamp, x_cm, y_cm)
-                       VALUES (?, ?, ?, ?, ?, ?, ?)''',
+                cursor_main.execute('''INSERT INTO scan_points (scan_id, angle_deg, mesafe_cm, hiz_cm_s, timestamp, x_cm, y_cm) VALUES (?, ?, ?, ?, ?, ?, ?)''',
                                     (current_scan_id_global, angle_deg, distance_cm, hiz_cm_s, current_timestamp, x_cm, y_cm))
                 db_conn_main_script_global.commit()
             except Exception as e:
