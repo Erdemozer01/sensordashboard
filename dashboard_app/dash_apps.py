@@ -611,7 +611,7 @@ def render_and_update_data_table(active_tab, n_intervals):
 
             # DataTable bileşenini oluşturup geri döndür
             return dash_table.DataTable(
-                id='scan-data-table', # ID'yi burada veriyoruz
+                id='scan-data-table',
                 data=data,
                 columns=columns,
                 style_cell={'textAlign': 'left', 'padding': '5px'},
@@ -627,7 +627,6 @@ def render_and_update_data_table(active_tab, n_intervals):
         finally:
             if conn: conn.close()
 
-    # Aktif sekme Veri Tablosu değilse, hiçbir şey oluşturma
     return None
 
 def add_scan_rays(fig, df_valid):
