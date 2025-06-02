@@ -344,7 +344,7 @@ def analyze_environment_shape(fig, df_valid):
         environment_description_found_by_distance_stats = True
 
     # --- DBSCAN ile Kümeleme ---
-    db = DBSCAN(eps=20, min_samples=5).fit(points_all)
+    db = DBSCAN(eps=5, min_samples=2).fit(points_all)
     labels = db.labels_
     unique_labels_plot = set(labels)  # Çizim için tüm etiketler
 
