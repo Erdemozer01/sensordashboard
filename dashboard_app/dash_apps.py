@@ -305,7 +305,7 @@ def analyze_environment_shape(fig, df):
     if len(points) < 10:
         return "Analiz için yetersiz veri."
 
-    db = DBSCAN(eps=20, min_samples=5).fit(points)
+    db = DBSCAN(eps=18, min_samples=5).fit(points)
     labels = db.labels_
     unique_labels = set(labels)
     descriptions = []
