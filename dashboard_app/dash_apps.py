@@ -32,14 +32,16 @@ DB_FILENAME = 'live_scan_data.sqlite3'
 DB_PATH = os.path.join(PROJECT_ROOT_DIR, DB_FILENAME)
 SENSOR_SCRIPT_FILENAME = 'sensor_script.py'
 SENSOR_SCRIPT_PATH = os.path.join(PROJECT_ROOT_DIR, SENSOR_SCRIPT_FILENAME)
-SENSOR_SCRIPT_LOCK_FILE = '/tmp/sensor_scan_script.lock'  # Sensör betiğinin kullandığı dosya
-SENSOR_SCRIPT_PID_FILE = '/tmp/sensor_scan_script.pid'  # Sensör betiğinin kullandığı dosya
+# Sensör betiğinin kullandığı PID ve Lock dosyalarının tam yolları
+# Bu yolların sensör betiğindeki tanımlarla aynı olması KRİTİKTİR.
+SENSOR_SCRIPT_LOCK_FILE = '/tmp/sensor_scan_script.lock'
+SENSOR_SCRIPT_PID_FILE = '/tmp/sensor_scan_script.pid'
 
 DEFAULT_UI_SCAN_START_ANGLE = 0
 DEFAULT_UI_SCAN_END_ANGLE = 180
 DEFAULT_UI_SCAN_STEP_ANGLE = 10
 DEFAULT_UI_BUZZER_DISTANCE = 10
-DEFAULT_UI_INVERT_MOTOR = False  # Yeni varsayılan
+DEFAULT_UI_INVERT_MOTOR = False
 
 app = DjangoDash('RealtimeSensorDashboard', external_stylesheets=[dbc.themes.BOOTSTRAP])
 
@@ -276,7 +278,7 @@ def analyze_environment_shape(fig, df_valid):
                 norm_k = k_label / (num_non_noise_clusters_for_norm - 1)
             elif num_non_noise_clusters_for_norm == 1:
                 norm_k = 0.0
-            else:  # Sadece gürültü varsa veya hiç küme yoksa (k_label != -1 olmamalı)
+            else:
                 norm_k = 0.0
             norm_k = np.clip(norm_k, 0.0, 1.0)
             raw_col = colors(norm_k)
@@ -363,7 +365,10 @@ def handle_start_scan_script(n_clicks_start, start_angle_val, end_angle_val, ste
                                                                                        style={'whiteSpace': 'pre-wrap',
                                                                                               'maxHeight': '150px',
                                                                                               'overflowY': 'auto',
-                                                                                              'fontSize': '0.8em'})],
+                                                                                              'fontSize': '0.8em',
+                                                                                              'backgroundColor': '#f0f0f0',
+                                                                                              'border': '1px solid #ccc',
+                                                                                              'padding': '5px'})],
                                                                              color="danger", duration=None)
                     else:
                         log_disp += f"'{os.path.basename(log_path)}' boş."
@@ -380,13 +385,13 @@ def handle_start_scan_script(n_clicks_start, start_angle_val, end_angle_val, ste
               prevent_initial_call=True)
 def handle_stop_scan_script(n):
     if n == 0: return no_update
-    pid_kill = None  # Değişkeni try bloğundan önce None olarak başlat
+    pid_kill = None
     if os.path.exists(SENSOR_SCRIPT_PID_FILE):
         try:
             with open(SENSOR_SCRIPT_PID_FILE, 'r') as pf:
                 pid_s = pf.read().strip()
                 pid_kill = int(pid_s) if pid_s else None
-        except (IOError, ValueError):  # Dosya okuma veya int'e çevirme hatası durumunda pid_kill None kalır
+        except (IOError, ValueError):
             pid_kill = None
             print(f"PID dosyası ({SENSOR_SCRIPT_PID_FILE}) okunurken hata oluştu veya dosya boş.")
 
@@ -408,16 +413,15 @@ def handle_stop_scan_script(n):
         except Exception as e:
             return dbc.Alert(f"Sensör betiği durdurma hatası:{e}", color="danger", duration=None)
     else:
-        # PID dosyası yoksa veya process çalışmıyorsa, yine de dosyaları temizlemeyi dene
         for fp in [SENSOR_SCRIPT_PID_FILE, SENSOR_SCRIPT_LOCK_FILE]:
             if os.path.exists(fp):
                 try:
                     os.remove(fp)
                 except OSError as e_rem:
                     print(f"Kalıntı dosya ({fp}) silinirken hata: {e_rem}")
-        if pid_kill is not None:  # Eğer PID okundu ama process bulunamadıysa
+        if pid_kill is not None:
             return dbc.Alert(f"Sensör betiği (PID: {pid_kill}) çalışmıyor.", color="warning")
-        else:  # PID dosyası hiç okunamadıysa
+        else:
             return dbc.Alert("Çalışan sensör betiği bulunamadı veya PID dosyası okunamadı.", color="warning")
 
 
