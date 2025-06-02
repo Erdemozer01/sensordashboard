@@ -20,8 +20,6 @@ from simplification.cutil import simplify_coords
 from sklearn.linear_model import RANSACRegressor
 from sklearn.cluster import DBSCAN
 
-
-
 # --- Sabitler ---
 try:
     PROJECT_ROOT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..')
@@ -75,14 +73,17 @@ control_panel = dbc.Card([
     ])
 ])
 
+# DÜZELTME: 'current-distance-col' ID'si eklendi
 stats_panel = dbc.Card([
     dbc.CardHeader("Anlık Sensör Değerleri", className="bg-info text-white"),
     dbc.CardBody(
         dbc.Row([
             dbc.Col(html.Div([html.H6("Mevcut Açı:"), html.H4(id='current-angle', children="--°")]), width=4,
                     className="text-center"),
-            dbc.Col(html.Div([html.H6("Mevcut Mesafe:"), html.H4(id='current-distance', children="-- cm")]), width=4,
-                    className="text-center"),
+            dbc.Col(html.Div([html.H6("Mevcut Mesafe:"), html.H4(id='current-distance', children="-- cm")]),
+                    id='current-distance-col',  # <--- ID BURAYA EKLENDİ
+                    width=4,
+                    className="text-center rounded"),  # Köşeleri yuvarla
             dbc.Col(html.Div([html.H6("Anlık Hız:"), html.H4(id='current-speed', children="-- cm/s")]), width=4,
                     className="text-center")
         ]))
@@ -134,7 +135,6 @@ estimation_card = dbc.Card([
     )
 ])
 
-# KeyError hatasını çözmek için yapılan layout değişikliği
 visualization_tabs = dbc.Tabs(
     [
         dbc.Tab(dcc.Graph(id='scan-map-graph', style={'height': '75vh'}), label="2D Kartezyen Harita",
@@ -206,12 +206,15 @@ def get_latest_scan_id_from_db(conn_param=None):
         internal_conn = True
     if conn_to_use:
         try:
-            df_scan = pd.read_sql_query(
+            df_scan_running = pd.read_sql_query(
                 "SELECT id FROM servo_scans WHERE status = 'running' ORDER BY start_time DESC LIMIT 1", conn_to_use)
-            if df_scan.empty:
-                df_scan = pd.read_sql_query("SELECT id FROM servo_scans ORDER BY start_time DESC LIMIT 1", conn_to_use)
-            if not df_scan.empty:
-                latest_id = int(df_scan['id'].iloc[0])
+            if not df_scan_running.empty:
+                latest_id = int(df_scan_running['id'].iloc[0])
+            else:
+                df_scan_last = pd.read_sql_query("SELECT id FROM servo_scans ORDER BY start_time DESC LIMIT 1",
+                                                 conn_to_use)
+                if not df_scan_last.empty:
+                    latest_id = int(df_scan_last['id'].iloc[0])
         except Exception as e:
             print(f"Son tarama ID alınırken hata: {e}")
         finally:
@@ -245,17 +248,6 @@ def add_sector_area(fig, df):
     ))
 
 
-def add_detected_points(fig, df):
-    fig.add_trace(go.Scatter(
-        x=df['y_cm'], y=df['x_cm'], mode='markers',
-        marker=dict(
-            color=df['angle_deg'], colorscale='Viridis', showscale=True,
-            colorbar=dict(title='Açı (Derece)'), size=8
-        ),
-        name='Algılanan Noktalar'
-    ))
-
-
 def add_sensor_position(fig):
     fig.add_trace(go.Scatter(
         x=[0], y=[0], mode='markers',
@@ -264,133 +256,90 @@ def add_sensor_position(fig):
     ))
 
 
-
 def analyze_polygon_properties(points):
-    """
-    Verilen bir nokta kümesinin (bir kümenin) dış çeperini analiz ederek
-    kare, dikdörtgen veya genel çokgen olup olmadığını belirler.
-    """
     if len(points) < 3:
         return "tanımlanamayan küçük bir nesne"
-
     try:
         hull = ConvexHull(points)
         simplified_points = simplify_coords(points[hull.vertices], 3.0)
         num_vertices = len(simplified_points) - 1
 
         if num_vertices == 4:
-            # --- YENİ: Açı Hesaplama Mantığı ---
             angles = []
             for i in range(num_vertices):
-                # Köşe noktalarını al (önceki, şimdiki, sonraki)
                 p_prev = simplified_points[i - 1]
                 p_curr = simplified_points[i]
                 p_next = simplified_points[(i + 1) % num_vertices]
-
-                # Vektörleri oluştur
                 v1 = p_prev - p_curr
                 v2 = p_next - p_curr
-
-                # Vektör normlarını (uzunluklarını) al
                 norm_v1 = np.linalg.norm(v1)
                 norm_v2 = np.linalg.norm(v2)
-
-                # Sıfıra bölünmeyi önlemek için kontrol
-                if norm_v1 == 0 or norm_v2 == 0:
-                    continue
-
-                # Açı için dot product (iç çarpım) formülünü kullan
+                if norm_v1 == 0 or norm_v2 == 0: continue
                 dot_product = np.dot(v1, v2)
-                # Kayan nokta hatalarını önlemek için değeri -1 ile 1 arasında kırp
                 cos_angle = np.clip(dot_product / (norm_v1 * norm_v2), -1.0, 1.0)
                 angle = np.degrees(np.arccos(cos_angle))
                 angles.append(angle)
 
-            # Tüm açıların 90 dereceye yakın olup olmadığını kontrol et (±12 derece tolerans)
-            are_angles_right = all(78 < ang < 102 for ang in angles)
-
-            # --- Kenar Hesaplama Mantığı (Mevcut) ---
+            are_angles_right = all(78 < ang < 102 for ang in angles) if angles else False  # angles boşsa False
             sides = [np.linalg.norm(simplified_points[i] - simplified_points[(i + 1) % num_vertices]) for i in
                      range(num_vertices)]
 
-            # --- DÜZELTİLMİŞ KARAR MANTIĞI ---
             if are_angles_right:
-                # AÇILAR DİK ise, şimdi kenarları kontrol et
-                # Kenarların kabaca eşitliğini kontrol et (%20 tolerans)
-                is_sides_equal = all(abs(s - np.mean(sides)) < 0.20 * np.mean(sides) for s in sides)
+                is_sides_equal = all(abs(s - np.mean(sides)) < 0.20 * np.mean(sides) for s in sides) if sides else False
                 if is_sides_equal:
-                    return "kare şeklinde bir nesne"  # Doğru açılar VE eşit kenarlar
+                    return "kare şeklinde bir nesne"
                 else:
-                    return "dikdörtgen şeklinde bir nesne"  # Doğru açılar AMA farklı kenarlar
+                    return "dikdörtgen şeklinde bir nesne"
             else:
-                # Açılar dik değilse, genel bir dörtgendir
                 return "dörtgen bir nesne"
 
-        # Diğer çokgenler için fallback
         shape_map = {3: "üçgen bir nesne", 5: "beşgen bir nesne"}
         return shape_map.get(num_vertices, f"{num_vertices} köşeli bir nesne")
-
     except Exception as e:
         print(f"Poligon analiz hatası: {e}")
         return "tanımlanamayan bir nesne"
 
 
 def analyze_environment_shape(fig, df):
-    """
-    DBSCAN ile kümeleme yaparak nesneleri ve duvarları ayırır,
-    ardından her bir parçayı geometrik olarak analiz eder.
-    """
     points = df[['y_cm', 'x_cm']].to_numpy()
     if len(points) < 10:
         return "Analiz için yetersiz veri."
 
-    # DBSCAN ile noktaları kümele
-    # eps: İki noktanın komşu sayılması için gereken maksimum mesafe (cm)
-    # min_samples: Bir noktanın merkez nokta sayılması için komşuluğunda gereken min. nokta
     db = DBSCAN(eps=20, min_samples=5).fit(points)
     labels = db.labels_
-
     unique_labels = set(labels)
     descriptions = []
-
-    # Gürültü olmayan kümeleri analiz et (label -1 gürültüdür)
     clusters = [points[labels == k] for k in unique_labels if k != -1]
+
     if not clusters:
         return "Belirgin bir yapı veya nesne bulunamadı."
 
-    # En büyük kümeyi ana ortam (duvar) olarak kabul et
     clusters.sort(key=len, reverse=True)
     main_environment_cluster = clusters[0]
-
-    # Kalan kümeleri nesne olarak kabul et
     object_clusters = clusters[1:]
 
-    # Ana ortamı analiz et
     main_shape = analyze_polygon_properties(main_environment_cluster)
     descriptions.append(f"Ana ortam {main_shape} olarak görünüyor.")
 
-    # Nesneleri bildir
     if object_clusters:
         descriptions.append(f"Ayrıca ortamda {len(object_clusters)} adet nesne tespit edildi.")
+        for i, obj_cluster in enumerate(object_clusters):
+            obj_shape = analyze_polygon_properties(obj_cluster)
+            descriptions.append(f"Nesne {i + 1} {obj_shape}.")
 
-    # Grafiğe kümeleri çiz
-    colors = plt.cm.get_cmap('viridis', len(unique_labels))
+    colors = plt.cm.get_cmap('viridis', len(unique_labels) if len(unique_labels) > 0 else 1)
     for k in unique_labels:
-        if k == -1:
-            # Gürültü noktalarını küçük gri yap
-            col = [0, 0, 0, 0.1]
-        else:
-            col = colors(k)
+        col = colors(k / (len(unique_labels) - 1)) if len(unique_labels) > 1 and k != -1 else (0.5, 0.5, 0.5,
+                                                                                               0.1)  # Gürültü için gri
+        if k == -1: col = (0.5, 0.5, 0.5, 0.1)  # Gürültü için özel renk
 
         class_member_mask = (labels == k)
         xy = points[class_member_mask]
         fig.add_trace(go.Scatter(x=xy[:, 0], y=xy[:, 1], mode='markers',
                                  marker=dict(
                                      color=f'rgba({col[0] * 255},{col[1] * 255},{col[2] * 255},{col[3] if k == -1 else 1})',
-                                     size=8),
-                                 name=f'Küme {k}' if k != -1 else 'Gürültü'))
-
-    # Sonucu birleştirip döndür
+                                     size=6 if k == -1 else 8),  # Gürültü noktaları daha küçük
+                                 name=f'Küme {k}' if k != -1 else 'Gürültü/Diğer'))
     return " ".join(descriptions)
 
 
@@ -513,32 +462,56 @@ def handle_stop_scan_script(n_clicks_stop):
         return dbc.Alert("Çalışan bir sensör betiği bulunamadı.", color="warning")
 
 
+# DÜZELTME: Callback Output'una stil eklendi ve mantık güncellendi
 @app.callback(
     [Output('current-angle', 'children'),
      Output('current-distance', 'children'),
-     Output('current-speed', 'children')],
+     Output('current-speed', 'children'),
+     Output('current-distance-col', 'style')],  # <--- YENİ OUTPUT
     [Input('interval-component-main', 'n_intervals')]
 )
 def update_realtime_values(n_intervals):
     conn, error = get_db_connection()
     angle_str, distance_str, speed_str = "--°", "-- cm", "-- cm/s"
+    distance_style = {'padding': '10px', 'transition': 'background-color 0.5s ease'}  # Varsayılan stil
+
     if conn:
         try:
             latest_id = get_latest_scan_id_from_db(conn_param=conn)
             if latest_id:
-                df = pd.read_sql_query(
-                    f"SELECT angle_deg, mesafe_cm, hiz_cm_s FROM scan_points WHERE scan_id = {latest_id} ORDER BY id DESC LIMIT 1",
+                # Hem anlık noktayı hem de tarama ayarını al
+                df_point = pd.read_sql_query(
+                    f"SELECT mesafe_cm, angle_deg, hiz_cm_s FROM scan_points WHERE scan_id = {latest_id} ORDER BY id DESC LIMIT 1",
                     conn)
-                if not df.empty:
-                    angle_val, dist_val, speed_val = df.iloc[0]
+                df_scan_settings = pd.read_sql_query(
+                    f"SELECT buzzer_distance_setting FROM servo_scans WHERE id = {latest_id}", conn)
+
+                buzzer_threshold = None
+                if not df_scan_settings.empty and 'buzzer_distance_setting' in df_scan_settings.columns:
+                    buzzer_threshold = df_scan_settings['buzzer_distance_setting'].iloc[0]
+
+                if not df_point.empty:
+                    dist_val = df_point['mesafe_cm'].iloc[0]
+                    angle_val = df_point['angle_deg'].iloc[0]
+                    speed_val = df_point['hiz_cm_s'].iloc[0]
+
                     angle_str = f"{angle_val:.0f}°" if pd.notnull(angle_val) else "--°"
                     distance_str = f"{dist_val:.1f} cm" if pd.notnull(dist_val) else "-- cm"
                     speed_str = f"{speed_val:.1f} cm/s" if pd.notnull(speed_val) else "-- cm/s"
+
+                    # Stil kontrolü
+                    if buzzer_threshold is not None and pd.notnull(dist_val) and dist_val <= buzzer_threshold:
+                        distance_style = {'backgroundColor': '#d9534f', 'color': 'white', 'padding': '10px',
+                                          'borderRadius': '5px', 'transition': 'background-color 0.5s ease'}
+                    # else: # Varsayılan stil zaten yukarıda tanımlı
+                    #    distance_style = {'padding': '10px', 'transition': 'background-color 0.5s ease'}
         except Exception as e:
             print(f"Anlık değerler güncellenirken hata: {e}")
+            # Hata durumunda da varsayılan stili döndür
         finally:
             if conn: conn.close()
-    return angle_str, distance_str, speed_str
+
+    return angle_str, distance_str, speed_str, distance_style
 
 
 @app.callback(
@@ -611,35 +584,21 @@ def update_system_card(n_intervals):
     [Input('interval-component-main', 'n_intervals')]
 )
 def update_all_graphs(n_intervals):
-
     conn, error_msg_conn = get_db_connection()
     id_to_plot = get_latest_scan_id_from_db(conn_param=conn) if conn else None
     fig_map = go.Figure()
     fig_polar = go.Figure(layout=go.Layout(title='Polar Grafik', uirevision=id_to_plot))
     fig_time = go.Figure(layout=go.Layout(title='Zaman Serisi - Mesafe', uirevision=id_to_plot))
-
-
+    estimation_text = "Veri bekleniyor..."
 
     if not conn or not id_to_plot:
         if conn: conn.close()
         fig_map.update_layout(
             title_text='Ortamın 2D Haritası (2D Map of the Environment)',
-            xaxis_title="X Mesafesi (cm)",
-            yaxis_title="Y Mesafesi (cm)",
-            yaxis_scaleanchor="x",
-            yaxis_scaleratio=1,
-            uirevision=id_to_plot,
-            legend=dict(
-                title_text='Gösterim Katmanları',
-                orientation="h",  # Lejantı yatay olarak sırala
-                yanchor="bottom",  # Dikey konumu alt kenara göre ayarla
-                y=1.02,  # Grafiğin hemen üstüne yerleştir
-                xanchor="right",  # Yatay konumu sağ kenara göre ayarla
-                x=1,  # En sağa hizala
-                bgcolor="rgba(255, 255, 255, 0.7)",  # Yarı saydam arka plan
-                bordercolor="Black",
-                borderwidth=1
-            )
+            xaxis_title="X Mesafesi (cm)", yaxis_title="Y Mesafesi (cm)",
+            yaxis_scaleanchor="x", yaxis_scaleratio=1, uirevision=id_to_plot,
+            legend=dict(title_text='Gösterim Katmanları', orientation="h", yanchor="bottom", y=1.02, xanchor="right",
+                        x=1, bgcolor="rgba(255, 255, 255, 0.7)", bordercolor="Black", borderwidth=1)
         )
         return fig_map, fig_polar, fig_time, "Tarama başlatın."
     try:
@@ -648,17 +607,12 @@ def update_all_graphs(n_intervals):
             conn)
         if not df_points.empty:
             df_valid = df_points[(df_points['mesafe_cm'] > 1.0) & (df_points['mesafe_cm'] < 250.0)].copy()
-
             if len(df_valid) >= 2:
-
                 add_scan_rays(fig_map, df_valid)
                 add_sector_area(fig_map, df_valid)
-
-                # Akıllı analiz fonksiyonu burada çağrılıyor
                 estimation_text = analyze_environment_shape(fig_map, df_valid)
-
+                # add_detected_points(fig_map, df_valid) # Bu artık analyze_environment_shape içinde yapılıyor
                 add_sensor_position(fig_map)
-
                 update_polar_graph(fig_polar, df_valid)
                 update_time_series_graph(fig_time, df_valid)
             else:
@@ -668,11 +622,13 @@ def update_all_graphs(n_intervals):
         estimation_text = f"Hata: {e}"
     finally:
         if conn: conn.close()
+
     fig_map.update_layout(
         title_text='Ortamın 2D Haritası (2D Map of the Environment)',
         xaxis_title="X Mesafesi (cm)", yaxis_title="Y Mesafesi (cm)",
-        yaxis_scaleanchor="x", yaxis_scaleratio=1,
-        legend_title_text='Gösterim Katmanları', uirevision=id_to_plot
+        yaxis_scaleanchor="x", yaxis_scaleratio=1, uirevision=id_to_plot,
+        legend=dict(title_text='Gösterim Katmanları', orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1,
+                    bgcolor="rgba(255, 255, 255, 0.7)", bordercolor="Black", borderwidth=1)
     )
     return fig_map, fig_polar, fig_time, estimation_text
 
