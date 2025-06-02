@@ -17,15 +17,14 @@ TRIG_PIN = 23
 ECHO_PIN = 24
 
 # --- Step Motor Pin Tanımlamaları (ULN2003 Sürücü Kartı için Örnek) ---
-# Lütfen bu pinleri kendi Raspberry Pi bağlantınıza göre güncelleyin!
-IN1_GPIO_PIN = 6  # Sürücü kartındaki IN1'e bağlı GPIO pini
-IN2_GPIO_PIN = 13  # Sürücü kartındaki IN2'ye bağlı GPIO pini
-IN3_GPIO_PIN = 19  # Sürücü kartındaki IN3'e bağlı GPIO pini
-IN4_GPIO_PIN = 26  # Sürücü kartındaki IN4'e bağlı GPIO pini
+IN1_GPIO_PIN = 6
+IN2_GPIO_PIN = 13
+IN3_GPIO_PIN = 19
+IN4_GPIO_PIN = 26
 
 # --- Diğer Donanım Pinleri ---
-YELLOW_LED_PIN = 27  # Durum/Uyarı LED'i
-BUZZER_PIN = 17  # Buzzer
+YELLOW_LED_PIN = 27
+BUZZER_PIN = 17
 
 # --- LCD Ayarları ---
 LCD_I2C_ADDRESS = 0x27
@@ -39,15 +38,15 @@ I2C_PORT = 1
 # ==============================================================================
 DEFAULT_TERMINATION_DISTANCE_CM = 1
 DEFAULT_BUZZER_DISTANCE = 10
-DEFAULT_SCAN_START_ANGLE = 0.0  # Float olarak tanımlandı
-DEFAULT_SCAN_END_ANGLE = 180.0  # Float olarak tanımlandı
-DEFAULT_SCAN_STEP_ANGLE = 10.0  # Float olarak tanımlandı
-DEFAULT_INVERT_MOTOR_DIRECTION = False  # Motor yönünü ters çevirme varsayılanı
+DEFAULT_SCAN_START_ANGLE = 0.0
+DEFAULT_SCAN_END_ANGLE = 180.0
+DEFAULT_SCAN_STEP_ANGLE = 10.0
+DEFAULT_INVERT_MOTOR_DIRECTION = False
 
 # --- Step Motor Zamanlama Ayarları ---
-STEP_MOTOR_INTER_STEP_DELAY = 0.0015  # Adım fazları arasındaki gecikme (saniye) - Hızı etkiler
-STEP_MOTOR_SETTLE_TIME = 0.05  # Adım grubundan sonra motorun durması için bekleme (saniye)
-LOOP_TARGET_INTERVAL_S = 0.6  # Her bir ölçüm döngüsünün hedeflenen süresi (saniye)
+STEP_MOTOR_INTER_STEP_DELAY = 0.0015
+STEP_MOTOR_SETTLE_TIME = 0.05
+LOOP_TARGET_INTERVAL_S = 0.6
 
 # ==============================================================================
 # --- Dosya Yolları ve Global Değişkenler ---
@@ -59,8 +58,8 @@ except NameError:
 
 DB_NAME_ONLY = 'live_scan_data.sqlite3'
 DB_PATH = os.path.join(PROJECT_ROOT_DIR, DB_NAME_ONLY)
-LOCK_FILE_PATH = '/tmp/sensor_scan_script.lock'  # Bu betiğin kendi kilit dosyası
-PID_FILE_PATH = '/tmp/sensor_scan_script.pid'  # Bu betiğin kendi PID dosyası
+LOCK_FILE_PATH = '/tmp/sensor_scan_script.lock'
+PID_FILE_PATH = '/tmp/sensor_scan_script.pid'
 
 sensor, yellow_led, lcd, buzzer = None, None, None, None
 in1_dev, in2_dev, in3_dev, in4_dev = None, None, None, None
@@ -69,43 +68,13 @@ script_exit_status_global = 'interrupted_unexpectedly'
 
 # ==============================================================================
 # --- Step Motor Özellikleri ---
-# !!! DİKKAT: BU DEĞER KULLANICI TARAFINDAN DOĞRULANMALI VE AYARLANMALIDIR !!!
-# !!! MOTORUNUZ İSTENEN AÇIYI TAM OLARAK DÖNMÜYORSA, BU DEĞER MUHTEMELEN YANLIŞTIR !!!
+# !!! DİKKAT: BU DEĞER ARTIK PANEL ÜZERİNDEN KONTROL EDİLMEKTEDİR !!!
 # ==============================================================================
-# STEPS_PER_REVOLUTION_OUTPUT_SHAFT:
-# Step motorunuzun ÇIKIŞ MİLİNİN bir tam tur (360 derece) dönmesi için
-# gereken TOPLAM ADIM SAYISIDIR. Bu değer, motorunuzun kendi iç adım sayısına,
-# (varsa) içindeki dişli kutusunun oranına ve kullandığınız sürüş moduna
-# (tam adım, yarım adım vb.) bağlıdır.
-#
-# Örnek: Yaygın olarak kullanılan 28BYJ-48 step motor için:
-#   - Yarım Adım Modunda (8 fazlı sekans): ~4096 adım/tur (çıkış mili için)
-#
-# KULLANICI GERİ BİLDİRİMİNE GÖRE AYARLANAN DEĞER (EĞER 300 derece komutuna motor 200 derece dönüyorsa):
-#   Doğru Değer = Mevcut_Değer_Kodda * (Komut_Edilen_Açı / Fiziksel_Dönüş_Açısı)
-#   Eğer kodda 4096 yazıyorsa: 4096 * (300 / 200) = 4096 * 1.5 = 6144
-#
-# LÜTFEN AŞAĞIDAKİ DEĞERİ KENDİ MOTORUNUZUN TEKNİK ÖZELLİKLERİNE,
-# KULLANDIĞINIZ ADIM SEKANSINA VE YAPTIĞINIZ KALİBRASYONA GÖRE AYARLAYIN!
-# BU DEĞER YANLIŞSA, MOTOR İSTENEN AÇILARA ULAŞAMAZ.
-STEPS_PER_REVOLUTION_OUTPUT_SHAFT = 6144  # Kullanıcı gözlemine göre ayarlandı.
-# BU DEĞERİ KENDİ MOTORUNUZ İÇİN MUTLAKA KALİBRE EDİN!
-#
-# KALİBRASYON İPUCU:
-# 1. Bu betiği çalıştırın (Dash panelinden veya doğrudan terminalden --start_angle 0 --end_angle 360 gibi).
-# 2. Motorun fiziksel olarak kaç derece döndüğünü bir açı ölçer ile ölçün (Gerceklesen_Donus_Derecesi).
-# 3. Eğer tam 360 derece dönmediyse, yeni STEPS_PER_REVOLUTION_OUTPUT_SHAFT değerini şu formülle hesaplayın:
-#    Yeni_Adim_Sayisi = Koddeki_Mevcut_Adim_Sayisi * (360.0 / Gerceklesen_Donus_Derecesi)
-#    Bu yeni değeri kodda STEPS_PER_REVOLUTION_OUTPUT_SHAFT yerine yazın ve tekrar deneyin.
-# ==============================================================================
+# Aşağıdaki STEPS_PER_REVOLUTION_OUTPUT_SHAFT sabitini bir varsayılan değere dönüştürüyoruz.
+DEFAULT_STEPS_PER_REVOLUTION = 6144
+STEPS_PER_REVOLUTION_OUTPUT_SHAFT = DEFAULT_STEPS_PER_REVOLUTION # Başlangıçta varsayılana ayarlı.
 
 DEG_PER_STEP = 0.0  # Başlangıçta tanımla, main içinde doğru değer atanacak
-if STEPS_PER_REVOLUTION_OUTPUT_SHAFT > 0:
-    DEG_PER_STEP = 360.0 / STEPS_PER_REVOLUTION_OUTPUT_SHAFT
-else:
-    print("KRİTİK HATA: STEPS_PER_REVOLUTION_OUTPUT_SHAFT sıfır veya negatif olamaz!")
-    # sys.exit(1) # Burada çıkmak yerine main içinde kontrol edilecek
-
 current_motor_angle_global = 0.0
 current_step_sequence_index = 0
 
@@ -126,8 +95,6 @@ INVERT_MOTOR_DIRECTION = DEFAULT_INVERT_MOTOR_DIRECTION
 
 # ==============================================================================
 # --- Donanım Başlatma, Step Motor Kontrol ve Diğer Yardımcı Fonksiyonlar ---
-# (Bu fonksiyonların içerikleri bir önceki mesajdakiyle aynıdır,
-#  önemli olan global değişkenlerin ve sabitlerin doğru ayarlanmasıdır.)
 # ==============================================================================
 def init_hardware():
     global sensor, yellow_led, lcd, buzzer, current_motor_angle_global
@@ -147,7 +114,7 @@ def init_hardware():
         buzzer = Buzzer(BUZZER_PIN);
         buzzer.off()
         print(f"[{pid}] Step motor başlangıç pozisyonuna ({SCAN_START_ANGLE:.1f}°) ayarlanıyor...")
-        current_motor_angle_global = 0.0  # Başlangıçta fiziksel olarak 0'da olduğunu varsay
+        current_motor_angle_global = 0.0
         move_motor_to_angle(SCAN_START_ANGLE)
         print(f"[{pid}] Step motor yaklaşık {current_motor_angle_global:.2f}° pozisyonuna getirildi.")
         print(f"[{pid}] Motor yönü ters çevirme: {'Aktif' if INVERT_MOTOR_DIRECTION else 'Pasif'}")
@@ -219,79 +186,16 @@ def init_db_for_scan():
         conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
         cursor.execute('''CREATE TABLE IF NOT EXISTS servo_scans
-                          (
-                              id
-                              INTEGER
-                              PRIMARY
-                              KEY
-                              AUTOINCREMENT,
-                              start_time
-                              REAL
-                              UNIQUE,
-                              status
-                              TEXT,
-                              hesaplanan_alan_cm2
-                              REAL
-                              DEFAULT
-                              NULL,
-                              cevre_cm
-                              REAL
-                              DEFAULT
-                              NULL,
-                              max_genislik_cm
-                              REAL
-                              DEFAULT
-                              NULL,
-                              max_derinlik_cm
-                              REAL
-                              DEFAULT
-                              NULL,
-                              start_angle_setting
-                              REAL,
-                              end_angle_setting
-                              REAL
-                              DEFAULT
-                              NULL,
-                              step_angle_setting
-                              REAL
-                              DEFAULT
-                              NULL,
-                              buzzer_distance_setting
-                              REAL,
-                              invert_motor_direction_setting
-                              BOOLEAN
-                              DEFAULT
-                              FALSE
-                          )''')
+                          (id INTEGER PRIMARY KEY AUTOINCREMENT, start_time REAL UNIQUE, status TEXT,
+                           hesaplanan_alan_cm2 REAL DEFAULT NULL, cevre_cm REAL DEFAULT NULL,
+                           max_genislik_cm REAL DEFAULT NULL, max_derinlik_cm REAL DEFAULT NULL,
+                           start_angle_setting REAL, end_angle_setting REAL DEFAULT NULL,
+                           step_angle_setting REAL DEFAULT NULL, buzzer_distance_setting REAL,
+                           invert_motor_direction_setting BOOLEAN DEFAULT FALSE)''')
         cursor.execute('''CREATE TABLE IF NOT EXISTS scan_points
-        (
-            id
-            INTEGER
-            PRIMARY
-            KEY
-            AUTOINCREMENT,
-            scan_id
-            INTEGER,
-            derece
-            REAL,
-            mesafe_cm
-            REAL,
-            hiz_cm_s
-            REAL,
-            timestamp
-            REAL,
-            x_cm
-            REAL,
-            y_cm
-            REAL,
-            FOREIGN
-            KEY
-                          (
-            scan_id
-                          ) REFERENCES servo_scans
-                          (
-                              id
-                          ) ON DELETE CASCADE)''')
+                          (id INTEGER PRIMARY KEY AUTOINCREMENT, scan_id INTEGER, derece REAL, mesafe_cm REAL,
+                           hiz_cm_s REAL, timestamp REAL, x_cm REAL, y_cm REAL,
+                           FOREIGN KEY (scan_id) REFERENCES servo_scans (id) ON DELETE CASCADE)''')
         cursor.execute("UPDATE servo_scans SET status='interrupted_prior_run' WHERE status='running'")
         st = time.time()
         cursor.execute(
@@ -406,11 +310,6 @@ def release_resources_on_exit():
             lcd.write_string("DreamPi Kapandi".ljust(LCD_COLS)[:LCD_COLS])
             time.sleep(1)
             lcd.clear()
-            lcd.cursor_pos = (0, 0)
-            lcd.write_string("M.Erdem OZER".ljust(LCD_COLS)[:LCD_COLS])
-            if LCD_ROWS > 1:
-                lcd.cursor_pos = (1, 0)
-                lcd.write_string("(PhD.)".ljust(LCD_COLS)[:LCD_COLS])
         except Exception:
             pass
     if lock_file_handle:
@@ -450,6 +349,9 @@ if __name__ == "__main__":
     parser.add_argument("--buzzer_distance", type=int, default=DEFAULT_BUZZER_DISTANCE)
     parser.add_argument("--invert_motor_direction", type=lambda x: (str(x).lower() == 'true'),
                         default=DEFAULT_INVERT_MOTOR_DIRECTION, help="Motor dönüş yönünü ters çevir (True/False)")
+    parser.add_argument("--steps_per_rev", type=int, default=DEFAULT_STEPS_PER_REVOLUTION,
+                        help="Motorun bir tam tur (360 derece) için adım sayısı.")
+    
     args = parser.parse_args()
 
     SCAN_START_ANGLE = float(args.start_angle)
@@ -457,8 +359,9 @@ if __name__ == "__main__":
     SCAN_STEP_ANGLE = float(args.step_angle)
     BUZZER_DISTANCE_CM = int(args.buzzer_distance)
     INVERT_MOTOR_DIRECTION = bool(args.invert_motor_direction)
+    STEPS_PER_REVOLUTION_OUTPUT_SHAFT = int(args.steps_per_rev)
 
-    pid = os.getpid()  # PID'yi erken alalım
+    pid = os.getpid()
 
     if STEPS_PER_REVOLUTION_OUTPUT_SHAFT <= 0:
         print(
@@ -471,7 +374,7 @@ if __name__ == "__main__":
         print(
             f"[{pid}] UYARI: İstenen adım açısı ({SCAN_STEP_ANGLE:.3f}°) motorun minimum adım açısından ({DEG_PER_STEP:.3f}°) küçük. Minimuma ({DEG_PER_STEP:.3f}°) ayarlanıyor.")
         SCAN_STEP_ANGLE = DEG_PER_STEP
-    if SCAN_STEP_ANGLE == 0:  # Bu durum olmamalı ama yine de kontrol
+    if SCAN_STEP_ANGLE == 0:
         print(f"[{pid}] UYARI: Adım açısı sıfır olamaz. Minimuma ({DEG_PER_STEP:.3f}°) ayarlanıyor.")
         SCAN_STEP_ANGLE = DEG_PER_STEP
 
@@ -488,7 +391,7 @@ if __name__ == "__main__":
     print(
         f"[{pid}] Ayarlar: Başlangıç={SCAN_START_ANGLE:.1f}°, Bitiş={SCAN_END_ANGLE:.1f}°, Adım={SCAN_STEP_ANGLE:.1f}°")
     print(f"[{pid}] Motor Yönü Ters Çevirme: {'Aktif' if INVERT_MOTOR_DIRECTION else 'Pasif'}")
-    print(f"[{pid}] Motor Adım Bilgisi: {DEG_PER_STEP:.4f}° / adım ({STEPS_PER_REVOLUTION_OUTPUT_SHAFT} adım/tur)")
+    print(f"[{pid}] Motor Kalibrasyon Bilgisi: {DEG_PER_STEP:.4f}° / adım ({STEPS_PER_REVOLUTION_OUTPUT_SHAFT} adım/tur)")
 
     if lcd:
         lcd.clear();
@@ -511,10 +414,10 @@ if __name__ == "__main__":
 
         loop_count = 0
         max_loops = 0
-        if SCAN_STEP_ANGLE > (DEG_PER_STEP / 100):  # Çok küçük adım açıları için sonsuz döngü riskini azalt
+        if SCAN_STEP_ANGLE > (DEG_PER_STEP / 100):
             max_loops = math.ceil(abs(SCAN_END_ANGLE - SCAN_START_ANGLE) / SCAN_STEP_ANGLE) + 5
         else:
-            max_loops = STEPS_PER_REVOLUTION_OUTPUT_SHAFT * 2  # Güvenlik için maksimum adımın iki katı
+            max_loops = STEPS_PER_REVOLUTION_OUTPUT_SHAFT * 2
             print(f"[{pid}] UYARI: Adım açısı çok küçük, maksimum döngü sayısı {max_loops} ile sınırlandırıldı.")
 
         while loop_count < max_loops:
@@ -585,23 +488,18 @@ if __name__ == "__main__":
             except Exception as e_db:
                 print(f"[{pid}] DB Ekleme Hatası: {e_db}")
 
-            # Döngü sonlandırma kontrolü
-            # Mevcut etkin açının bitiş açısına ulaşıp ulaşmadığını/geçip geçmediğini kontrol et
-            if scan_direction == 1:  # Açı artıyor
+            if scan_direction == 1:
                 if current_effective_degree_for_scan >= SCAN_END_ANGLE - (DEG_PER_STEP / 2.0): break
-            else:  # Açı azalıyor
+            else:
                 if current_effective_degree_for_scan <= SCAN_END_ANGLE + (DEG_PER_STEP / 2.0): break
 
-            # Bir sonraki hedef açıyı belirle
             target_loop_angle += (SCAN_STEP_ANGLE * scan_direction)
 
-            # Hedef açının sınırlar içinde kalmasını sağla (özellikle son adımda SCAN_END_ANGLE'i geçmemesi için)
             if scan_direction == 1:
                 target_loop_angle = min(target_loop_angle, float(SCAN_END_ANGLE))
-            else:  # scan_direction == -1
+            else:
                 target_loop_angle = max(target_loop_angle, float(SCAN_END_ANGLE))
 
-            # Güvenlik: Eğer bir şekilde döngü max_loops'a ulaşırsa sonlandır.
             if loop_count >= max_loops - 1:
                 print(f"[{pid}] UYARI: Maksimum döngü sayısına ({max_loops}) ulaşıldı, tarama sonlandırılıyor.")
                 break
@@ -667,7 +565,6 @@ if __name__ == "__main__":
         script_exit_status_global = 'error_in_loop'
         print(f"[{pid}] KRİTİK HATA: Ana döngüde: {e}")
         import traceback
-
         traceback.print_exc()
         if lcd:
             lcd.clear()
@@ -682,4 +579,3 @@ if __name__ == "__main__":
         if yellow_led and hasattr(yellow_led, 'is_active') and yellow_led.is_active:
             yellow_led.off()
         print(f"[{pid}] Ana betik sonlanıyor. Çıkış: {script_exit_status_global}")
-

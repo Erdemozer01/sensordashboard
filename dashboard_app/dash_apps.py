@@ -37,11 +37,13 @@ SENSOR_SCRIPT_PATH = os.path.join(PROJECT_ROOT_DIR, SENSOR_SCRIPT_FILENAME)
 SENSOR_SCRIPT_LOCK_FILE = '/tmp/sensor_scan_script.lock'
 SENSOR_SCRIPT_PID_FILE = '/tmp/sensor_scan_script.pid'
 
+# Panel için varsayılan değerler
 DEFAULT_UI_SCAN_START_ANGLE = 0
 DEFAULT_UI_SCAN_END_ANGLE = 180
 DEFAULT_UI_SCAN_STEP_ANGLE = 10
 DEFAULT_UI_BUZZER_DISTANCE = 10
 DEFAULT_UI_INVERT_MOTOR = False
+DEFAULT_UI_STEPS_PER_REVOLUTION = 6144 # Motor kalibrasyonu için varsayılan değer
 
 app = DjangoDash('RealtimeSensorDashboard', external_stylesheets=[dbc.themes.BOOTSTRAP])
 
@@ -64,18 +66,21 @@ control_panel = dbc.Card([
                  className="mb-3"),
         html.Hr(),
         html.H6("Tarama Parametreleri:", className="mt-2"),
-        dbc.InputGroup([dbc.InputGroupText("Başl. Açı (°)", style={"width": "120px"}),
+        dbc.InputGroup([dbc.InputGroupText("Başl. Açı (°)", style={"width": "150px"}),
                         dbc.Input(id="start-angle-input", type="number", value=DEFAULT_UI_SCAN_START_ANGLE, min=0,
                                   max=359, step=1)], className="mb-2"),
-        dbc.InputGroup([dbc.InputGroupText("Bitiş Açısı (°)", style={"width": "120px"}),
+        dbc.InputGroup([dbc.InputGroupText("Bitiş Açısı (°)", style={"width": "150px"}),
                         dbc.Input(id="end-angle-input", type="number", value=DEFAULT_UI_SCAN_END_ANGLE, min=0, max=359,
                                   step=1)], className="mb-2"),
-        dbc.InputGroup([dbc.InputGroupText("Adım Açısı (°)", style={"width": "120px"}),
+        dbc.InputGroup([dbc.InputGroupText("Adım Açısı (°)", style={"width": "150px"}),
                         dbc.Input(id="step-angle-input", type="number", value=DEFAULT_UI_SCAN_STEP_ANGLE, min=0.1,
                                   max=45, step=0.1)], className="mb-2"),
-        dbc.InputGroup([dbc.InputGroupText("Buzzer Mes. (cm)", style={"width": "120px"}),
+        dbc.InputGroup([dbc.InputGroupText("Buzzer Mes. (cm)", style={"width": "150px"}),
                         dbc.Input(id="buzzer-distance-input", type="number", value=DEFAULT_UI_BUZZER_DISTANCE, min=0,
                                   max=200, step=1)], className="mb-2"),
+        dbc.InputGroup([dbc.InputGroupText("Motor Adım/Tur", style={"width": "150px"}),
+                        dbc.Input(id="steps-per-rev-input", type="number", value=DEFAULT_UI_STEPS_PER_REVOLUTION, min=500,
+                                  max=10000, step=1)], className="mb-2"),
         dbc.Checkbox(id="invert-motor-checkbox", label="Motor Yönünü Ters Çevir", value=DEFAULT_UI_INVERT_MOTOR,
                      className="mt-2 mb-2"),
     ])
@@ -299,26 +304,30 @@ def analyze_environment_shape(fig, df_valid):
 @app.callback(
     Output('scan-status-message', 'children'),
     [Input('start-scan-button', 'n_clicks')],
-    [State('start-angle-input', 'value'), State('end-angle-input', 'value'),
-     State('step-angle-input', 'value'), State('buzzer-distance-input', 'value'),
-     State('invert-motor-checkbox', 'value')],
+    [
+        State('start-angle-input', 'value'), State('end-angle-input', 'value'),
+        State('step-angle-input', 'value'), State('buzzer-distance-input', 'value'),
+        State('invert-motor-checkbox', 'value'),
+        State('steps-per-rev-input', 'value')
+    ],
     prevent_initial_call=True)
 def handle_start_scan_script(n_clicks_start, start_angle_val, end_angle_val, step_angle_val, buzzer_distance_val,
-                             invert_motor_val):
+                             invert_motor_val, steps_per_rev_val):
     if n_clicks_start == 0: return no_update
-    start_a, end_a, step_a, buzzer_d, invert_dir = \
-        (start_angle_val if start_angle_val is not None else DEFAULT_UI_SCAN_START_ANGLE), \
-            (end_angle_val if end_angle_val is not None else DEFAULT_UI_SCAN_END_ANGLE), \
-            (step_angle_val if step_angle_val is not None else DEFAULT_UI_SCAN_STEP_ANGLE), \
-            (buzzer_distance_val if buzzer_distance_val is not None else DEFAULT_UI_BUZZER_DISTANCE), \
-            bool(invert_motor_val)
 
-    if not (0 <= start_a <= 359 and 0 <= end_a <= 359): return dbc.Alert("Açılar 0-359 arasında olmalı!",
-                                                                         color="danger", duration=None)
-    if not (0.1 <= abs(step_a) <= 45): return dbc.Alert("Adım açısı 0.1-45 arasında olmalı!", color="danger",
-                                                        duration=None)
-    if not (0 <= buzzer_d <= 200): return dbc.Alert("Buzzer mesafesi 0-200cm arasında olmalı!", color="danger",
-                                                    duration=None)
+    start_a, end_a, step_a, buzzer_d, invert_dir, steps_per_rev = \
+        (start_angle_val if start_angle_val is not None else DEFAULT_UI_SCAN_START_ANGLE), \
+        (end_angle_val if end_angle_val is not None else DEFAULT_UI_SCAN_END_ANGLE), \
+        (step_angle_val if step_angle_val is not None else DEFAULT_UI_SCAN_STEP_ANGLE), \
+        (buzzer_distance_val if buzzer_distance_val is not None else DEFAULT_UI_BUZZER_DISTANCE), \
+        bool(invert_motor_val), \
+        (steps_per_rev_val if steps_per_rev_val is not None else DEFAULT_UI_STEPS_PER_REVOLUTION)
+
+    if not (0 <= start_a <= 359 and 0 <= end_a <= 359): return dbc.Alert("Açılar 0-359 arasında olmalı!", color="danger")
+    if not (0.1 <= abs(step_a) <= 45): return dbc.Alert("Adım açısı 0.1-45 arasında olmalı!", color="danger")
+    if not (0 <= buzzer_d <= 200): return dbc.Alert("Buzzer mesafesi 0-200cm arasında olmalı!", color="danger")
+    if not (500 <= steps_per_rev <= 10000): return dbc.Alert("Motor Adım/Tur değeri 500-10000 arasında olmalı!", color="danger")
+
 
     pid = None
     if os.path.exists(SENSOR_SCRIPT_PID_FILE):
@@ -327,21 +336,28 @@ def handle_start_scan_script(n_clicks_start, start_angle_val, end_angle_val, ste
                 pid_str = pf.read().strip(); pid = int(pid_str) if pid_str else None
         except:
             pid = None
-    if pid and is_process_running(pid): return dbc.Alert(f"Sensör betiği çalışıyor (PID:{pid}). Önce durdurun.",
-                                                         color="warning", duration=None)
+    if pid and is_process_running(pid): return dbc.Alert(f"Sensör betiği çalışıyor (PID:{pid}). Önce durdurun.", color="warning")
 
     for fp in [SENSOR_SCRIPT_LOCK_FILE, SENSOR_SCRIPT_PID_FILE]:
         if os.path.exists(fp):
             try:
                 os.remove(fp)
             except OSError as e:
-                return dbc.Alert(f"Kalıntı dosya ({fp}) silinemedi: {e}.", color="danger", duration=None)
+                return dbc.Alert(f"Kalıntı dosya ({fp}) silinemedi: {e}.", color="danger")
     try:
         py_exec = sys.executable
-        if not os.path.exists(SENSOR_SCRIPT_PATH): return dbc.Alert(f"Sensör betiği bulunamadı: {SENSOR_SCRIPT_PATH}",
-                                                                    color="danger", duration=None)
-        cmd = [py_exec, SENSOR_SCRIPT_PATH, "--start_angle", str(start_a), "--end_angle", str(end_a), "--step_angle",
-               str(step_a), "--buzzer_distance", str(buzzer_d), "--invert_motor_direction", str(invert_dir)]
+        if not os.path.exists(SENSOR_SCRIPT_PATH): return dbc.Alert(f"Sensör betiği bulunamadı: {SENSOR_SCRIPT_PATH}", color="danger")
+        
+        cmd = [
+            py_exec, SENSOR_SCRIPT_PATH,
+            "--start_angle", str(start_a),
+            "--end_angle", str(end_a),
+            "--step_angle", str(step_a),
+            "--buzzer_distance", str(buzzer_d),
+            "--invert_motor_direction", str(invert_dir),
+            "--steps_per_rev", str(steps_per_rev)
+        ]
+
         log_path = os.path.join(PROJECT_ROOT_DIR, 'sensor_script.log')
         with open(log_path, 'w') as log_f:
             subprocess.Popen(cmd, start_new_session=True, stdout=log_f, stderr=log_f)
@@ -369,16 +385,16 @@ def handle_start_scan_script(n_clicks_start, start_angle_val, end_angle_val, ste
                                                                                               'backgroundColor': '#f0f0f0',
                                                                                               'border': '1px solid #ccc',
                                                                                               'padding': '5px'})],
-                                                                             color="danger", duration=None)
+                                                                             color="danger")
                     else:
                         log_disp += f"'{os.path.basename(log_path)}' boş."
                 except Exception as e_l:
                     log_disp += f"Log okuma hatası: {e_l}"
             else:
                 log_disp += f"Log dosyası ('{os.path.basename(log_path)}') bulunamadı."
-            return dbc.Alert(log_disp, color="danger", duration=None)
+            return dbc.Alert(log_disp, color="danger")
     except Exception as e:
-        return dbc.Alert(f"Sensör betiği başlatma hatası: {e}", color="danger", duration=None)
+        return dbc.Alert(f"Sensör betiği başlatma hatası: {e}", color="danger")
 
 
 @app.callback(Output('scan-status-message', 'children', allow_duplicate=True), [Input('stop-scan-button', 'n_clicks')],
@@ -405,13 +421,13 @@ def handle_stop_scan_script(n):
                     if os.path.exists(fp): os.remove(fp)
                 return dbc.Alert(f"Sensör betiği (PID:{pid_kill}) durduruldu.", color="info")
             else:
-                return dbc.Alert(f"Sensör betiği (PID:{pid_kill}) durdurulamadı!", color="danger", duration=None)
+                return dbc.Alert(f"Sensör betiği (PID:{pid_kill}) durdurulamadı!", color="danger")
         except ProcessLookupError:
             for fp in [SENSOR_SCRIPT_PID_FILE, SENSOR_SCRIPT_LOCK_FILE]:
                 if os.path.exists(fp): os.remove(fp)
             return dbc.Alert(f"Sensör betiği (PID:{pid_kill}) zaten çalışmıyordu.", color="warning")
         except Exception as e:
-            return dbc.Alert(f"Sensör betiği durdurma hatası:{e}", color="danger", duration=None)
+            return dbc.Alert(f"Sensör betiği durdurma hatası:{e}", color="danger")
     else:
         for fp in [SENSOR_SCRIPT_PID_FILE, SENSOR_SCRIPT_LOCK_FILE]:
             if os.path.exists(fp):
@@ -669,4 +685,3 @@ def display_cluster_info(clickData, stored_data):
     except Exception as e:
         import traceback;print(
             f"Modal HATA:{e}\n{traceback.format_exc()}");return True, "Hata", f"Küme bilgisi gösterilemedi:{e}"
-
