@@ -221,6 +221,87 @@ def get_latest_scan_id_from_db(conn_param=None):
             if internal_conn and conn_to_use: conn_to_use.close()
     return latest_id
 
+# --- GRAFİK YARDIMCI FONKSİYONLARI ---
+
+def add_scan_rays(fig, df):
+    """Grafiğe tarama ışınlarını (kesikli çizgiler) ekler."""
+    x_lines, y_lines = [], []
+    for index, row in df.iterrows():
+        x_lines.extend([0, row['y_cm'], None])
+        y_lines.extend([0, row['x_cm'], None])
+    fig.add_trace(go.Scatter(
+        x=x_lines, y=y_lines, mode='lines',
+        line=dict(color='rgba(255, 100, 100, 0.4)', dash='dash', width=1),
+        showlegend=False
+    ))
+
+def add_sector_area(fig, df):
+    """Grafiğe içi dolu taranan sektör alanını ekler."""
+    poly_x = df['y_cm'].tolist()
+    poly_y = df['x_cm'].tolist()
+    sector_polygon_x = [0] + poly_x
+    sector_polygon_y = [0] + poly_y
+    fig.add_trace(go.Scatter(
+        x=sector_polygon_x, y=sector_polygon_y, mode='lines',
+        fill='toself', fillcolor='rgba(255,0,0,0.15)',
+        line=dict(color='rgba(255,0,0,0.4)'), name='Taranan Sektör Alanı'
+    ))
+
+def add_convex_hull(fig, df):
+    """Grafiğe Convex Hull ile hesaplanan dış çeperi ekler."""
+    points_for_hull = df[['y_cm', 'x_cm']].to_numpy()
+    if len(points_for_hull) >= 3:
+        hull = ConvexHull(points_for_hull)
+        simplified_points = simplify_coords(points_for_hull[hull.vertices], 3.0)
+        final_polygon_points = np.append(simplified_points, [simplified_points[0]], axis=0)
+        fig.add_trace(go.Scatter(
+            x=final_polygon_points[:, 0], y=final_polygon_points[:, 1],
+            mode='lines', fill='none',
+            line=dict(color='rgba(0, 100, 255, 0.7)', dash='dashdot', width=2),
+            name='Tahmini Dış Çeper (ConvexHull)'
+        ))
+
+def calculate_estimation_text(df):
+    """Noktalara göre şekil tahmin metnini hesaplar."""
+    points_for_hull = df[['y_cm', 'x_cm']].to_numpy()
+    if len(points_for_hull) >= 3:
+        hull = ConvexHull(points_for_hull)
+        simplified_points = simplify_coords(points_for_hull[hull.vertices], 3.0)
+        num_vertices = len(simplified_points) - 1
+        shape_map = {3: "Üçgensel Çeper", 4: "Dörtgensel Çeper", 5: "Beşgensel Çeper"}
+        return shape_map.get(num_vertices, f"{num_vertices} Köşeli Dış Çeper")
+    return "Tahmin için yetersiz veri."
+
+def add_detected_points(fig, df):
+    """Grafiğe algılanan noktaları açıya göre renkli olarak ekler."""
+    fig.add_trace(go.Scatter(
+        x=df['y_cm'], y=df['x_cm'], mode='markers',
+        marker=dict(
+            color=df['angle_deg'], colorscale='Viridis', showscale=True,
+            colorbar=dict(title='Açı (Derece)'), size=8
+        ),
+        name='Algılanan Noktalar'
+    ))
+
+def add_sensor_position(fig):
+    """Grafiğe sensörün konumunu gösteren kırmızı noktayı ekler."""
+    fig.add_trace(go.Scatter(
+        x=[0], y=[0], mode='markers',
+        marker=dict(size=12, symbol='circle', color='red'),
+        name='Sensör Pozisyonu'
+    ))
+
+def update_polar_graph(fig, df):
+    """Polar grafiği günceller."""
+    fig.add_trace(go.Scatterpolar(r=df['mesafe_cm'], theta=df['angle_deg'], mode='lines+markers', name='Mesafe'))
+    fig.update_layout(polar=dict(radialaxis=dict(visible=True, range=[0, 200]), angularaxis=dict(direction="clockwise")))
+
+def update_time_series_graph(fig, df):
+    """Zaman serisi grafiğini günceller."""
+    df_time_sorted = df.sort_values(by='timestamp')
+    datetime_series = pd.to_datetime(df_time_sorted['timestamp'], unit='s')
+    fig.add_trace(go.Scatter(x=datetime_series, y=df_time_sorted['mesafe_cm'], mode='lines+markers', name='Mesafe (cm)'))
+    fig.update_layout(xaxis_title="Zaman", yaxis_title="Mesafe (cm)")
 
 # --- CALLBACK FONKSİYONLARI ---
 @app.callback(
