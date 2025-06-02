@@ -17,6 +17,9 @@ import numpy as np
 from scipy.spatial import ConvexHull
 from simplification.cutil import simplify_coords
 from sklearn.linear_model import RANSACRegressor
+from sklearn.cluster import DBSCAN
+import matplotlib.pyplot as plt
+
 
 # --- Sabitler ---
 try:
@@ -260,91 +263,103 @@ def add_sensor_position(fig):
     ))
 
 
+# app.py'ye eklenecek YENİ fonksiyonlar
+
+def analyze_polygon_properties(points):
+    """
+    Verilen bir nokta kümesinin (bir kümenin) dış çeperini analiz ederek
+    kare, dikdörtgen veya genel çokgen olup olmadığını belirler.
+    """
+    if len(points) < 3:
+        return "tanımlanamayan küçük bir nesne"
+
+    try:
+        hull = ConvexHull(points)
+        simplified_points = simplify_coords(points[hull.vertices], 3.0)
+        num_vertices = len(simplified_points) - 1
+
+        if num_vertices == 4:
+            # Kenar uzunluklarını ve açıları hesapla
+            sides = [np.linalg.norm(simplified_points[i] - simplified_points[i - 1]) for i in range(1, 4)]
+            sides.append(np.linalg.norm(simplified_points[0] - simplified_points[3]))
+
+            # Kenarların kabaca eşitliğini kontrol et (birbirinin %15'i dahilinde)
+            is_square = all(abs(s - np.mean(sides)) < 0.15 * np.mean(sides) for s in sides)
+            if is_square:
+                return "kare şeklinde bir nesne"
+
+            # Karşılıklı kenarların kabaca eşitliğini kontrol et
+            opposite_sides_1_equal = abs(sides[0] - sides[2]) < 0.15 * np.mean(sides)
+            opposite_sides_2_equal = abs(sides[1] - sides[3]) < 0.15 * np.mean(sides)
+            if opposite_sides_1_equal and opposite_sides_2_equal:
+                return "dikdörtgen şeklinde bir nesne"
+            else:
+                return "dörtgen bir nesne"
+
+        shape_map = {3: "üçgen bir nesne", 5: "beşgen bir nesne"}
+        return shape_map.get(num_vertices, f"{num_vertices} köşeli bir nesne")
+
+    except Exception:
+        return "tanımlanamayan bir nesne"
 
 
 def analyze_environment_shape(fig, df):
     """
-    Nokta bulutunu analiz ederek ortam şekli hakkında akıllı tahminler yapar.
-    Aynı zamanda ilgili şekilleri grafiğe çizer.
+    DBSCAN ile kümeleme yaparak nesneleri ve duvarları ayırır,
+    ardından her bir parçayı geometrik olarak analiz eder.
     """
     points = df[['y_cm', 'x_cm']].to_numpy()
+    if len(points) < 10:
+        return "Analiz için yetersiz veri."
 
-    # RANSAC için veriyi hazırla
-    X = points[:, 0].reshape(-1, 1)
-    y = points[:, 1]
+    # DBSCAN ile noktaları kümele
+    # eps: İki noktanın komşu sayılması için gereken maksimum mesafe (cm)
+    # min_samples: Bir noktanın merkez nokta sayılması için komşuluğunda gereken min. nokta
+    db = DBSCAN(eps=20, min_samples=5).fit(points)
+    labels = db.labels_
 
-    # --- 1. Koridor Tespiti ---
-    if len(points) > 20:  # Yeterli nokta varsa koridor ara
-        try:
-            ransac1 = RANSACRegressor(min_samples=10)
-            ransac1.fit(X, y)
-            inlier_mask1 = ransac1.inlier_mask_
-            outlier_mask1 = ~inlier_mask1
+    unique_labels = set(labels)
+    descriptions = []
 
-            # YENİ KONTROL: Kalan noktalar ikinci bir çizgi bulmak için yeterli mi?
-            if np.sum(outlier_mask1) > 10:
-                ransac2 = RANSACRegressor(min_samples=10)
-                ransac2.fit(X[outlier_mask1], y[outlier_mask1])
-                inlier_mask2 = ransac2.inlier_mask_
+    # Gürültü olmayan kümeleri analiz et (label -1 gürültüdür)
+    clusters = [points[labels == k] for k in unique_labels if k != -1]
+    if not clusters:
+        return "Belirgin bir yapı veya nesne bulunamadı."
 
-                slope1 = ransac1.estimator_.coef_[0]
-                slope2 = ransac2.estimator_.coef_[0]
+    # En büyük kümeyi ana ortam (duvar) olarak kabul et
+    clusters.sort(key=len, reverse=True)
+    main_environment_cluster = clusters[0]
 
-                if abs(np.arctan(slope1) - np.arctan(slope2)) < np.deg2rad(5):
-                    fig.add_trace(
-                        go.Scatter(x=X[inlier_mask1].flatten(), y=ransac1.predict(X[inlier_mask1]), mode='lines',
-                                   line=dict(color='cyan', width=4), name='Koridor Duvarı 1'))
-                    fig.add_trace(go.Scatter(x=X[outlier_mask1][inlier_mask2].flatten(),
-                                             y=ransac2.predict(X[outlier_mask1][inlier_mask2]), mode='lines',
-                                             line=dict(color='cyan', width=4), name='Koridor Duvarı 2'))
-                    return "Bir koridorda olabilirsin."
-        except Exception as e:
-            print(f"Koridor analizi hatası: {e}")
+    # Kalan kümeleri nesne olarak kabul et
+    object_clusters = clusters[1:]
 
-    # --- 2. Dikdörtgen Köşe Tespiti ---
-    if len(points) > 10:
-        try:
-            ransac_corner1 = RANSACRegressor(min_samples=5)
-            ransac_corner1.fit(X, y)
-            outlier_mask_corner1 = ~ransac_corner1.inlier_mask_
+    # Ana ortamı analiz et
+    main_shape = analyze_polygon_properties(main_environment_cluster)
+    descriptions.append(f"Ana ortam {main_shape} olarak görünüyor.")
 
-            # YENİ KONTROL: Kalan noktalar ikinci bir çizgi bulmak için yeterli mi?
-            if np.sum(outlier_mask_corner1) > 5:
-                ransac_corner2 = RANSACRegressor(min_samples=5)
-                ransac_corner2.fit(X[outlier_mask_corner1], y[outlier_mask_corner1])
-                slope_c1 = ransac_corner1.estimator_.coef_[0]
-                slope_c2 = ransac_corner2.estimator_.coef_[0]
+    # Nesneleri bildir
+    if object_clusters:
+        descriptions.append(f"Ayrıca ortamda {len(object_clusters)} adet nesne tespit edildi.")
 
-                angle_diff = abs(np.degrees(np.arctan(slope_c1)) - np.degrees(np.arctan(slope_c2)))
-                if 80 < angle_diff < 100 or 260 < angle_diff < 280:
-                    fig.add_trace(go.Scatter(x=X[ransac_corner1.inlier_mask_].flatten(),
-                                             y=ransac_corner1.predict(X[ransac_corner1.inlier_mask_]), mode='lines',
-                                             line=dict(color='orange', width=4), name='Oda Köşesi 1'))
-                    fig.add_trace(go.Scatter(x=X[~ransac_corner1.inlier_mask_].flatten(),
-                                             y=ransac_corner2.predict(X[~ransac_corner1.inlier_mask_]), mode='lines',
-                                             line=dict(color='orange', width=4), name='Oda Köşesi 2'))
-                    return "Dikdörtgensel bir odanın köşesindesin."
-        except Exception as e:
-            print(f"Köşe analizi hatası: {e}")
+    # Grafiğe kümeleri çiz
+    colors = plt.cm.get_cmap('viridis', len(unique_labels))
+    for k in unique_labels:
+        if k == -1:
+            # Gürültü noktalarını küçük gri yap
+            col = [0, 0, 0, 0.1]
+        else:
+            col = colors(k)
 
-    # --- 3. Dairesel Alan Tespiti ---
-    if np.std(df['mesafe_cm']) < 5:
-        return "Dairesel veya kavisli bir alandasın."
+        class_member_mask = (labels == k)
+        xy = points[class_member_mask]
+        fig.add_trace(go.Scatter(x=xy[:, 0], y=xy[:, 1], mode='markers',
+                                 marker=dict(
+                                     color=f'rgba({col[0] * 255},{col[1] * 255},{col[2] * 255},{col[3] if k == -1 else 1})',
+                                     size=8),
+                                 name=f'Küme {k}' if k != -1 else 'Gürültü'))
 
-    # --- 4. Genel Çokgen Tespiti (Fallback) ---
-    if len(points) >= 3:
-        hull = ConvexHull(points)
-        simplified_points = simplify_coords(points[hull.vertices], 3.0)
-        num_vertices = len(simplified_points) - 1
-        shape_map = {3: "Üçgen bir alandasın.", 4: "Dörtgen bir alandasın.", 5: "Beşgen bir alandasın."}
-        final_polygon_points = np.append(simplified_points, [simplified_points[0]], axis=0)
-        fig.add_trace(go.Scatter(x=final_polygon_points[:, 0], y=final_polygon_points[:, 1],
-                                 mode='lines', fill='none',
-                                 line=dict(color='rgba(0, 100, 255, 0.7)', dash='dashdot', width=2),
-                                 name='Genel Dış Çeper'))
-        return shape_map.get(num_vertices, f"{num_vertices} köşeli genel bir alandasın.")
-
-    return "Ortam şekli anlaşılamadı."
+    # Sonucu birleştirip döndür
+    return " ".join(descriptions)
 
 
 def update_polar_graph(fig, df):
@@ -601,9 +616,12 @@ def update_all_graphs(n_intervals):
             if len(df_valid) >= 2:
                 add_scan_rays(fig_map, df_valid)
                 add_sector_area(fig_map, df_valid)
+
+                # Akıllı analiz fonksiyonu burada çağrılıyor
                 estimation_text = analyze_environment_shape(fig_map, df_valid)
-                add_detected_points(fig_map, df_valid)
+
                 add_sensor_position(fig_map)
+
                 update_polar_graph(fig_polar, df_valid)
                 update_time_series_graph(fig_time, df_valid)
             else:
