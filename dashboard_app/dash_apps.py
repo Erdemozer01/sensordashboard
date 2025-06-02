@@ -750,7 +750,7 @@ def update_all_graphs(n_intervals):
         if conn: conn.close()
 
     fig_map.update_layout(
-        title_text='Ortamın 2D Haritası (2D Map of the Environment)',
+        title_text='Ortamın 2D Haritası',
         xaxis_title="X Mesafesi (cm)", yaxis_title="Y Mesafesi (cm)",
         yaxis_scaleanchor="x", yaxis_scaleratio=1, uirevision=id_to_plot,
         legend=dict(title_text='Gösterim Katmanları', orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1,
