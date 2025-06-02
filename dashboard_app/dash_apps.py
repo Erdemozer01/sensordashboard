@@ -327,7 +327,7 @@ def analyze_environment_shape(fig, df_valid):  # Parametre adı df -> df_valid o
         return "Analiz için yetersiz veri."
 
     # DBSCAN ile noktaları kümele
-    db = DBSCAN(eps=10, min_samples=3).fit(points_all)
+    db = DBSCAN(eps=15, min_samples=3).fit(points_all)
     labels = db.labels_
     unique_labels = set(labels)
 
