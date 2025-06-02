@@ -580,12 +580,15 @@ def update_system_card(n_intervals):
     [Input('interval-component-main', 'n_intervals')]
 )
 def update_all_graphs(n_intervals):
+
     conn, error_msg_conn = get_db_connection()
     id_to_plot = get_latest_scan_id_from_db(conn_param=conn) if conn else None
     fig_map = go.Figure()
     fig_polar = go.Figure(layout=go.Layout(title='Polar Grafik', uirevision=id_to_plot))
     fig_time = go.Figure(layout=go.Layout(title='Zaman Serisi - Mesafe', uirevision=id_to_plot))
-    estimation_text = "Veri bekleniyor..."
+
+
+
     if not conn or not id_to_plot:
         if conn: conn.close()
         fig_map.update_layout(
