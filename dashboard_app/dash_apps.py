@@ -614,7 +614,9 @@ def update_all_graphs(n_intervals):
             conn)
         if not df_points.empty:
             df_valid = df_points[(df_points['mesafe_cm'] > 1.0) & (df_points['mesafe_cm'] < 250.0)].copy()
+
             if len(df_valid) >= 2:
+
                 add_scan_rays(fig_map, df_valid)
                 add_sector_area(fig_map, df_valid)
 
