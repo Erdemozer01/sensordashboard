@@ -446,48 +446,43 @@ def update_system_card(n_intervals):
 def update_all_graphs(n_intervals):
     conn, error_msg_conn = get_db_connection()
     id_to_plot = get_latest_scan_id_from_db(conn_param=conn) if conn else None
-
+    
     # Grafikleri başlangıçta boş oluştur
     fig_map = go.Figure()
     fig_polar = go.Figure(layout=go.Layout(title='Polar Grafik', uirevision=id_to_plot))
     fig_time = go.Figure(layout=go.Layout(title='Zaman Serisi - Mesafe', uirevision=id_to_plot))
     estimation_text = "Tahmin: Veri Yok"
 
-    # Veritabanı veya tarama ID'si yoksa boş grafikler döndür
-    if not conn or not id_to_plot:
-        if conn: conn.close()
-        fig_map.update_layout(
-            title_text='Ortamın 2D Haritası (2D Map of the Environment)',
-            xaxis_title="X Mesafesi (cm)",
-            yaxis_title="Y Mesafesi (cm)"
-        )
-        return fig_map, fig_polar, fig_time, estimation_text
-
     try:
-        # Veritabanından ilgili taramanın noktalarını çek
-        df_points = pd.read_sql_query(f"SELECT x_cm, y_cm, angle_deg, mesafe_cm, timestamp FROM scan_points WHERE scan_id = {id_to_plot} ORDER BY angle_deg ASC", conn)
+        if not conn or not id_to_plot:
+            return fig_map, fig_polar, fig_time, estimation_text
+
+        # Veritabanından noktaları çek
+        df_points = pd.read_sql_query(
+            "SELECT x_cm, y_cm, angle_deg, mesafe_cm, timestamp FROM scan_points WHERE scan_id = ? ORDER BY angle_deg ASC",
+            conn,
+            params=(id_to_plot,)
+        )
 
         if not df_points.empty:
-            # Geçerli mesafe aralığındaki verileri filtrele
             df_valid = df_points[(df_points['mesafe_cm'] > 1.0) & (df_points['mesafe_cm'] < 250.0)].copy()
 
             if len(df_valid) >= 2:
-                # 1. TARAMA IŞINLARINI EKLE (Kesikli Çizgiler)
-                # Performans için tüm çizgileri tek bir 'trace' içinde çiziyoruz
+                # Tarama ışınlarını ekle
                 x_lines, y_lines = [], []
-                for index, row in df_valid.iterrows():
-                    x_lines.extend([0, row['y_cm'], None]) # Grafiğin X ekseni, bizim y_cm verimizdir
-                    y_lines.extend([0, row['x_cm'], None]) # Grafiğin Y ekseni, bizim x_cm verimizdir
+                for _, row in df_valid.iterrows():
+                    x_lines.extend([0, row['y_cm'], None])
+                    y_lines.extend([0, row['x_cm'], None])
 
                 fig_map.add_trace(go.Scatter(
                     x=x_lines,
                     y=y_lines,
                     mode='lines',
                     line=dict(color='rgba(255, 0, 0, 0.4)', dash='dash', width=1),
-                    showlegend=False # Bu dekoratif çizgileri açıklamada (legend) gösterme
+                    showlegend=False
                 ))
 
-                # 2. ALGILANAN NOKTALARI EKLE
+                # Algılanan noktaları ekle
                 fig_map.add_trace(go.Scatter(
                     x=df_valid['y_cm'],
                     y=df_valid['x_cm'],
@@ -502,7 +497,7 @@ def update_all_graphs(n_intervals):
                     name='Algılanan Noktalar (Detected Points)'
                 ))
 
-                # 3. SENSÖR POZİSYONUNU EKLE
+                # Sensör pozisyonunu ekle
                 fig_map.add_trace(go.Scatter(
                     x=[0],
                     y=[0],
@@ -511,14 +506,13 @@ def update_all_graphs(n_intervals):
                     name='Sensör Pozisyonu (Sensor Position)'
                 ))
 
-                # Polar ve Zaman Grafikleri
+                # Polar grafik güncelle
                 fig_polar.add_trace(go.Scatterpolar(
                     r=df_valid['mesafe_cm'],
                     theta=df_valid['angle_deg'],
                     mode='lines+markers',
                     name='Mesafe'
                 ))
-                
                 fig_polar.update_layout(
                     polar=dict(
                         radialaxis=dict(visible=True, range=[0, 200]),
@@ -526,7 +520,7 @@ def update_all_graphs(n_intervals):
                     )
                 )
 
-                # Zaman Serisi Grafiği
+                # Zaman serisi grafiğini güncelle
                 df_time_sorted = df_valid.sort_values(by='timestamp')
                 datetime_series = pd.to_datetime(df_time_sorted['timestamp'], unit='s')
                 fig_time.add_trace(go.Scatter(
@@ -540,38 +534,35 @@ def update_all_graphs(n_intervals):
                     yaxis_title="Mesafe (cm)"
                 )
 
-                # Şekil Tahmini (Convex Hull)
+                # Şekil tahmini
                 points_for_hull = df_valid[['y_cm', 'x_cm']].to_numpy()
                 if len(points_for_hull) >= 3:
                     hull = ConvexHull(points_for_hull)
                     simplified_points = simplify_coords(points_for_hull[hull.vertices], 3.0)
                     num_vertices = len(simplified_points) - 1
-                    shape_map = {
-                        3: "Üçgensel Alan",
-                        4: "Dörtgensel Alan",
-                        5: "Beşgensel Alan"
-                    }
+                    shape_map = {3: "Üçgensel Alan", 4: "Dörtgensel Alan", 5: "Beşgensel Alan"}
                     estimation_text = shape_map.get(num_vertices, f"{num_vertices} Köşeli Alan")
-                else:
-                    estimation_text = "Tahmin: Yetersiz Veri"
 
-                # 4. GRAFİĞİN SON GÖRÜNÜMÜNÜ AYARLA
-                fig_map.update_layout(
-                    title_text='Ortamın 2D Haritası (2D Map of the Environment)',
-                    xaxis_title="X Mesafesi (cm)",
-                    yaxis_title="Y Mesafesi (cm)",
-                    yaxis_scaleanchor="x",
-                    yaxis_scaleratio=1,
-                    legend_title_text='Gösterim (Legend)',
-                    uirevision=id_to_plot
-                )
+        # Grafiğin son görünümünü ayarla
+        fig_map.update_layout(
+            title_text='Ortamın 2D Haritası (2D Map of the Environment)',
+            xaxis_title="X Mesafesi (cm)",
+            yaxis_title="Y Mesafesi (cm)",
+            yaxis_scaleanchor="x",
+            yaxis_scaleratio=1,
+            legend_title_text='Gösterim (Legend)',
+            uirevision=id_to_plot
+        )
 
     except Exception as e:
-        print(f"HATA: Grafik güncelleme hatası: {e}")
-        estimation_text = "Grafik Hatası"
-
+        print(f"HATA: Grafikleme hatası: {e}")
+        estimation_text = "Hata"
+        
     finally:
-        return fig_map, fig_polar, fig_time, estimation_text
+        if conn:
+            conn.close()
+        
+    return fig_map, fig_polar, fig_time, estimation_text
 
 
 @app.callback(
