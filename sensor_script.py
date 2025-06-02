@@ -96,18 +96,22 @@ def init_hardware():
     return hardware_ok
 
 
+# sensor_script.py -> init_db_for_scan fonksiyonu içinde
+
 def init_db_for_scan():
     global current_scan_id_global
     conn = None
     try:
         conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
+        # BUZZER_DISTANCE_SETTING SÜTUNUNUN BURADA OLDUĞUNDAN EMİN OLUN:
         cursor.execute('''
                        CREATE TABLE IF NOT EXISTS servo_scans
                        (id INTEGER PRIMARY KEY AUTOINCREMENT, start_time REAL UNIQUE, status TEXT,
                         hesaplanan_alan_cm2 REAL DEFAULT NULL, cevre_cm REAL DEFAULT NULL,
                         max_genislik_cm REAL DEFAULT NULL, max_derinlik_cm REAL DEFAULT NULL,
-                        start_angle_setting REAL, end_angle_setting REAL, step_angle_setting REAL)''')
+                        start_angle_setting REAL, end_angle_setting REAL, step_angle_setting REAL,
+                        buzzer_distance_setting REAL)''') # <--- BU SÜTUN
         cursor.execute('''
                        CREATE TABLE IF NOT EXISTS scan_points
                        (id INTEGER PRIMARY KEY AUTOINCREMENT, scan_id INTEGER, angle_deg REAL, mesafe_cm REAL,
@@ -115,11 +119,12 @@ def init_db_for_scan():
                         FOREIGN KEY(scan_id) REFERENCES servo_scans(id))''')
         cursor.execute("UPDATE servo_scans SET status = 'interrupted_prior_run' WHERE status = 'running'")
         scan_start_time = time.time()
+        # BUZZER_DISTANCE_CM'NİN BURADA EKLENDİĞİNDEN EMİN OLUN:
         cursor.execute("""
                        INSERT INTO servo_scans
-                       (start_time, status, start_angle_setting, end_angle_setting, step_angle_setting)
-                       VALUES (?, ?, ?, ?, ?)""",
-                       (scan_start_time, 'running', SCAN_START_ANGLE, SCAN_END_ANGLE, SCAN_STEP_ANGLE))
+                       (start_time, status, start_angle_setting, end_angle_setting, step_angle_setting, buzzer_distance_setting)
+                       VALUES (?, ?, ?, ?, ?, ?)""", # <--- 6. SORU İŞARETİ
+                       (scan_start_time, 'running', SCAN_START_ANGLE, SCAN_END_ANGLE, SCAN_STEP_ANGLE, BUZZER_DISTANCE_CM)) # <--- 6. DEĞER
         current_scan_id_global = cursor.lastrowid
         conn.commit()
         print(f"[{os.getpid()}] Veritabanı '{DB_PATH}' hazırlandı. Yeni tarama ID: {current_scan_id_global}")
