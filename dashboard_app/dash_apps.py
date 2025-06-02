@@ -264,7 +264,6 @@ def add_sensor_position(fig):
     ))
 
 
-# app.py'ye eklenecek YENİ fonksiyonlar
 
 def analyze_polygon_properties(points):
     """
@@ -280,27 +279,59 @@ def analyze_polygon_properties(points):
         num_vertices = len(simplified_points) - 1
 
         if num_vertices == 4:
-            # Kenar uzunluklarını ve açıları hesapla
-            sides = [np.linalg.norm(simplified_points[i] - simplified_points[i - 1]) for i in range(1, 4)]
-            sides.append(np.linalg.norm(simplified_points[0] - simplified_points[3]))
+            # --- YENİ: Açı Hesaplama Mantığı ---
+            angles = []
+            for i in range(num_vertices):
+                # Köşe noktalarını al (önceki, şimdiki, sonraki)
+                p_prev = simplified_points[i - 1]
+                p_curr = simplified_points[i]
+                p_next = simplified_points[(i + 1) % num_vertices]
 
-            # Kenarların kabaca eşitliğini kontrol et (birbirinin %15'i dahilinde)
-            is_square = all(abs(s - np.mean(sides)) < 0.15 * np.mean(sides) for s in sides)
-            if is_square:
-                return "kare şeklinde bir nesne"
+                # Vektörleri oluştur
+                v1 = p_prev - p_curr
+                v2 = p_next - p_curr
 
-            # Karşılıklı kenarların kabaca eşitliğini kontrol et
-            opposite_sides_1_equal = abs(sides[0] - sides[2]) < 0.15 * np.mean(sides)
-            opposite_sides_2_equal = abs(sides[1] - sides[3]) < 0.15 * np.mean(sides)
-            if opposite_sides_1_equal and opposite_sides_2_equal:
-                return "dikdörtgen şeklinde bir nesne"
+                # Vektör normlarını (uzunluklarını) al
+                norm_v1 = np.linalg.norm(v1)
+                norm_v2 = np.linalg.norm(v2)
+
+                # Sıfıra bölünmeyi önlemek için kontrol
+                if norm_v1 == 0 or norm_v2 == 0:
+                    continue
+
+                # Açı için dot product (iç çarpım) formülünü kullan
+                dot_product = np.dot(v1, v2)
+                # Kayan nokta hatalarını önlemek için değeri -1 ile 1 arasında kırp
+                cos_angle = np.clip(dot_product / (norm_v1 * norm_v2), -1.0, 1.0)
+                angle = np.degrees(np.arccos(cos_angle))
+                angles.append(angle)
+
+            # Tüm açıların 90 dereceye yakın olup olmadığını kontrol et (±12 derece tolerans)
+            are_angles_right = all(78 < ang < 102 for ang in angles)
+
+            # --- Kenar Hesaplama Mantığı (Mevcut) ---
+            sides = [np.linalg.norm(simplified_points[i] - simplified_points[(i + 1) % num_vertices]) for i in
+                     range(num_vertices)]
+
+            # --- DÜZELTİLMİŞ KARAR MANTIĞI ---
+            if are_angles_right:
+                # AÇILAR DİK ise, şimdi kenarları kontrol et
+                # Kenarların kabaca eşitliğini kontrol et (%20 tolerans)
+                is_sides_equal = all(abs(s - np.mean(sides)) < 0.20 * np.mean(sides) for s in sides)
+                if is_sides_equal:
+                    return "kare şeklinde bir nesne"  # Doğru açılar VE eşit kenarlar
+                else:
+                    return "dikdörtgen şeklinde bir nesne"  # Doğru açılar AMA farklı kenarlar
             else:
+                # Açılar dik değilse, genel bir dörtgendir
                 return "dörtgen bir nesne"
 
+        # Diğer çokgenler için fallback
         shape_map = {3: "üçgen bir nesne", 5: "beşgen bir nesne"}
         return shape_map.get(num_vertices, f"{num_vertices} köşeli bir nesne")
 
-    except Exception:
+    except Exception as e:
+        print(f"Poligon analiz hatası: {e}")
         return "tanımlanamayan bir nesne"
 
 
