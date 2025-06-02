@@ -74,14 +74,11 @@ control_panel = dbc.Card([
         dbc.InputGroup([dbc.InputGroupText("Buzzer Mes. (cm)", style={"width": "120px"}),
                         dbc.Input(id="buzzer-distance-input", type="number", value=DEFAULT_UI_BUZZER_DISTANCE, min=0,
                                   max=200, step=1)], className="mb-2"),
-        # --- YENİ MOTOR YÖNÜ KONTROLÜ ---
         dbc.Checkbox(id="invert-motor-checkbox", label="Motor Yönünü Ters Çevir", value=DEFAULT_UI_INVERT_MOTOR,
                      className="mt-2 mb-2"),
-        # ---------------------------------
     ])
 ])
 
-# ... (stats_panel, system_card, export_card, analysis_card, estimation_card, visualization_tabs öncekiyle aynı) ...
 stats_panel = dbc.Card([dbc.CardHeader("Anlık Sensör Değerleri", className="bg-info text-white"), dbc.CardBody(dbc.Row(
     [dbc.Col(html.Div([html.H6("Mevcut Açı:"), html.H4(id='current-angle', children="--°")]), width=3,
              className="text-center border-end"),
@@ -146,9 +143,8 @@ app.layout = dbc.Container(fluid=True, children=[
 
 # ==============================================================================
 # --- YARDIMCI FONKSİYONLAR ---
-# (Bu fonksiyonlar öncekiyle aynı, değişiklik yok)
 # ==============================================================================
-def is_process_running(pid):  # ...
+def is_process_running(pid):
     if pid is None: return False
     try:
         return psutil.pid_exists(pid)
@@ -156,7 +152,7 @@ def is_process_running(pid):  # ...
         return False
 
 
-def get_db_connection():  # ...
+def get_db_connection():
     try:
         if not os.path.exists(DB_PATH): return None, f"Veritabanı dosyası ({DB_PATH}) bulunamadı."
         conn = sqlite3.connect(f'file:{DB_PATH}?mode=ro', uri=True, timeout=5)
@@ -167,7 +163,7 @@ def get_db_connection():  # ...
         return None, f"DB Bağlantı Hatası: {e}"
 
 
-def get_latest_scan_id_from_db(conn_param=None):  # ...
+def get_latest_scan_id_from_db(conn_param=None):
     internal_conn, conn_to_use, latest_id = False, conn_param, None
     if not conn_to_use:
         conn_to_use, error = get_db_connection()
@@ -189,7 +185,7 @@ def get_latest_scan_id_from_db(conn_param=None):  # ...
     return latest_id
 
 
-def add_scan_rays(fig, df):  # ...
+def add_scan_rays(fig, df):
     x_lines, y_lines = [], []
     for _, row in df.iterrows(): x_lines.extend([0, row['y_cm'], None]); y_lines.extend([0, row['x_cm'], None])
     fig.add_trace(
@@ -197,32 +193,32 @@ def add_scan_rays(fig, df):  # ...
                    showlegend=False))
 
 
-def add_sector_area(fig, df):  # ...
+def add_sector_area(fig, df):
     poly_x, poly_y = df['y_cm'].tolist(), df['x_cm'].tolist()
     fig.add_trace(
         go.Scatter(x=[0] + poly_x, y=[0] + poly_y, mode='lines', fill='toself', fillcolor='rgba(255,0,0,0.15)',
                    line=dict(color='rgba(255,0,0,0.4)'), name='Taranan Sektör'))
 
 
-def add_sensor_position(fig):  # ...
+def add_sensor_position(fig):
     fig.add_trace(
         go.Scatter(x=[0], y=[0], mode='markers', marker=dict(size=12, symbol='circle', color='red'), name='Sensör'))
 
 
-def update_polar_graph(fig, df):  # ...
+def update_polar_graph(fig, df):
     fig.add_trace(go.Scatterpolar(r=df['mesafe_cm'], theta=df['derece'], mode='lines+markers', name='Mesafe'))
     fig.update_layout(
         polar=dict(radialaxis=dict(visible=True, range=[0, 250]), angularaxis=dict(direction="clockwise", period=360)))
 
 
-def update_time_series_graph(fig, df):  # ...
+def update_time_series_graph(fig, df):
     df_s = df.sort_values(by='timestamp')
     fig.add_trace(go.Scatter(x=pd.to_datetime(df_s['timestamp'], unit='s'), y=df_s['mesafe_cm'], mode='lines+markers',
                              name='Mesafe'))
     fig.update_layout(xaxis_title="Zaman", yaxis_title="Mesafe (cm)")
 
 
-def find_clearest_path(df_valid):  # ...
+def find_clearest_path(df_valid):
     if df_valid.empty: return "En açık yol için veri yok."
     try:
         df_filtered = df_valid[df_valid['mesafe_cm'] > 0]
@@ -233,7 +229,7 @@ def find_clearest_path(df_valid):  # ...
         return f"En açık yol hesaplanamadı: {e}"
 
 
-def analyze_polar_regression(df_valid):  # ...
+def analyze_polar_regression(df_valid):
     if len(df_valid) < 5: return None, "Polar regresyon için yetersiz veri."
     X, y = df_valid[['derece']].values, df_valid['mesafe_cm'].values
     try:
@@ -248,30 +244,62 @@ def analyze_polar_regression(df_valid):  # ...
         return None, f"Polar regresyon hatası: {e}"
 
 
-def analyze_environment_shape(fig, df_valid):  # ...
+def analyze_environment_shape(fig, df_valid):
     points_all = df_valid[['y_cm', 'x_cm']].to_numpy()
     if len(points_all) < 10:
-        df_valid['cluster'] = -2;
+        df_valid['cluster'] = -2  # Analiz için yetersiz veri olduğunu belirt
         return "Analiz için yetersiz veri.", df_valid
-    db = DBSCAN(eps=15, min_samples=3).fit(points_all)
-    labels = db.labels_;
-    df_valid['cluster'] = labels
+
+    db = DBSCAN(eps=15, min_samples=3).fit(points_all)  # eps ve min_samples ayarlanabilir
+    labels = db.labels_
+    df_valid['cluster'] = labels  # Küme etiketlerini dataframe'e ekle
+
     desc = []
     unique_clusters = set(labels)
-    num_actual_clusters = len(unique_clusters - {-1})
+    num_actual_clusters = len(unique_clusters - {-1})  # Gürültü olmayan küme sayısı
+
     if num_actual_clusters > 0:
         desc.append(f"{num_actual_clusters} potansiyel nesne kümesi bulundu.")
     else:
         desc.append("Belirgin bir nesne kümesi bulunamadı (DBSCAN).")
-    colors = plt.cm.get_cmap('viridis', len(unique_clusters) if len(unique_clusters) > 0 else 1)
+
+    # RANSAC ile duvar/koridor/köşe tespiti buraya eklenebilir (önceki versiyonlardaki gibi)
+
+    # Kümeleri grafiğe çiz
+    # Renk haritası için N değeri, gürültü olmayan küme sayısına göre ayarlanabilir veya tüm unique_clusters'a göre.
+    # Eğer sadece gürültü varsa (unique_clusters = {-1}), len(unique_clusters) 1 olur, bu da cmap için geçerlidir.
+    num_colors_for_map = len(unique_clusters) if len(unique_clusters) > 0 else 1
+    colors = plt.cm.get_cmap('viridis', num_colors_for_map)
+
     for k_label in unique_clusters:
-        pts = points_all[labels == k_label]
-        is_noise = (k_label == -1)
-        clr, sz, nm = ('rgba(128,128,128,0.3)', 5, 'Gürültü/Diğer') if is_noise else (
-            f'rgba({colors(k_label / (len(unique_clusters) - 1 if len(unique_clusters) > 1 else 0))[0] * 255:.0f},{colors(k_label / (len(unique_clusters) - 1 if len(unique_clusters) > 1 else 0))[1] * 255:.0f},{colors(k_label / (len(unique_clusters) - 1 if len(unique_clusters) > 1 else 0))[2] * 255:.0f},0.9)',
-            8, f'Küme {k_label}')
-        fig.add_trace(go.Scatter(x=pts[:, 0], y=pts[:, 1], mode='markers', marker=dict(color=clr, size=sz), name=nm,
-                                 customdata=[k_label] * len(pts)))
+        cluster_points_to_plot = points_all[labels == k_label]
+        if k_label == -1:  # Gürültü noktaları
+            color_val, point_size, name_val = 'rgba(128,128,128,0.3)', 5, 'Gürültü/Diğer'
+        else:  # Küme noktaları
+            # --- DÜZELTİLMİŞ NORM_K HESAPLAMASI ---
+            num_non_noise_clusters_for_norm = len(unique_clusters - {-1})
+            if num_non_noise_clusters_for_norm > 1:
+                # DBSCAN genellikle 0, 1, 2... şeklinde etiketler verir.
+                # Eğer etiketler farklıysa (örn: 0, 2, 5), bunları sıralı bir indekse eşlemek gerekebilir.
+                # Şimdilik standart 0-indeksli etiketler varsayılıyor.
+                norm_k = k_label / (num_non_noise_clusters_for_norm - 1)
+            elif num_non_noise_clusters_for_norm == 1:  # Sadece bir adet gürültü olmayan küme var
+                norm_k = 0.0  # Tek küme için ilk rengi kullan
+            else:  # Bu durum k_label != -1 iken olmamalı, ama güvenlik için
+                norm_k = 0.0
+
+            norm_k = np.clip(norm_k, 0.0, 1.0)  # Değerin [0,1] aralığında kalmasını sağla
+            # --- DÜZELTİLMİŞ NORM_K HESAPLAMASI SONU ---
+
+            raw_col = colors(norm_k)
+            color_val = f'rgba({raw_col[0] * 255:.0f},{raw_col[1] * 255:.0f},{raw_col[2] * 255:.0f},0.9)'
+            point_size, name_val = 8, f'Küme {k_label}'
+
+        fig.add_trace(go.Scatter(
+            x=cluster_points_to_plot[:, 0], y=cluster_points_to_plot[:, 1], mode='markers',
+            marker=dict(color=color_val, size=point_size), name=name_val,
+            customdata=[k_label] * len(cluster_points_to_plot)  # Tıklama için küme etiketini sakla
+        ))
     return " ".join(desc), df_valid
 
 
@@ -283,132 +311,113 @@ def analyze_environment_shape(fig, df_valid):  # ...
     [Input('start-scan-button', 'n_clicks')],
     [State('start-angle-input', 'value'), State('end-angle-input', 'value'),
      State('step-angle-input', 'value'), State('buzzer-distance-input', 'value'),
-     State('invert-motor-checkbox', 'value')],  # YENİ STATE
+     State('invert-motor-checkbox', 'value')],
     prevent_initial_call=True)
 def handle_start_scan_script(n_clicks_start, start_angle_val, end_angle_val, step_angle_val, buzzer_distance_val,
-                             invert_motor_val):  # Yeni argüman
+                             invert_motor_val):
     if n_clicks_start == 0: return no_update
+    start_a, end_a, step_a, buzzer_d, invert_dir = \
+        (start_angle_val if start_angle_val is not None else DEFAULT_UI_SCAN_START_ANGLE), \
+            (end_angle_val if end_angle_val is not None else DEFAULT_UI_SCAN_END_ANGLE), \
+            (step_angle_val if step_angle_val is not None else DEFAULT_UI_SCAN_STEP_ANGLE), \
+            (buzzer_distance_val if buzzer_distance_val is not None else DEFAULT_UI_BUZZER_DISTANCE), \
+            bool(invert_motor_val)
 
-    start_a = start_angle_val if start_angle_val is not None else DEFAULT_UI_SCAN_START_ANGLE
-    end_a = end_angle_val if end_angle_val is not None else DEFAULT_UI_SCAN_END_ANGLE
-    step_a = step_angle_val if step_angle_val is not None else DEFAULT_UI_SCAN_STEP_ANGLE
-    buzzer_d = buzzer_distance_val if buzzer_distance_val is not None else DEFAULT_UI_BUZZER_DISTANCE
-    invert_direction = bool(invert_motor_val)  # Checkbox değerini boolean'a çevir
-
-    if not (0 <= start_a <= 359 and 0 <= end_a <= 359): return dbc.Alert("Açılar 0-359 arasında olmalıdır!",
+    if not (0 <= start_a <= 359 and 0 <= end_a <= 359): return dbc.Alert("Açılar 0-359 arasında olmalı!",
                                                                          color="danger", duration=None)
-    if not (0.1 <= abs(step_a) <= 45): return dbc.Alert("Adım açısı (mutlak değer) 0.1-45 arasında olmalıdır!",
-                                                        color="danger", duration=None)
-    if not (0 <= buzzer_d <= 200): return dbc.Alert("Buzzer mesafesi 0-200 cm arasında olmalıdır!", color="danger",
+    if not (0.1 <= abs(step_a) <= 45): return dbc.Alert("Adım açısı 0.1-45 arasında olmalı!", color="danger",
+                                                        duration=None)
+    if not (0 <= buzzer_d <= 200): return dbc.Alert("Buzzer mesafesi 0-200cm arasında olmalı!", color="danger",
                                                     duration=None)
 
-    current_pid = None
+    pid = None
     if os.path.exists(SENSOR_SCRIPT_PID_FILE):
         try:
             with open(SENSOR_SCRIPT_PID_FILE, 'r') as pf:
-                pid_str = pf.read().strip(); current_pid = int(pid_str) if pid_str else None
-        except (IOError, ValueError):
-            current_pid = None
+                pid_str = pf.read().strip(); pid = int(pid_str) if pid_str else None
+        except:
+            pid = None
+    if pid and is_process_running(pid): return dbc.Alert(f"Sensör betiği çalışıyor (PID:{pid}). Önce durdurun.",
+                                                         color="warning", duration=None)
 
-    if current_pid and is_process_running(current_pid):
-        return dbc.Alert(f"Sensör betiği zaten çalışıyor (PID: {current_pid}). Önce durdurun.", color="warning",
-                         duration=None)
-
-    for f_path in [SENSOR_SCRIPT_LOCK_FILE, SENSOR_SCRIPT_PID_FILE]:
-        if os.path.exists(f_path):
+    for fp in [SENSOR_SCRIPT_LOCK_FILE, SENSOR_SCRIPT_PID_FILE]:
+        if os.path.exists(fp):
             try:
-                os.remove(f_path)
+                os.remove(fp)
             except OSError as e:
-                return dbc.Alert(f"Kalıntı dosya ({f_path}) silinemedi: {e}. Elle silin.", color="danger",
-                                 duration=None)
+                return dbc.Alert(f"Kalıntı dosya ({fp}) silinemedi: {e}.", color="danger", duration=None)
     try:
-        python_executable = sys.executable
+        py_exec = sys.executable
         if not os.path.exists(SENSOR_SCRIPT_PATH): return dbc.Alert(f"Sensör betiği bulunamadı: {SENSOR_SCRIPT_PATH}",
                                                                     color="danger", duration=None)
-
-        cmd = [
-            python_executable, SENSOR_SCRIPT_PATH,
-            "--start_angle", str(start_a), "--end_angle", str(end_a),
-            "--step_angle", str(step_a), "--buzzer_distance", str(buzzer_d),
-            "--invert_motor_direction", str(invert_direction)  # YENİ ARGÜMAN
-        ]
-        log_file_path = os.path.join(PROJECT_ROOT_DIR, 'sensor_script.log')
-
-        with open(log_file_path, 'w') as log_file:
-            subprocess.Popen(cmd, start_new_session=True, stdout=log_file, stderr=log_file)
+        cmd = [py_exec, SENSOR_SCRIPT_PATH, "--start_angle", str(start_a), "--end_angle", str(end_a), "--step_angle",
+               str(step_a), "--buzzer_distance", str(buzzer_d), "--invert_motor_direction", str(invert_dir)]
+        log_path = os.path.join(PROJECT_ROOT_DIR, 'sensor_script.log')
+        with open(log_path, 'w') as log_f:
+            subprocess.Popen(cmd, start_new_session=True, stdout=log_f, stderr=log_f)
         time.sleep(2.5)
-
         if os.path.exists(SENSOR_SCRIPT_PID_FILE):
             with open(SENSOR_SCRIPT_PID_FILE, 'r') as pf_new:
-                new_pid_str = pf_new.read().strip()
+                new_pid = pf_new.read().strip()
             return dbc.Alert(
-                f"Sensör betiği başlatıldı (PID: {new_pid_str}). Motor Yönü Ters Çevirme: {'Aktif' if invert_direction else 'Pasif'}",
+                f"Sensör betiği başlatıldı (PID:{new_pid}). Yön Ters Çevirme: {'Aktif' if invert_dir else 'Pasif'}",
                 color="success")
         else:
-            log_content_display = f"Sensör betiği PID dosyası ({SENSOR_SCRIPT_PID_FILE}) oluşturmadı. "
-            if os.path.exists(log_file_path):
+            log_disp = f"PID dosyası ({SENSOR_SCRIPT_PID_FILE}) oluşmadı. "
+            if os.path.exists(log_path):
                 try:
-                    with open(log_file_path, 'r') as f_log:
-                        lines = f_log.readlines()
-                        last_lines_raw = "".join(lines[-10:])
-                        last_lines_display = (last_lines_raw[:500] + '...') if len(
-                            last_lines_raw) > 500 else last_lines_raw
-                        if last_lines_display.strip():
-                            log_content_display += "Log dosyasından son satırlar:"
-                            return dbc.Alert([html.Span(log_content_display), html.Br(), html.Pre(last_lines_display,
-                                                                                                  style={
-                                                                                                      'whiteSpace': 'pre-wrap',
-                                                                                                      'wordBreak': 'break-all',
-                                                                                                      'maxHeight': '150px',
-                                                                                                      'overflowY': 'auto',
-                                                                                                      'backgroundColor': '#f8f9fa',
-                                                                                                      'border': '1px solid #dee2e6',
-                                                                                                      'padding': '0.5rem',
-                                                                                                      'fontSize': '0.8em'})],
-                                             color="danger", duration=None)
-                        else:
-                            log_content_display += f"'{os.path.basename(log_file_path)}' dosyası boş."
-                except Exception as e_log:
-                    log_content_display += f"Log dosyası okunurken hata: {e_log}"
+                    with open(log_path, 'r') as f_log:
+                        lines = "".join(f_log.readlines()[-10:]);log_disp_detail = (lines[:500] + '...') if len(
+                            lines) > 500 else lines
+                    if log_disp_detail.strip():
+                        log_disp += "Logdan son satırlar:"; return dbc.Alert([html.Span(log_disp), html.Br(),
+                                                                              html.Pre(log_disp_detail,
+                                                                                       style={'whiteSpace': 'pre-wrap',
+                                                                                              'maxHeight': '150px',
+                                                                                              'overflowY': 'auto',
+                                                                                              'fontSize': '0.8em'})],
+                                                                             color="danger", duration=None)
+                    else:
+                        log_disp += f"'{os.path.basename(log_path)}' boş."
+                except Exception as e_l:
+                    log_disp += f"Log okuma hatası: {e_l}"
             else:
-                log_content_display += f"Log dosyası ('{os.path.basename(log_file_path)}') bulunamadı."
-            return dbc.Alert(log_content_display, color="danger", duration=None)
+                log_disp += f"Log dosyası ('{os.path.basename(log_path)}') bulunamadı."
+            return dbc.Alert(log_disp, color="danger", duration=None)
     except Exception as e:
-        return dbc.Alert(f"Sensör betiği başlatılırken hata: {str(e)}", color="danger", duration=None)
+        return dbc.Alert(f"Sensör betiği başlatma hatası: {e}", color="danger", duration=None)
 
 
-# ... (handle_stop_scan_script, update_realtime_values, update_analysis_panel, update_system_card, export_csv_callback, export_excel_callback, render_and_update_data_table, update_all_graphs, display_cluster_info callback'leri öncekiyle aynı)
 @app.callback(Output('scan-status-message', 'children', allow_duplicate=True), [Input('stop-scan-button', 'n_clicks')],
               prevent_initial_call=True)
-def handle_stop_scan_script(n_clicks_stop):  # ... (içerik aynı)
-    if n_clicks_stop == 0: return no_update
-    pid_to_kill = None
+def handle_stop_scan_script(n):
+    if n == 0: return no_update; pid_kill = None
     if os.path.exists(SENSOR_SCRIPT_PID_FILE):
         try:
             with open(SENSOR_SCRIPT_PID_FILE, 'r') as pf:
-                pid_str = pf.read().strip(); pid_to_kill = int(pid_str) if pid_str else None
-        except (IOError, ValueError):
-            pid_to_kill = None
-    if pid_to_kill and is_process_running(pid_to_kill):
+                pid_s = pf.read().strip();pid_kill = int(pid_s) if pid_s else None
+        except:
+            pid_kill = None
+    if pid_kill and is_process_running(pid_kill):
         try:
-            os.kill(pid_to_kill, signal.SIGTERM);
-            time.sleep(2.0)
-            if is_process_running(pid_to_kill): os.kill(pid_to_kill, signal.SIGKILL); time.sleep(0.5)
-            if not is_process_running(pid_to_kill):
-                for f_path in [SENSOR_SCRIPT_PID_FILE, SENSOR_SCRIPT_LOCK_FILE]:
-                    if os.path.exists(f_path): os.remove(f_path)
-                return dbc.Alert(f"Sensör betiği (PID: {pid_to_kill}) durduruldu.", color="info")
+            os.kill(pid_kill, signal.SIGTERM);
+            time.sleep(2)
+            if is_process_running(pid_kill): os.kill(pid_kill, signal.SIGKILL);time.sleep(0.5)
+            if not is_process_running(pid_kill):
+                for fp in [SENSOR_SCRIPT_PID_FILE, SENSOR_SCRIPT_LOCK_FILE]:
+                    if os.path.exists(fp): os.remove(fp)
+                return dbc.Alert(f"Sensör betiği (PID:{pid_kill}) durduruldu.", color="info")
             else:
-                return dbc.Alert(f"Sensör betiği (PID: {pid_to_kill}) durdurulamadı!", color="danger", duration=None)
+                return dbc.Alert(f"Sensör betiği (PID:{pid_kill}) durdurulamadı!", color="danger", duration=None)
         except ProcessLookupError:
-            for f_path in [SENSOR_SCRIPT_PID_FILE, SENSOR_SCRIPT_LOCK_FILE]:
-                if os.path.exists(f_path): os.remove(f_path)
-            return dbc.Alert(f"Sensör betiği (PID: {pid_to_kill}) zaten çalışmıyordu.", color="warning")
+            for fp in [SENSOR_SCRIPT_PID_FILE, SENSOR_SCRIPT_LOCK_FILE]:
+                if os.path.exists(fp): os.remove(fp)
+            return dbc.Alert(f"Sensör betiği (PID:{pid_kill}) zaten çalışmıyordu.", color="warning")
         except Exception as e:
-            return dbc.Alert(f"Sensör betiği durdurulurken hata: {e}", color="danger", duration=None)
+            return dbc.Alert(f"Sensör betiği durdurma hatası:{e}", color="danger", duration=None)
     else:
-        for f_path in [SENSOR_SCRIPT_PID_FILE, SENSOR_SCRIPT_LOCK_FILE]:
-            if os.path.exists(f_path): os.remove(f_path)
+        for fp in [SENSOR_SCRIPT_PID_FILE, SENSOR_SCRIPT_LOCK_FILE]:
+            if os.path.exists(fp): os.remove(fp)
         return dbc.Alert("Çalışan sensör betiği bulunamadı.", color="warning")
 
 
@@ -416,33 +425,33 @@ def handle_stop_scan_script(n_clicks_stop):  # ... (içerik aynı)
     [Output('current-angle', 'children'), Output('current-distance', 'children'), Output('current-speed', 'children'),
      Output('current-distance-col', 'style'), Output('max-detected-distance', 'children')],
     [Input('interval-component-main', 'n_intervals')])
-def update_realtime_values(n_intervals):  # ... (içerik aynı)
-    conn, error = get_db_connection();
+def update_realtime_values(n):
+    conn, err = get_db_connection();
     angle_s, dist_s, speed_s, max_dist_s = "--°", "-- cm", "-- cm/s", "-- cm";
     dist_style = {'padding': '10px', 'transition': 'background-color 0.5s ease', 'borderRadius': '5px'}
-    if error: return angle_s, dist_s, speed_s, dist_style, max_dist_s
+    if err: return angle_s, dist_s, speed_s, dist_style, max_dist_s
     if conn:
         try:
-            latest_id = get_latest_scan_id_from_db(conn)
-            if latest_id:
-                q_curr = f"SELECT mesafe_cm, derece, hiz_cm_s FROM scan_points WHERE scan_id = {latest_id} ORDER BY id DESC LIMIT 1";
+            lid = get_latest_scan_id_from_db(conn)
+            if lid:
+                q_curr = f"SELECT mesafe_cm,derece,hiz_cm_s FROM scan_points WHERE scan_id={lid} ORDER BY id DESC LIMIT 1";
                 df_p = pd.read_sql_query(q_curr, conn)
-                q_set = f"SELECT buzzer_distance_setting FROM servo_scans WHERE id = {latest_id}";
+                q_set = f"SELECT buzzer_distance_setting FROM servo_scans WHERE id={lid}";
                 df_set = pd.read_sql_query(q_set, conn)
-                buzzer_thr = float(df_set['buzzer_distance_setting'].iloc[0]) if not df_set.empty and pd.notnull(
+                b_thr = float(df_set['buzzer_distance_setting'].iloc[0]) if not df_set.empty and pd.notnull(
                     df_set['buzzer_distance_setting'].iloc[0]) else None
                 if not df_p.empty:
                     d, a, s = df_p['mesafe_cm'].iloc[0], df_p['derece'].iloc[0], df_p['hiz_cm_s'].iloc[0]
                     angle_s, dist_s, speed_s = f"{a:.1f}°" if pd.notnull(a) else "--°", f"{d:.1f} cm" if pd.notnull(
                         d) else "-- cm", f"{s:.1f} cm/s" if pd.notnull(s) else "-- cm/s"
-                    if buzzer_thr is not None and pd.notnull(d) and d <= buzzer_thr: dist_style.update(
+                    if b_thr is not None and pd.notnull(d) and d <= b_thr: dist_style.update(
                         {'backgroundColor': '#d9534f', 'color': 'white'})
-                q_max = f"SELECT MAX(mesafe_cm) as max_dist FROM scan_points WHERE scan_id = {latest_id} AND mesafe_cm < 250 AND mesafe_cm > 0";
+                q_max = f"SELECT MAX(mesafe_cm) as max_dist FROM scan_points WHERE scan_id={lid} AND mesafe_cm<250 AND mesafe_cm>0";
                 df_max = pd.read_sql_query(q_max, conn)
                 if not df_max.empty and pd.notnull(
                     df_max['max_dist'].iloc[0]): max_dist_s = f"{df_max['max_dist'].iloc[0]:.1f} cm"
         except Exception as e:
-            print(f"Anlık değerler/max mesafe güncellenirken hata: {e}")
+            print(f"Anlık değer/max mesafe hata:{e}")
         finally:
             conn.close()
     return angle_s, dist_s, speed_s, dist_style, max_dist_s
@@ -451,16 +460,16 @@ def update_realtime_values(n_intervals):  # ... (içerik aynı)
 @app.callback(
     [Output('calculated-area', 'children'), Output('perimeter-length', 'children'), Output('max-width', 'children'),
      Output('max-depth', 'children')], [Input('interval-component-main', 'n_intervals')])
-def update_analysis_panel(n_intervals):  # ... (içerik aynı)
-    conn, error = get_db_connection();
+def update_analysis_panel(n):
+    conn, err = get_db_connection();
     area, perim, width, depth = "-- cm²", "-- cm", "-- cm", "-- cm"
-    if error: return area, perim, width, depth
+    if err: return area, perim, width, depth
     if conn:
         try:
-            latest_id = get_latest_scan_id_from_db(conn)
-            if latest_id:
+            lid = get_latest_scan_id_from_db(conn)
+            if lid:
                 df_s = pd.read_sql_query(
-                    f"SELECT hesaplanan_alan_cm2, cevre_cm, max_genislik_cm, max_derinlik_cm FROM servo_scans WHERE id = {latest_id}",
+                    f"SELECT hesaplanan_alan_cm2,cevre_cm,max_genislik_cm,max_derinlik_cm FROM servo_scans WHERE id={lid}",
                     conn)
                 if not df_s.empty:
                     r = df_s.iloc[0];
@@ -469,7 +478,7 @@ def update_analysis_panel(n_intervals):  # ... (içerik aynı)
                     width = f"{r['max_genislik_cm']:.2f} cm" if pd.notnull(r['max_genislik_cm']) else "N/A";
                     depth = f"{r['max_derinlik_cm']:.2f} cm" if pd.notnull(r['max_derinlik_cm']) else "N/A"
         except Exception as e:
-            print(f"Analiz paneli DB sorgu hatası: {e}")
+            print(f"Analiz panel DB hata:{e}")
         finally:
             conn.close()
     return area, perim, width, depth
@@ -478,57 +487,56 @@ def update_analysis_panel(n_intervals):  # ... (içerik aynı)
 @app.callback([Output('script-status', 'children'), Output('script-status', 'className'), Output('cpu-usage', 'value'),
                Output('cpu-usage', 'label'), Output('ram-usage', 'value'), Output('ram-usage', 'label')],
               [Input('interval-component-system', 'n_intervals')])
-def update_system_card(n_intervals):  # ... (içerik aynı)
-    status_text, status_class = "Beklemede", "text-secondary";
-    pid_val = None
+def update_system_card(n):
+    stat_txt, stat_cls = "Beklemede", "text-secondary";
+    pid_v = None
     if os.path.exists(SENSOR_SCRIPT_PID_FILE):
         try:
             with open(SENSOR_SCRIPT_PID_FILE, 'r') as pf:
-                pid_str = pf.read().strip(); pid_val = int(pid_str) if pid_str else None
-        except (IOError, ValueError):
+                pid_s = pf.read().strip();pid_v = int(pid_s) if pid_s else None
+        except:
             pass
-    if pid_val and is_process_running(pid_val):
-        status_text, status_class = f"Çalışıyor (PID: {pid_val})", "text-success"
+    if pid_v and is_process_running(pid_v):
+        stat_txt, stat_cls = f"Çalışıyor (PID:{pid_v})", "text-success"
     else:
-        status_text, status_class = "Çalışmıyor", "text-danger"
-    cpu, ram = psutil.cpu_percent(interval=0.1), psutil.virtual_memory().percent
-    return status_text, status_class, cpu, f"{cpu:.1f}%", ram, f"{ram:.1f}%"
+        stat_txt, stat_cls = "Çalışmıyor", "text-danger"
+    cpu, ram = psutil.cpu_percent(.1), psutil.virtual_memory().percent
+    return stat_txt, stat_cls, cpu, f"{cpu:.1f}%", ram, f"{ram:.1f}%"
 
 
 @app.callback(Output('download-csv', 'data'), [Input('export-csv-button', 'n_clicks')], prevent_initial_call=True)
-def export_csv_callback(n_clicks):  # ... (içerik aynı)
-    if n_clicks == 0: return no_update; conn, _ = get_db_connection()
+def export_csv_callback(n):
+    if n == 0: return no_update;conn, _ = get_db_connection()
     if not conn: return no_update
     try:
-        latest_id = get_latest_scan_id_from_db(conn)
-        if latest_id: df = pd.read_sql_query(f"SELECT * FROM scan_points WHERE scan_id = {latest_id} ORDER BY id ASC",
-                                             conn);
-        if not df.empty: return dcc.send_data_frame(df.to_csv, f"tarama_id_{latest_id}_noktalar.csv", index=False)
+        lid = get_latest_scan_id_from_db(conn)
+        if lid: df = pd.read_sql_query(f"SELECT * FROM scan_points WHERE scan_id={lid} ORDER BY id ASC", conn)
+        if not df.empty: return dcc.send_data_frame(df.to_csv, f"tarama_id_{lid}_noktalar.csv", index=False)
     except Exception as e:
-        print(f"CSV dışa aktarma hatası: {e}")
+        print(f"CSV export hata:{e}")
     finally:
         if conn: conn.close()
     return no_update
 
 
 @app.callback(Output('download-excel', 'data'), [Input('export-excel-button', 'n_clicks')], prevent_initial_call=True)
-def export_excel_callback(n_clicks):  # ... (içerik aynı)
-    if n_clicks == 0: return no_update; conn, _ = get_db_connection()
+def export_excel_callback(n):
+    if n == 0: return no_update;conn, _ = get_db_connection()
     if not conn: return no_update
     try:
-        latest_id = get_latest_scan_id_from_db(conn)
-        if latest_id:
-            df_pts = pd.read_sql_query(f"SELECT * FROM scan_points WHERE scan_id = {latest_id} ORDER BY id ASC", conn);
-            df_info = pd.read_sql_query(f"SELECT * FROM servo_scans WHERE id = {latest_id}", conn)
-            if df_pts.empty and df_info.empty: return no_update
+        lid = get_latest_scan_id_from_db(conn)
+        if lid:
+            df_p = pd.read_sql_query(f"SELECT * FROM scan_points WHERE scan_id={lid} ORDER BY id ASC", conn);
+            df_i = pd.read_sql_query(f"SELECT * FROM servo_scans WHERE id={lid}", conn)
+            if df_p.empty and df_i.empty: return no_update
             buf = io.BytesIO()
             with pd.ExcelWriter(buf, engine='xlsxwriter') as writer:
-                if not df_pts.empty: df_pts.to_excel(writer, sheet_name=f'Scan_{latest_id}_Points', index=False)
-                if not df_info.empty: df_info.to_excel(writer, sheet_name=f'Scan_{latest_id}_Info', index=False)
+                if not df_p.empty: df_p.to_excel(writer, sheet_name=f'Scan_{lid}_Points', index=False)
+                if not df_i.empty: df_i.to_excel(writer, sheet_name=f'Scan_{lid}_Info', index=False)
             buf.seek(0);
-            return dcc.send_bytes(buf.read(), f"tarama_detaylari_id_{latest_id}.xlsx")
+            return dcc.send_bytes(buf.read(), f"tarama_detaylari_id_{lid}.xlsx")
     except Exception as e:
-        print(f"Excel dışa aktarma hatası: {e}")
+        print(f"Excel export hata:{e}")
     finally:
         if conn: conn.close()
     return no_update
@@ -536,16 +544,16 @@ def export_excel_callback(n_clicks):  # ... (içerik aynı)
 
 @app.callback(Output('tab-content-datatable', 'children'),
               [Input('visualization-tabs-main', 'active_tab'), Input('interval-component-main', 'n_intervals')])
-def render_and_update_data_table(active_tab, n_intervals):  # ... (içerik aynı)
+def render_and_update_data_table(active_tab, n):
     if active_tab == "tab-datatable":
-        conn, error = get_db_connection()
-        if not conn: return dbc.Alert(f"Veritabanı bağlantısı kurulamadı: {error}", color="danger")
+        conn, err = get_db_connection()
+        if not conn: return dbc.Alert(f"DB bağlantı hatası:{err}", color="danger")
         try:
-            latest_id = get_latest_scan_id_from_db(conn)
-            if not latest_id: return html.P("Henüz görüntülenecek tarama verisi yok.")
-            query = f"SELECT id, derece, mesafe_cm, hiz_cm_s, x_cm, y_cm, timestamp FROM scan_points WHERE scan_id = {latest_id} ORDER BY id DESC";
-            df = pd.read_sql_query(query, conn)
-            if df.empty: return html.P(f"Tarama ID {latest_id} için veri bulunamadı.")
+            lid = get_latest_scan_id_from_db(conn)
+            if not lid: return html.P("Görüntülenecek veri yok.")
+            q = f"SELECT id,derece,mesafe_cm,hiz_cm_s,x_cm,y_cm,timestamp FROM scan_points WHERE scan_id={lid} ORDER BY id DESC";
+            df = pd.read_sql_query(q, conn)
+            if df.empty: return html.P(f"Tarama ID {lid} için veri yok.")
             df['timestamp'] = pd.to_datetime(df['timestamp'], unit='s').dt.strftime('%Y-%m-%d %H:%M:%S.%f').str[:-3]
             return dash_table.DataTable(data=df.to_dict('records'),
                                         columns=[{"name": i.replace("_", " ").title(), "id": i} for i in df.columns],
@@ -554,7 +562,7 @@ def render_and_update_data_table(active_tab, n_intervals):  # ... (içerik aynı
                                         style_table={'height': '70vh', 'overflowY': 'auto', 'overflowX': 'auto'},
                                         page_size=20, sort_action="native", filter_action="native")
         except Exception as e:
-            return dbc.Alert(f"Tablo oluşturulurken hata oluştu: {e}", color="danger")
+            return dbc.Alert(f"Tablo hatası:{e}", color="danger")
         finally:
             if conn: conn.close()
     return None
@@ -564,9 +572,9 @@ def render_and_update_data_table(active_tab, n_intervals):  # ... (içerik aynı
     [Output('scan-map-graph', 'figure'), Output('polar-regression-graph', 'figure'), Output('polar-graph', 'figure'),
      Output('time-series-graph', 'figure'), Output('environment-estimation-text', 'children'),
      Output('clustered-data-store', 'data')], [Input('interval-component-main', 'n_intervals')])
-def update_all_graphs(n_intervals):  # ... (içerik aynı)
+def update_all_graphs(n):
     figs = [go.Figure() for _ in range(4)];
-    est_cart, est_polar, clear_path = "Veri bekleniyor...", "Veri bekleniyor...", "";
+    est_cart, est_polar, clear_path = "Veri...", "Veri...", "";
     id_plot, conn, store_data = None, None, None
     try:
         conn, err_conn = get_db_connection()
@@ -574,7 +582,7 @@ def update_all_graphs(n_intervals):  # ... (içerik aynı)
             id_plot = get_latest_scan_id_from_db(conn)
             if id_plot:
                 df_pts = pd.read_sql_query(
-                    f"SELECT x_cm, y_cm, derece, mesafe_cm, timestamp FROM scan_points WHERE scan_id = {id_plot} ORDER BY derece ASC",
+                    f"SELECT x_cm,y_cm,derece,mesafe_cm,timestamp FROM scan_points WHERE scan_id={id_plot} ORDER BY derece ASC",
                     conn)
                 if not df_pts.empty:
                     df_val = df_pts[(df_pts['mesafe_cm'] > 1.0) & (df_pts['mesafe_cm'] < 250.0)].copy()
@@ -594,16 +602,16 @@ def update_all_graphs(n_intervals):  # ... (içerik aynı)
                         update_polar_graph(figs[2], df_val);
                         update_time_series_graph(figs[3], df_val)
                     else:
-                        est_cart = "Analiz için yeterli geçerli nokta bulunamadı."; add_sensor_position(figs[0])
+                        est_cart = "Analiz için yetersiz geçerli nokta.";add_sensor_position(figs[0])
                 else:
-                    est_cart = f"Tarama ID {id_plot} için nokta bulunamadı."; add_sensor_position(figs[0])
+                    est_cart = f"Tarama ID {id_plot} için nokta yok.";add_sensor_position(figs[0])
             else:
-                est_cart = "Tarama başlatın."; add_sensor_position(figs[0])
+                est_cart = "Tarama başlatın.";add_sensor_position(figs[0])
         else:
-            est_cart = f"DB Bağlantı Hatası: {err_conn}"; add_sensor_position(figs[0])
+            est_cart = f"DB Bağlantı Hatası:{err_conn}";add_sensor_position(figs[0])
     except Exception as e:
-        import traceback; print(
-            f"KRİTİK HATA: Grafikleme: {e}\n{traceback.format_exc()}"); est_cart = f"Kritik Grafikleme Hatası: {e}"; add_sensor_position(
+        import traceback;print(
+            f"KRİTİK HATA:Grafikleme:{e}\n{traceback.format_exc()}");est_cart = f"Kritik Grafikleme Hatası:{e}";add_sensor_position(
             figs[0])
     finally:
         if conn: conn.close()
@@ -627,34 +635,34 @@ def update_all_graphs(n_intervals):  # ... (içerik aynı)
 @app.callback(
     [Output("cluster-info-modal", "is_open"), Output("modal-title", "children"), Output("modal-body", "children")],
     [Input("scan-map-graph", "clickData")], [State("clustered-data-store", "data")], prevent_initial_call=True, )
-def display_cluster_info(clickData, stored_data):  # ... (içerik aynı)
+def display_cluster_info(clickData, stored_data):
     if not clickData or not stored_data: return False, no_update, no_update
     try:
         df_clus = pd.read_json(stored_data, orient='split')
         if 'cluster' not in df_clus.columns: return False, "Hata", "Küme verisi ('cluster' sütunu) bulunamadı."
-        clicked_point_data = clickData["points"][0];
-        cluster_label_from_customdata = clicked_point_data.get('customdata')
-        if cluster_label_from_customdata is not None:
-            cluster_label = cluster_label_from_customdata
+        pt_data = clickData["points"][0];
+        custom_label = pt_data.get('customdata')
+        if custom_label is not None:
+            cl_label = custom_label
         else:
-            clicked_x, clicked_y = clicked_point_data["x"], clicked_point_data["y"]
-            distances = np.sqrt((df_clus['y_cm'] - clicked_x) ** 2 + (df_clus['x_cm'] - clicked_y) ** 2)
-            if distances.empty: return False, "Hata", "En yakın nokta için mesafe hesaplanamadı."
-            cluster_label = df_clus.loc[distances.idxmin()]['cluster']
-        if cluster_label == -1:
-            title, body = "Gürültü Noktası", "Bu nokta bir kümeye ait değil (gürültü)."
-        elif cluster_label == -2:
+            clk_x, clk_y = pt_data["x"], pt_data["y"]
+            dists = np.sqrt((df_clus['y_cm'] - clk_x) ** 2 + (df_clus['x_cm'] - clk_y) ** 2)
+            if dists.empty: return False, "Hata", "En yakın nokta mesafesi hesaplanamadı."
+            cl_label = df_clus.loc[dists.idxmin()]['cluster']
+        if cl_label == -1:
+            title, body = "Gürültü Noktası", "Bu nokta gürültü olarak sınıflandırıldı."
+        elif cl_label == -2:
             title, body = "Analiz Yapılamadı", "Bu bölge için analiz yapılamadı (yetersiz veri)."
         else:
-            cluster_df_specific = df_clus[df_clus['cluster'] == cluster_label];
-            n_pts = len(cluster_df_specific)
-            w = (cluster_df_specific['y_cm'].max() - cluster_df_specific['y_cm'].min()) if n_pts > 0 else 0;
-            d = (cluster_df_specific['x_cm'].max() - cluster_df_specific['x_cm'].min()) if n_pts > 0 else 0
-            title = f"Küme #{int(cluster_label)} Detayları";
-            body = html.Div([html.P(f"Nokta Sayısı: {n_pts}"), html.P(f"Yaklaşık Genişlik (Yatay): {w:.1f} cm"),
-                             html.P(f"Yaklaşık Derinlik (Dikey): {d:.1f} cm")])
+            cl_df = df_clus[df_clus['cluster'] == cl_label];
+            n_pts = len(cl_df)
+            w = (cl_df['y_cm'].max() - cl_df['y_cm'].min()) if n_pts > 0 else 0;
+            d = (cl_df['x_cm'].max() - cl_df['x_cm'].min()) if n_pts > 0 else 0
+            title = f"Küme #{int(cl_label)} Detayları";
+            body = html.Div([html.P(f"Nokta Sayısı:{n_pts}"), html.P(f"Yaklaşık Genişlik:{w:.1f} cm"),
+                             html.P(f"Yaklaşık Derinlik:{d:.1f} cm")])
         return True, title, body
     except Exception as e:
-        import traceback; print(
-            f"Modal HATA: {e}\n{traceback.format_exc()}"); return True, "Hata", f"Küme bilgisi gösterilemedi: {e}"
+        import traceback;print(
+            f"Modal HATA:{e}\n{traceback.format_exc()}");return True, "Hata", f"Küme bilgisi gösterilemedi:{e}"
 
