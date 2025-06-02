@@ -446,18 +446,23 @@ def update_system_card(n_intervals):
 def update_all_graphs(n_intervals):
     conn, error_msg_conn = get_db_connection()
     id_to_plot = get_latest_scan_id_from_db(conn_param=conn) if conn else None
-    
+
     # Grafikleri başlangıçta boş oluştur
     fig_map = go.Figure()
     fig_polar = go.Figure(layout=go.Layout(title='Polar Grafik', uirevision=id_to_plot))
     fig_time = go.Figure(layout=go.Layout(title='Zaman Serisi - Mesafe', uirevision=id_to_plot))
-    estimation_text = "Tahmin: Veri Yok"
+    estimation_text = "Veri bekleniyor..."
 
     try:
         if not conn or not id_to_plot:
-            return fig_map, fig_polar, fig_time, estimation_text
+            fig_map.update_layout(
+                title_text='Ortamın 2D Haritası (2D Map of the Environment)',
+                xaxis_title="X Mesafesi (cm)", 
+                yaxis_title="Y Mesafesi (cm)"
+            )
+            return fig_map, fig_polar, fig_time, "Tarama başlatın."
 
-        # Veritabanından noktaları çek
+        # SQL sorgusunu parametreli hale getir
         df_points = pd.read_sql_query(
             "SELECT x_cm, y_cm, angle_deg, mesafe_cm, timestamp FROM scan_points WHERE scan_id = ? ORDER BY angle_deg ASC",
             conn,
@@ -468,164 +473,64 @@ def update_all_graphs(n_intervals):
             df_valid = df_points[(df_points['mesafe_cm'] > 1.0) & (df_points['mesafe_cm'] < 250.0)].copy()
 
             if len(df_valid) >= 2:
-                # Tarama ışınlarını ekle
-                x_lines, y_lines = [], []
-                for _, row in df_valid.iterrows():
-                    x_lines.extend([0, row['y_cm'], None])
-                    y_lines.extend([0, row['x_cm'], None])
+                # Grafik bileşenlerini ekle
+                add_scan_rays(fig_map, df_valid)
+                add_sector_area(fig_map, df_valid)
+                add_convex_hull(fig_map, df_valid)
+                add_detected_points(fig_map, df_valid)
+                add_sensor_position(fig_map)
+                
+                # Polar ve zaman serisi grafiklerini güncelle
+                update_polar_graph(fig_polar, df_valid)
+                update_time_series_graph(fig_time, df_valid)
 
-                fig_map.add_trace(go.Scatter(
-                    x=x_lines,
-                    y=y_lines,
-                    mode='lines',
-                    line=dict(color='rgba(255, 0, 0, 0.4)', dash='dash', width=1),
-                    showlegend=False
-                ))
+                # Tahmin metnini güncelle
+                estimation_text = calculate_estimation_text(df_valid)
 
-                # Algılanan noktaları ekle
-                fig_map.add_trace(go.Scatter(
-                    x=df_valid['y_cm'],
-                    y=df_valid['x_cm'],
-                    mode='markers',
-                    marker=dict(
-                        color=df_valid['angle_deg'],
-                        colorscale='Viridis',
-                        showscale=True,
-                        colorbar=dict(title='Açı (Derece) / Angle'),
-                        size=8
-                    ),
-                    name='Algılanan Noktalar (Detected Points)'
-                ))
-
-                # Sensör pozisyonunu ekle
-                fig_map.add_trace(go.Scatter(
-                    x=[0],
-                    y=[0],
-                    mode='markers',
-                    marker=dict(size=12, symbol='circle', color='red'),
-                    name='Sensör Pozisyonu (Sensor Position)'
-                ))
-
-                # Polar grafik güncelle
-                fig_polar.add_trace(go.Scatterpolar(
-                    r=df_valid['mesafe_cm'],
-                    theta=df_valid['angle_deg'],
-                    mode='lines+markers',
-                    name='Mesafe'
-                ))
-                fig_polar.update_layout(
-                    polar=dict(
-                        radialaxis=dict(visible=True, range=[0, 200]),
-                        angularaxis=dict(direction="clockwise")
-                    )
-                )
-
-                # Zaman serisi grafiğini güncelle
-                df_time_sorted = df_valid.sort_values(by='timestamp')
-                datetime_series = pd.to_datetime(df_time_sorted['timestamp'], unit='s')
-                fig_time.add_trace(go.Scatter(
-                    x=datetime_series,
-                    y=df_time_sorted['mesafe_cm'],
-                    mode='lines+markers',
-                    name='Mesafe (cm)'
-                ))
-                fig_time.update_layout(
-                    xaxis_title="Zaman",
-                    yaxis_title="Mesafe (cm)"
-                )
-
-                # Şekil tahmini
-                points_for_hull = df_valid[['y_cm', 'x_cm']].to_numpy()
-                if len(points_for_hull) >= 3:
-                    hull = ConvexHull(points_for_hull)
-                    simplified_points = simplify_coords(points_for_hull[hull.vertices], 3.0)
-                    num_vertices = len(simplified_points) - 1
-                    shape_map = {3: "Üçgensel Alan", 4: "Dörtgensel Alan", 5: "Beşgensel Alan"}
-                    estimation_text = shape_map.get(num_vertices, f"{num_vertices} Köşeli Alan")
-
-        # Grafiğin son görünümünü ayarla
+        # Grafik layoutunu güncelle
         fig_map.update_layout(
             title_text='Ortamın 2D Haritası (2D Map of the Environment)',
             xaxis_title="X Mesafesi (cm)",
             yaxis_title="Y Mesafesi (cm)",
             yaxis_scaleanchor="x",
             yaxis_scaleratio=1,
-            legend_title_text='Gösterim (Legend)',
+            legend_title_text='Gösterim Katmanları',
             uirevision=id_to_plot
         )
 
     except Exception as e:
         print(f"HATA: Grafikleme hatası: {e}")
-        estimation_text = "Hata"
-        
+        estimation_text = "Grafik Hatası"
+    
     finally:
         if conn:
             conn.close()
         
     return fig_map, fig_polar, fig_time, estimation_text
 
+def add_scan_rays(fig, df_valid):
+    x_lines, y_lines = [], []
+    for _, row in df_valid.iterrows():
+        x_lines.extend([0, row['y_cm'], None])
+        y_lines.extend([0, row['x_cm'], None])
+    fig.add_trace(go.Scatter(
+        x=x_lines, y=y_lines,
+        mode='lines',
+        line=dict(color='rgba(255, 100, 100, 0.4)', dash='dash', width=1),
+        showlegend=False
+    ))
 
-@app.callback(
-    Output('download-csv', 'data'),
-    [Input('export-csv-button', 'n_clicks')],
-    prevent_initial_call=True)
-def export_csv_callback(n_clicks):
-    if n_clicks == 0: return no_update
-    conn, _ = get_db_connection()
-    if not conn: return no_update
-    try:
-        latest_id = get_latest_scan_id_from_db(conn_param=conn)
-        if latest_id:
-            df = pd.read_sql_query(f"SELECT * FROM scan_points WHERE scan_id = {latest_id} ORDER BY id ASC", conn)
-            return dcc.send_data_frame(df.to_csv, f"tarama_id_{latest_id}_noktalar.csv", index=False)
-    finally:
-        if conn: conn.close()
-    return no_update
-
-
-@app.callback(
-    Output('download-excel', 'data'),
-    [Input('export-excel-button', 'n_clicks')],
-    prevent_initial_call=True)
-def export_excel_callback(n_clicks):
-    if n_clicks == 0: return no_update
-    conn, _ = get_db_connection()
-    if not conn: return no_update
-    try:
-        latest_id = get_latest_scan_id_from_db(conn_param=conn)
-        if latest_id:
-            df_points = pd.read_sql_query(f"SELECT * FROM scan_points WHERE scan_id = {latest_id} ORDER BY id ASC", conn)
-            df_scan_info = pd.read_sql_query(f"SELECT * FROM servo_scans WHERE id = {latest_id}", conn)
-            excel_buffer = io.BytesIO()
-            with pd.ExcelWriter(excel_buffer, engine='xlsxwriter') as writer:
-                df_points.to_excel(writer, sheet_name=f'Scan_{latest_id}_Points', index=False)
-                df_scan_info.to_excel(writer, sheet_name=f'Scan_{latest_id}_Info', index=False)
-            excel_buffer.seek(0)
-            return dcc.send_bytes(excel_buffer.read(), f"tarama_detaylari_id_{latest_id}.xlsx")
-    finally:
-        if conn: conn.close()
-    return no_update
-
-
-@app.callback(
-    [Output('scan-data-table', 'data'),
-     Output('scan-data-table', 'columns')],
-    [Input('interval-component-main', 'n_intervals')]
-)
-def update_data_table(n_intervals):
-    conn, error = get_db_connection()
-    if not conn: return [], []
-    try:
-        latest_id = get_latest_scan_id_from_db(conn_param=conn)
-        if not latest_id: return [], []
-        query = f"SELECT id, angle_deg, mesafe_cm, hiz_cm_s, x_cm, y_cm, timestamp FROM scan_points WHERE scan_id = {latest_id} ORDER BY id DESC"
-        df = pd.read_sql_query(query, conn)
-        df['timestamp'] = pd.to_datetime(df['timestamp'], unit='s').dt.strftime('%H:%M:%S.%f').str[:-3]
-        columns = [{"name": i.replace("_", " ").title(), "id": i} for i in df.columns]
-        data = df.to_dict('records')
-        return data, columns
-    except Exception as e:
-        print(f"Veri tablosu güncellenirken hata: {e}")
-        return [], []
-    finally:
-        if conn: conn.close()
+def add_sector_area(fig, df_valid):
+    poly_x = df_valid['y_cm'].tolist()
+    poly_y = df_valid['x_cm'].tolist()
+    sector_polygon_x = [0] + poly_x 
+    sector_polygon_y = [0] + poly_y
+    fig.add_trace(go.Scatter(
+        x=sector_polygon_x,
+        y=sector_polygon_y,
+        mode='lines',
+        fill='toself',
+        fillcolor='rgba(255,0,0,0.15)',
+        line=dict(color='rgba(255,0,0,0.4)'),
+        name='Taranan Sektör Alanı'
+    ))
