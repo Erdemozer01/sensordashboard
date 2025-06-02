@@ -321,51 +321,68 @@ def add_detected_points(fig, df):
         name='Taranan Noktalar'     # Lejanttaki ismi
     ))
 
-def analyze_environment_shape(fig, df_valid):  # Parametre adı df -> df_valid olarak güncellendi
-    points_all = df_valid[['y_cm', 'x_cm']].to_numpy()  # Giriş dataframe'i df_valid oldu
+
+def analyze_environment_shape(fig, df_valid):
+    points_all = df_valid[['y_cm', 'x_cm']].to_numpy()
     if len(points_all) < 10:
         return "Analiz için yetersiz veri."
 
-    # DBSCAN ile noktaları kümele
-    db = DBSCAN(eps=15, min_samples=3).fit(points_all)
-    labels = db.labels_
-    unique_labels = set(labels)
+    # --- 1. Genel Mesafe Bazlı Tahminler (Tüm df_valid üzerinden) ---
+    avg_dist_all = np.mean(df_valid['mesafe_cm'])
+    std_dist_all = np.std(df_valid['mesafe_cm'])
+    min_dist_all = np.min(df_valid['mesafe_cm'])
+    max_dist_all = np.max(df_valid['mesafe_cm'])
 
-    final_description = ""
-    environment_description_found = False
+    descriptions = []
+    environment_description_found_by_distance_stats = False
+
+    if avg_dist_all > 180 and (max_dist_all - min_dist_all) > 100 and std_dist_all > 40:
+        descriptions.append("Geniş ve açık bir alana bakıyor olabilirsin.")
+        environment_description_found_by_distance_stats = True
+    elif avg_dist_all < 60 and std_dist_all < 20:
+        descriptions.append("Dar veya oldukça kapalı bir alandasın.")
+        environment_description_found_by_distance_stats = True
+
+    # --- DBSCAN ile Kümeleme ---
+    db = DBSCAN(eps=20, min_samples=5).fit(points_all)
+    labels = db.labels_
+    unique_labels_plot = set(labels)  # Çizim için tüm etiketler
 
     # Gürültü olmayan kümeleri al
-    clusters_points = [points_all[labels == k] for k in unique_labels if k != -1]
+    clusters_points = [points_all[labels == k] for k in unique_labels_plot if k != -1]
+
     if not clusters_points:
+        if descriptions:  # Eğer yukarıda mesafe bazlı bir yorum yapıldıysa onu kullan
+            return " ".join(descriptions)
         return "Belirgin bir yapı veya nesne bulunamadı (DBSCAN)."
 
-    # En büyük kümeyi ana ortam (duvar) olarak kabul et
     clusters_points.sort(key=len, reverse=True)
     main_environment_cluster_points = clusters_points[0]
     object_clusters_points = clusters_points[1:]
 
-    # --- Ana Ortam Detaylı Analizi ---
-    if len(main_environment_cluster_points) >= 10:  # Ana küme analiz için yeterli mi?
+    # --- Ana Ortam Detaylı Analizi (RANSAC ve Poligon) ---
+    # Bu analizler ana_environment_cluster_points üzerinde yapılacak
+    environment_description_found_by_geometry = False
+    temp_geometry_description = ""
+
+    if len(main_environment_cluster_points) >= 10:
         X_main = main_environment_cluster_points[:, 0].reshape(-1, 1)
         y_main = main_environment_cluster_points[:, 1]
 
-        # 1. Koridor Tespiti (Ana Küme Üzerinde)
-        if len(main_environment_cluster_points) >= 20:  # Koridor için genellikle daha fazla nokta gerekir
+        # Koridor Tespiti
+        if len(main_environment_cluster_points) >= 20:
             try:
                 ransac1 = RANSACRegressor(min_samples=10)
                 ransac1.fit(X_main, y_main)
                 inlier_mask1 = ransac1.inlier_mask_
                 outlier_mask1 = ~inlier_mask1
-
-                if np.sum(outlier_mask1) >= 10:  # İkinci çizgi için yeterli outlier var mı?
+                if np.sum(outlier_mask1) >= 10:
                     ransac2 = RANSACRegressor(min_samples=10)
                     ransac2.fit(X_main[outlier_mask1], y_main[outlier_mask1])
                     inlier_mask2_on_outliers = ransac2.inlier_mask_
-
                     slope1 = ransac1.estimator_.coef_[0]
                     slope2 = ransac2.estimator_.coef_[0]
-
-                    if abs(np.arctan(slope1) - np.arctan(slope2)) < np.deg2rad(7):  # Paralellik toleransı
+                    if abs(np.arctan(slope1) - np.arctan(slope2)) < np.deg2rad(7):
                         fig.add_trace(
                             go.Scatter(x=X_main[inlier_mask1].flatten(), y=ransac1.predict(X_main[inlier_mask1]),
                                        mode='lines', line=dict(color='cyan', width=3, dash='dash'),
@@ -374,32 +391,31 @@ def analyze_environment_shape(fig, df_valid):  # Parametre adı df -> df_valid o
                                                  y=ransac2.predict(X_main[outlier_mask1][inlier_mask2_on_outliers]),
                                                  mode='lines', line=dict(color='cyan', width=3, dash='dash'),
                                                  name='Koridor Duvarı 2'))
-                        final_description = "Bir koridorda olabilirsin."
-                        environment_description_found = True
+                        temp_geometry_description = "Bir koridorda olabilirsin."
+                        environment_description_found_by_geometry = True
             except Exception as e:
                 print(f"Koridor analizi sırasında istisna: {e}")
 
-        # 2. Dikdörtgen Köşe Tespiti (Koridor bulunamadıysa)
-        if not environment_description_found and len(main_environment_cluster_points) >= 10:
+        # Dikdörtgen Köşe Tespiti
+        if not environment_description_found_by_geometry and len(main_environment_cluster_points) >= 10:
             try:
-                ransac_c1 = RANSACRegressor(min_samples=5)
+                ransac_c1 = RANSACRegressor(min_samples=5);
                 ransac_c1.fit(X_main, y_main)
                 outliers_c1_mask = ~ransac_c1.inlier_mask_
                 if np.sum(outliers_c1_mask) >= 5:
-                    ransac_c2 = RANSACRegressor(min_samples=5)
+                    ransac_c2 = RANSACRegressor(min_samples=5);
                     ransac_c2.fit(X_main[outliers_c1_mask], y_main[outliers_c1_mask])
-
-                    slope1_c = ransac_c1.estimator_.coef_[0]
+                    slope1_c = ransac_c1.estimator_.coef_[0];
                     slope2_c = ransac_c2.estimator_.coef_[0]
-                    angle_diff_c = abs(np.degrees(np.arctan(slope1_c)) - np.degrees(np.arctan(slope2_c)))
-
-                    # Açıların dik (90 derece) veya birbirinin tersi (270 derece) olup olmadığını kontrol et
-                    is_perpendicular = (80 < angle_diff_c < 100) or (abs(angle_diff_c) > 80 and abs(
-                        np.tan(np.deg2rad(angle_diff_c))) > 5.67)  # tan(80 derece)
-                    if slope1_c * slope2_c < 0 and abs(
-                            slope1_c * slope2_c + 1) < 0.35:  # m1*m2 = -1'e yakınlık (yaklaşık +/- 20 derece)
+                    is_perpendicular = False
+                    if slope1_c != 0 and slope2_c != 0:
+                        if abs((np.degrees(np.arctan(slope1_c))) - (np.degrees(np.arctan(slope2_c)))) % 180 > 70 and \
+                                abs((np.degrees(np.arctan(slope1_c))) - (np.degrees(np.arctan(slope2_c)))) % 180 < 110:
+                            is_perpendicular = True
+                    elif slope1_c == 0 and abs(np.degrees(np.arctan(slope2_c))) > 80:
                         is_perpendicular = True
-
+                    elif slope2_c == 0 and abs(np.degrees(np.arctan(slope1_c))) > 80:
+                        is_perpendicular = True
                     if is_perpendicular:
                         fig.add_trace(go.Scatter(x=X_main[ransac_c1.inlier_mask_].flatten(),
                                                  y=ransac_c1.predict(X_main[ransac_c1.inlier_mask_]), mode='lines',
@@ -407,55 +423,58 @@ def analyze_environment_shape(fig, df_valid):  # Parametre adı df -> df_valid o
                         fig.add_trace(go.Scatter(x=X_main[outliers_c1_mask].flatten(),
                                                  y=ransac_c2.predict(X_main[outliers_c1_mask]), mode='lines',
                                                  line=dict(color='orange', width=3, dash='dash'), name='Oda Duvarı 2'))
-                        final_description = "Dikdörtgensel bir odanın köşesi algılandı."
-                        environment_description_found = True
+                        temp_geometry_description = "Dikdörtgensel bir odanın köşesi algılandı."
+                        environment_description_found_by_geometry = True
             except Exception as e:
                 print(f"Köşe analizi sırasında istisna: {e}")
 
-        # 3. Dairesel Alan Tespiti (Önceki özel durumlar bulunamadıysa)
-        # Bu analizi tüm df_valid noktaları üzerinden yapmak daha anlamlı olabilir.
-        if not environment_description_found and np.std(df_valid['mesafe_cm']) < 10:  # Tolerans artırıldı
-            final_description = "Dairesel veya kavisli bir alandasın."
-            environment_description_found = True
+        # Eğer RANSAC bir şey bulamadıysa, standart sapma ve poligon analizine geç
+        if not environment_description_found_by_geometry:
+            if std_dist_all < 7:  # Daha önce 10 idi, kavisli/düz duvar için daha hassas
+                # Burada ek olarak ana kümenin düz bir çizgi olup olmadığına bakılabilir
+                temp_geometry_description = "Karşında ya sana paralel düz bir duvar ya da kavisli bir yüzey var."
+                environment_description_found_by_geometry = True
+            else:  # Fallback: Genel poligon analizi
+                main_shape_description = analyze_polygon_properties(main_environment_cluster_points)
+                temp_geometry_description = f"Ana ortam {main_shape_description} olarak görünüyor."
+                environment_description_found_by_geometry = True  # Her zaman bir şekil bulunur
 
-        # 4. Genel Çokgen Tespiti (Hiçbir özel durum bulunamadıysa)
-        if not environment_description_found:
-            main_shape_description = analyze_polygon_properties(main_environment_cluster_points)
-            final_description = f"Ana ortam {main_shape_description} olarak görünüyor."
-    else:
-        final_description = "Ana ortam yapısı anlaşılamadı (çok az nokta)."
+        if temp_geometry_description:
+            descriptions.append(temp_geometry_description)
+
+    elif not environment_description_found_by_distance_stats:  # Ana küme analiz edilemediyse ve mesafe de bir şey demediyse
+        descriptions.append("Ana ortam yapısı anlaşılamadı (çok az nokta).")
 
     # Tespit edilen nesneler varsa ekle
     if object_clusters_points:
-        final_description += f" Ayrıca {len(object_clusters_points)} adet nesne tespit edildi."
-        # İsteğe bağlı: Nesnelerin de şeklini analiz edip ekleyebilirsiniz.
-        for i, obj_cluster in enumerate(object_clusters_points):
-             obj_shape = analyze_polygon_properties(obj_cluster)
-             final_description += f" Nesne {i+1} {obj_shape}."
+        object_description = f"Ayrıca ortamda {len(object_clusters_points)} adet farklı nesne grubu tespit edildi."
+        # Her nesne için de şekil analizi yapıp ekleyebiliriz:
+        # for i, obj_cluster in enumerate(object_clusters_points):
+        #     obj_shape = analyze_polygon_properties(obj_cluster)
+        #     object_description += f" Nesne {i+1} {obj_shape}."
+        descriptions.append(object_description)
 
-    # Küme çizimleri (bu kısım değişmedi, fig'e ekleniyor)
-    colors = plt.cm.get_cmap('viridis', len(unique_labels) if len(unique_labels) > 0 else 1)
-    for k_label in unique_labels:
-        cluster_points = points_all[labels == k_label]
-        if k_label == -1:  # Gürültü
-            color_val = 'rgba(128,128,128,0.3)'
-            point_size = 5
+    # Küme çizimleri (Grafiğe ekleniyor)
+    colors = plt.cm.get_cmap('viridis', len(unique_labels_plot) if len(unique_labels_plot) > 0 else 1)
+    for k_label in unique_labels_plot:
+        cluster_points_to_plot = points_all[labels == k_label]
+        if k_label == -1:
+            color_val = 'rgba(128,128,128,0.3)';
+            point_size = 5;
             name_val = 'Gürültü/Diğer'
-        else:  # Asıl kümeler
-            # Renk haritasından renk alırken normalizasyon
-            norm_k = k_label / (len(unique_labels) - 1) if len(unique_labels) > 1 else 0
+        else:
+            norm_k = k_label / (len(unique_labels_plot) - 1) if len(unique_labels_plot) > 1 else 0
             raw_col = colors(norm_k)
-            color_val = f'rgba({raw_col[0] * 255},{raw_col[1] * 255},{raw_col[2] * 255},0.9)'
-            point_size = 8
+            color_val = f'rgba({raw_col[0] * 255},{raw_col[1] * 255},{raw_col[2] * 255},0.9)';
+            point_size = 8;
             name_val = f'Küme {k_label}'
 
         fig.add_trace(go.Scatter(
-            x=cluster_points[:, 0], y=cluster_points[:, 1], mode='markers',
-            marker=dict(color=color_val, size=point_size),
-            name=name_val
+            x=cluster_points_to_plot[:, 0], y=cluster_points_to_plot[:, 1], mode='markers',
+            marker=dict(color=color_val, size=point_size), name=name_val
         ))
 
-    return final_description if final_description else "Ortam şekli detaylandırılamadı."
+    return " ".join(descriptions) if descriptions else "Ortam şekli detaylandırılamadı."
 
 
 def update_polar_graph(fig, df):
