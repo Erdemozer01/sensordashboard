@@ -300,7 +300,26 @@ def analyze_polygon_properties(points):
         return "tanımlanamayan bir nesne"
 
 
-# app.py içindeki analyze_environment_shape fonksiyonunu bununla değiştirin
+# app.py dosyanızdaki yardımcı fonksiyonlardan biri
+
+def add_detected_points(fig, df):
+    """
+    Grafiğe algılanan ham sensör noktalarını, açıya göre renklendirilmiş
+    olarak ekler.
+    """
+    fig.add_trace(go.Scatter(
+        x=df['y_cm'],  # Yatay eksen için (bizim hesaplamamızda y_cm)
+        y=df['x_cm'],  # Dikey eksen için (bizim hesaplamamızda x_cm)
+        mode='markers',
+        marker=dict(
+            color=df['angle_deg'],  # Noktaları açı değerine göre renklendir
+            colorscale='Viridis',   # Renk skalası
+            showscale=True,         # Renk çubuğunu göster
+            colorbar=dict(title='Açı (Derece)'),
+            size=8                  # Nokta boyutu
+        ),
+        name='Taranan Noktalar'     # Lejanttaki ismi
+    ))
 
 def analyze_environment_shape(fig, df_valid):  # Parametre adı df -> df_valid olarak güncellendi
     points_all = df_valid[['y_cm', 'x_cm']].to_numpy()  # Giriş dataframe'i df_valid oldu
@@ -728,11 +747,14 @@ def update_all_graphs(n_intervals):
         if not df_points.empty:
             df_valid = df_points[(df_points['mesafe_cm'] > 1.0) & (df_points['mesafe_cm'] < 250.0)].copy()
             if len(df_valid) >= 2:
-                add_scan_rays(fig_map, df_valid)
-                add_sector_area(fig_map, df_valid)
-                estimation_text = analyze_environment_shape(fig_map, df_valid)
-                # add_detected_points(fig_map, df_valid) # Bu artık analyze_environment_shape içinde yapılıyor
-                add_sensor_position(fig_map)
+                add_scan_rays(fig_map, df_valid)  # İsteğe bağlı, dekoratif ışınlar
+                add_sector_area(fig_map, df_valid)  # Kırmızı dolgulu alan (resimdeki gibi)
+                add_detected_points(fig_map, df_valid)  # Mavi sensör noktaları (resimdeki gibi)
+                add_sensor_position(fig_map)  # Kırmızı sensör noktası
+
+                # Akıllı analiz fonksiyonu artık grafiği değiştirmiyor, sadece metin döndürüyor
+                estimation_text = analyze_environment_shape(df_valid)  # Sadece df_valid gönderiliyor
+
                 update_polar_graph(fig_polar, df_valid)
                 update_time_series_graph(fig_time, df_valid)
             else:
