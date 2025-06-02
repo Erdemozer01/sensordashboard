@@ -260,23 +260,36 @@ def add_sensor_position(fig):
     ))
 
 
+
+
 def analyze_environment_shape(fig, df):
+    """
+    Nokta bulutunu analiz ederek ortam şekli hakkında akıllı tahminler yapar.
+    Aynı zamanda ilgili şekilleri grafiğe çizer.
+    """
     points = df[['y_cm', 'x_cm']].to_numpy()
+
+    # RANSAC için veriyi hazırla
     X = points[:, 0].reshape(-1, 1)
     y = points[:, 1]
 
-    if len(points) > 20:
+    # --- 1. Koridor Tespiti ---
+    if len(points) > 20:  # Yeterli nokta varsa koridor ara
         try:
             ransac1 = RANSACRegressor(min_samples=10)
             ransac1.fit(X, y)
             inlier_mask1 = ransac1.inlier_mask_
             outlier_mask1 = ~inlier_mask1
+
+            # YENİ KONTROL: Kalan noktalar ikinci bir çizgi bulmak için yeterli mi?
             if np.sum(outlier_mask1) > 10:
                 ransac2 = RANSACRegressor(min_samples=10)
                 ransac2.fit(X[outlier_mask1], y[outlier_mask1])
                 inlier_mask2 = ransac2.inlier_mask_
+
                 slope1 = ransac1.estimator_.coef_[0]
                 slope2 = ransac2.estimator_.coef_[0]
+
                 if abs(np.arctan(slope1) - np.arctan(slope2)) < np.deg2rad(5):
                     fig.add_trace(
                         go.Scatter(x=X[inlier_mask1].flatten(), y=ransac1.predict(X[inlier_mask1]), mode='lines',
@@ -288,15 +301,20 @@ def analyze_environment_shape(fig, df):
         except Exception as e:
             print(f"Koridor analizi hatası: {e}")
 
+    # --- 2. Dikdörtgen Köşe Tespiti ---
     if len(points) > 10:
         try:
             ransac_corner1 = RANSACRegressor(min_samples=5)
             ransac_corner1.fit(X, y)
-            if np.sum(~ransac_corner1.inlier_mask_) > 5:
+            outlier_mask_corner1 = ~ransac_corner1.inlier_mask_
+
+            # YENİ KONTROL: Kalan noktalar ikinci bir çizgi bulmak için yeterli mi?
+            if np.sum(outlier_mask_corner1) > 5:
                 ransac_corner2 = RANSACRegressor(min_samples=5)
-                ransac_corner2.fit(X[~ransac_corner1.inlier_mask_], y[~ransac_corner1.inlier_mask_])
+                ransac_corner2.fit(X[outlier_mask_corner1], y[outlier_mask_corner1])
                 slope_c1 = ransac_corner1.estimator_.coef_[0]
                 slope_c2 = ransac_corner2.estimator_.coef_[0]
+
                 angle_diff = abs(np.degrees(np.arctan(slope_c1)) - np.degrees(np.arctan(slope_c2)))
                 if 80 < angle_diff < 100 or 260 < angle_diff < 280:
                     fig.add_trace(go.Scatter(x=X[ransac_corner1.inlier_mask_].flatten(),
@@ -309,9 +327,11 @@ def analyze_environment_shape(fig, df):
         except Exception as e:
             print(f"Köşe analizi hatası: {e}")
 
+    # --- 3. Dairesel Alan Tespiti ---
     if np.std(df['mesafe_cm']) < 5:
         return "Dairesel veya kavisli bir alandasın."
 
+    # --- 4. Genel Çokgen Tespiti (Fallback) ---
     if len(points) >= 3:
         hull = ConvexHull(points)
         simplified_points = simplify_coords(points[hull.vertices], 3.0)
