@@ -574,11 +574,13 @@ def update_all_graphs(n_intervals):
         if conn: conn.close()
         fig_map.update_layout(
             title_text='Ortamın 2D Haritası (2D Map of the Environment)',
-            xaxis_title="X Mesafesi (cm)", yaxis_title="Y Mesafesi (cm)",
-            yaxis_scaleanchor="x", yaxis_scaleratio=1,
+            xaxis_title="X Mesafesi (cm)",
+            yaxis_title="Y Mesafesi (cm)",
+            yaxis_scaleanchor="x",
+            yaxis_scaleratio=1,
             uirevision=id_to_plot,
             legend=dict(
-                title='Gösterim Katmanları',
+                title_text='Gösterim Katmanları',
                 orientation="h",  # Lejantı yatay olarak sırala
                 yanchor="bottom",  # Dikey konumu alt kenara göre ayarla
                 y=1.02,  # Grafiğin hemen üstüne yerleştir
