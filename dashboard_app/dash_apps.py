@@ -41,7 +41,8 @@ DEFAULT_UI_BUZZER_DISTANCE = 10
 app = DjangoDash('RealtimeSensorDashboard', external_stylesheets=[dbc.themes.BOOTSTRAP])
 
 # --- LAYOUT BİLEŞENLERİ ---
-title_card = dbc.Row([dbc.Col(html.H1("Dream Pi Kullanıcı Paneli", className="text-center my-3 mb-5"),  width=12), html.Hr(),])
+title_card = dbc.Row(
+    [dbc.Col(html.H1("Dream Pi Kullanıcı Paneli", className="text-center my-3 mb-5"), width=12), html.Hr(), ])
 
 control_panel = dbc.Card([
     dbc.CardHeader("Tarama Kontrol ve Ayarları", className="bg-primary text-white"),
@@ -66,7 +67,8 @@ control_panel = dbc.Card([
                         dbc.Input(id="step-angle-input", type="number", value=DEFAULT_UI_SCAN_STEP_ANGLE, min=1, max=45,
                                   step=1)], className="mb-2"),
         dbc.InputGroup([dbc.InputGroupText("Buzzer Mes. (cm)", style={"width": "120px"}),
-                        dbc.Input(id="buzzer-distance-input", type="number", value=DEFAULT_UI_BUZZER_DISTANCE, min=0, max=200,
+                        dbc.Input(id="buzzer-distance-input", type="number", value=DEFAULT_UI_BUZZER_DISTANCE, min=0,
+                                  max=200,
                                   step=1)], className="mb-2"),
     ])
 ])
@@ -149,8 +151,9 @@ visualization_tabs = dbc.Tabs([
             ]
         ),
         label="Veri Tablosu"
-    )
-])
+    ),
+
+], render_policy='initial', )
 
 app.layout = dbc.Container(fluid=True, children=[
     title_card,
@@ -209,8 +212,9 @@ def get_latest_scan_id_from_db(conn_param=None):
     if conn_to_use:
         try:
             # Önce çalışan bir tarama var mı diye bak
-            df_scan = pd.read_sql_query("SELECT id FROM servo_scans WHERE status = 'running' ORDER BY start_time DESC LIMIT 1", conn_to_use)
-            if df_scan.empty: 
+            df_scan = pd.read_sql_query(
+                "SELECT id FROM servo_scans WHERE status = 'running' ORDER BY start_time DESC LIMIT 1", conn_to_use)
+            if df_scan.empty:
                 # Çalışan yoksa, en sonuncuyu al
                 df_scan = pd.read_sql_query("SELECT id FROM servo_scans ORDER BY start_time DESC LIMIT 1", conn_to_use)
             if not df_scan.empty:
@@ -220,6 +224,7 @@ def get_latest_scan_id_from_db(conn_param=None):
         finally:
             if internal_conn and conn_to_use: conn_to_use.close()
     return latest_id
+
 
 # --- GRAFİK YARDIMCI FONKSİYONLARI ---
 
@@ -235,6 +240,7 @@ def add_scan_rays(fig, df):
         showlegend=False
     ))
 
+
 def add_sector_area(fig, df):
     """Grafiğe içi dolu taranan sektör alanını ekler."""
     poly_x = df['y_cm'].tolist()
@@ -246,6 +252,7 @@ def add_sector_area(fig, df):
         fill='toself', fillcolor='rgba(255,0,0,0.15)',
         line=dict(color='rgba(255,0,0,0.4)'), name='Taranan Sektör Alanı'
     ))
+
 
 def add_convex_hull(fig, df):
     """Grafiğe Convex Hull ile hesaplanan dış çeperi ekler."""
@@ -261,6 +268,7 @@ def add_convex_hull(fig, df):
             name='Tahmini Dış Çeper (ConvexHull)'
         ))
 
+
 def calculate_estimation_text(df):
     """Noktalara göre şekil tahmin metnini hesaplar."""
     points_for_hull = df[['y_cm', 'x_cm']].to_numpy()
@@ -271,6 +279,7 @@ def calculate_estimation_text(df):
         shape_map = {3: "Üçgensel Çeper", 4: "Dörtgensel Çeper", 5: "Beşgensel Çeper"}
         return shape_map.get(num_vertices, f"{num_vertices} Köşeli Dış Çeper")
     return "Tahmin için yetersiz veri."
+
 
 def add_detected_points(fig, df):
     """Grafiğe algılanan noktaları açıya göre renkli olarak ekler."""
@@ -283,6 +292,7 @@ def add_detected_points(fig, df):
         name='Algılanan Noktalar'
     ))
 
+
 def add_sensor_position(fig):
     """Grafiğe sensörün konumunu gösteren kırmızı noktayı ekler."""
     fig.add_trace(go.Scatter(
@@ -291,17 +301,22 @@ def add_sensor_position(fig):
         name='Sensör Pozisyonu'
     ))
 
+
 def update_polar_graph(fig, df):
     """Polar grafiği günceller."""
     fig.add_trace(go.Scatterpolar(r=df['mesafe_cm'], theta=df['angle_deg'], mode='lines+markers', name='Mesafe'))
-    fig.update_layout(polar=dict(radialaxis=dict(visible=True, range=[0, 200]), angularaxis=dict(direction="clockwise")))
+    fig.update_layout(
+        polar=dict(radialaxis=dict(visible=True, range=[0, 200]), angularaxis=dict(direction="clockwise")))
+
 
 def update_time_series_graph(fig, df):
     """Zaman serisi grafiğini günceller."""
     df_time_sorted = df.sort_values(by='timestamp')
     datetime_series = pd.to_datetime(df_time_sorted['timestamp'], unit='s')
-    fig.add_trace(go.Scatter(x=datetime_series, y=df_time_sorted['mesafe_cm'], mode='lines+markers', name='Mesafe (cm)'))
+    fig.add_trace(
+        go.Scatter(x=datetime_series, y=df_time_sorted['mesafe_cm'], mode='lines+markers', name='Mesafe (cm)'))
     fig.update_layout(xaxis_title="Zaman", yaxis_title="Mesafe (cm)")
+
 
 # --- CALLBACK FONKSİYONLARI ---
 @app.callback(
@@ -340,20 +355,24 @@ def handle_start_scan_script(n_clicks_start, start_angle_val, end_angle_val, ste
             current_pid = None
     if current_pid and is_process_running(current_pid):
         return dbc.Alert(f"Betik zaten çalışıyor (PID: {current_pid}).", color="warning")
-    
+
     # Önceki çalıştırmadan kalmış olabilecek kalıntı dosyaları temizle
     if os.path.exists(LOCK_FILE_PATH_FOR_DASH):
-        try: os.remove(LOCK_FILE_PATH_FOR_DASH)
-        except OSError as e: return dbc.Alert(f"Kalıntı kilit dosyası silinemedi: {e}.", color="danger")
+        try:
+            os.remove(LOCK_FILE_PATH_FOR_DASH)
+        except OSError as e:
+            return dbc.Alert(f"Kalıntı kilit dosyası silinemedi: {e}.", color="danger")
     if os.path.exists(PID_FILE_PATH_FOR_DASH):
-        try: os.remove(PID_FILE_PATH_FOR_DASH)
-        except OSError as e: return dbc.Alert(f"Kalıntı PID dosyası silinemedi: {e}.", color="danger")
+        try:
+            os.remove(PID_FILE_PATH_FOR_DASH)
+        except OSError as e:
+            return dbc.Alert(f"Kalıntı PID dosyası silinemedi: {e}.", color="danger")
 
     try:
         python_executable = sys.executable
-        if not os.path.exists(SENSOR_SCRIPT_PATH): 
+        if not os.path.exists(SENSOR_SCRIPT_PATH):
             return dbc.Alert(f"Sensör betiği bulunamadı: {SENSOR_SCRIPT_PATH}", color="danger")
-        
+
         cmd = [
             python_executable, SENSOR_SCRIPT_PATH,
             "--start_angle", str(start_a),
@@ -361,13 +380,13 @@ def handle_start_scan_script(n_clicks_start, start_angle_val, end_angle_val, ste
             "--step_angle", str(step_a),
             "--buzzer_distance", str(buzzer_d)
         ]
-        
+
         # Hata ayıklama için betik çıktısını bir log dosyasına yazdır
         log_file_path = os.path.join(PROJECT_ROOT_DIR, 'sensor_script.log')
         with open(log_file_path, 'w') as log_file:
             subprocess.Popen(cmd, start_new_session=True, stdout=log_file, stderr=log_file)
-            
-        time.sleep(2.5) # Betiğin PID dosyasını oluşturması için zaman tanı
+
+        time.sleep(2.5)  # Betiğin PID dosyasını oluşturması için zaman tanı
 
         if os.path.exists(PID_FILE_PATH_FOR_DASH):
             new_pid_str = open(PID_FILE_PATH_FOR_DASH).read().strip()
@@ -379,11 +398,14 @@ def handle_start_scan_script(n_clicks_start, start_angle_val, end_angle_val, ste
                 with open(log_file_path, 'r') as f:
                     log_content = f.read().strip()
                 if log_content:
-                     return dbc.Alert([html.B("PID dosyası oluşmadı. Betik Hata Raporu:"), html.Pre(log_content, style={'whiteSpace': 'pre-wrap', 'wordBreak': 'break-all'})], color="danger")
+                    return dbc.Alert([html.B("PID dosyası oluşmadı. Betik Hata Raporu:"), html.Pre(log_content, style={
+                        'whiteSpace': 'pre-wrap', 'wordBreak': 'break-all'})], color="danger")
             except Exception:
                 pass
-            return dbc.Alert(f"PID dosyası ({PID_FILE_PATH_FOR_DASH}) oluşmadı. Proje ana dizinindeki 'sensor_script.log' dosyasını kontrol edin.", color="danger")
-            
+            return dbc.Alert(
+                f"PID dosyası ({PID_FILE_PATH_FOR_DASH}) oluşmadı. Proje ana dizinindeki 'sensor_script.log' dosyasını kontrol edin.",
+                color="danger")
+
     except Exception as e:
         return dbc.Alert(f"Sensör betiği başlatılırken hata: {str(e)}", color="danger")
 
@@ -402,17 +424,17 @@ def handle_stop_scan_script(n_clicks_stop):
                 if pid_str: pid_to_kill = int(pid_str)
         except (IOError, ValueError):
             pid_to_kill = None
-    
+
     if pid_to_kill and is_process_running(pid_to_kill):
         try:
             # Önce nazikçe sonlandırmayı dene (SIGTERM)
             os.kill(pid_to_kill, signal.SIGTERM)
-            time.sleep(2.0) # Betiğin kaynakları temizlemesi için bekle
+            time.sleep(2.0)  # Betiğin kaynakları temizlemesi için bekle
             # Hala çalışıyorsa, zorla kapat (SIGKILL)
             if is_process_running(pid_to_kill):
                 os.kill(pid_to_kill, signal.SIGKILL)
                 time.sleep(0.5)
-            
+
             if not is_process_running(pid_to_kill):
                 return dbc.Alert(f"Betik (PID: {pid_to_kill}) başarıyla durduruldu.", color="info")
             else:
@@ -436,7 +458,9 @@ def update_realtime_values(n_intervals):
         try:
             latest_id = get_latest_scan_id_from_db(conn_param=conn)
             if latest_id:
-                df = pd.read_sql_query(f"SELECT angle_deg, mesafe_cm, hiz_cm_s FROM scan_points WHERE scan_id = {latest_id} ORDER BY id DESC LIMIT 1", conn)
+                df = pd.read_sql_query(
+                    f"SELECT angle_deg, mesafe_cm, hiz_cm_s FROM scan_points WHERE scan_id = {latest_id} ORDER BY id DESC LIMIT 1",
+                    conn)
                 if not df.empty:
                     angle_val, dist_val, speed_val = df.iloc[0]
                     angle_str = f"{angle_val:.0f}°" if pd.notnull(angle_val) else "--°"
@@ -463,7 +487,9 @@ def update_analysis_panel(n_intervals):
         try:
             latest_id = get_latest_scan_id_from_db(conn_param=conn)
             if latest_id:
-                df_scan = pd.read_sql_query(f"SELECT hesaplanan_alan_cm2, cevre_cm, max_genislik_cm, max_derinlik_cm FROM servo_scans WHERE id = {latest_id}", conn)
+                df_scan = pd.read_sql_query(
+                    f"SELECT hesaplanan_alan_cm2, cevre_cm, max_genislik_cm, max_derinlik_cm FROM servo_scans WHERE id = {latest_id}",
+                    conn)
                 if not df_scan.empty:
                     scan_data_row = df_scan.iloc[0]
                     area_val = scan_data_row.get('hesaplanan_alan_cm2')
@@ -504,8 +530,9 @@ def update_system_card(n_intervals):
             with open(PID_FILE_PATH_FOR_DASH, 'r') as pf:
                 pid_str = pf.read().strip()
                 if pid_str: pid = int(pid_str)
-        except (IOError, ValueError): pass
-    
+        except (IOError, ValueError):
+            pass
+
     if pid and is_process_running(pid):
         script_status_text, status_class_name = f"Çalışıyor (PID: {pid})", "text-success"
     else:
@@ -513,7 +540,7 @@ def update_system_card(n_intervals):
 
     cpu_percent = psutil.cpu_percent(interval=0.1)
     ram_percent = psutil.virtual_memory().percent
-    
+
     return script_status_text, status_class_name, cpu_percent, f"{cpu_percent}%", ram_percent, f"{ram_percent}%"
 
 
@@ -538,7 +565,7 @@ def update_all_graphs(n_intervals):
         if not conn or not id_to_plot:
             fig_map.update_layout(
                 title_text='Ortamın 2D Haritası (2D Map of the Environment)',
-                xaxis_title="X Mesafesi (cm)", 
+                xaxis_title="X Mesafesi (cm)",
                 yaxis_title="Y Mesafesi (cm)"
             )
             return fig_map, fig_polar, fig_time, "Tarama başlatın."
@@ -560,7 +587,7 @@ def update_all_graphs(n_intervals):
                 add_convex_hull(fig_map, df_valid)
                 add_detected_points(fig_map, df_valid)
                 add_sensor_position(fig_map)
-                
+
                 # Polar ve zaman serisi grafiklerini güncelle
                 update_polar_graph(fig_polar, df_valid)
                 update_time_series_graph(fig_time, df_valid)
@@ -582,12 +609,13 @@ def update_all_graphs(n_intervals):
     except Exception as e:
         print(f"HATA: Grafikleme hatası: {e}")
         estimation_text = "Grafik Hatası"
-    
+
     finally:
         if conn:
             conn.close()
-        
+
     return fig_map, fig_polar, fig_time, estimation_text
+
 
 def add_scan_rays(fig, df_valid):
     x_lines, y_lines = [], []
@@ -601,10 +629,11 @@ def add_scan_rays(fig, df_valid):
         showlegend=False
     ))
 
+
 def add_sector_area(fig, df_valid):
     poly_x = df_valid['y_cm'].tolist()
     poly_y = df_valid['x_cm'].tolist()
-    sector_polygon_x = [0] + poly_x 
+    sector_polygon_x = [0] + poly_x
     sector_polygon_y = [0] + poly_y
     fig.add_trace(go.Scatter(
         x=sector_polygon_x,
