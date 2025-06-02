@@ -151,9 +151,11 @@ visualization_tabs = dbc.Tabs([
             ]
         ),
         label="Veri Tablosu"
-    ),
-
-], render_policy='initial', )
+    )
+],
+    persistence=True,
+    persistence_type='local'
+)
 
 app.layout = dbc.Container(fluid=True, children=[
     title_card,
