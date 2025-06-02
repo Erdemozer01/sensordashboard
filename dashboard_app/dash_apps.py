@@ -3,6 +3,7 @@ from django_plotly_dash import DjangoDash
 from dash import html, dcc, Output, Input, State, no_update, dash_table
 import dash_bootstrap_components as dbc
 import plotly.graph_objects as go
+import matplotlib.pyplot as plt
 
 import sqlite3
 import pandas as pd
@@ -18,7 +19,7 @@ from scipy.spatial import ConvexHull
 from simplification.cutil import simplify_coords
 from sklearn.linear_model import RANSACRegressor
 from sklearn.cluster import DBSCAN
-import matplotlib.pyplot as plt
+
 
 
 # --- Sabitler ---
