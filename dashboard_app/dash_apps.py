@@ -558,33 +558,45 @@ def handle_stop_scan_script(n_clicks_stop):
         return dbc.Alert("Çalışan bir sensör betiği bulunamadı.", color="warning")
 
 
-# DÜZELTME: Callback Output'una stil eklendi ve mantık güncellendi
+# app.py dosyanızdaki bu fonksiyonu aşağıdakiyle değiştirin:
+
 @app.callback(
     [Output('current-angle', 'children'),
      Output('current-distance', 'children'),
      Output('current-speed', 'children'),
-     Output('current-distance-col', 'style')],  # <--- YENİ OUTPUT
+     Output('current-distance-col', 'style')],  # Stil güncellemesi için Output eklendi
     [Input('interval-component-main', 'n_intervals')]
 )
 def update_realtime_values(n_intervals):
     conn, error = get_db_connection()
     angle_str, distance_str, speed_str = "--°", "-- cm", "-- cm/s"
-    distance_style = {'padding': '10px', 'transition': 'background-color 0.5s ease'}  # Varsayılan stil
+    # Varsayılan stil (buzzer aktif olmadığında)
+    distance_style = {'padding': '10px', 'transition': 'background-color 0.5s ease', 'borderRadius': '5px'}
+
+    if error:  # Veritabanı bağlantı hatası varsa
+        print(f"DB Bağlantı Hatası (update_realtime_values): {error}")
+        # Hata durumunda varsayılan değerleri ve stili döndür
+        return angle_str, distance_str, speed_str, distance_style
 
     if conn:
         try:
             latest_id = get_latest_scan_id_from_db(conn_param=conn)
             if latest_id:
-                # Hem anlık noktayı hem de tarama ayarını al
+                # Hem anlık noktayı hem de tarama ayarlarından buzzer mesafesini al
                 df_point = pd.read_sql_query(
                     f"SELECT mesafe_cm, angle_deg, hiz_cm_s FROM scan_points WHERE scan_id = {latest_id} ORDER BY id DESC LIMIT 1",
-                    conn)
+                    conn
+                )
                 df_scan_settings = pd.read_sql_query(
-                    f"SELECT buzzer_distance_setting FROM servo_scans WHERE id = {latest_id}", conn)
+                    f"SELECT buzzer_distance_setting FROM servo_scans WHERE id = {latest_id}",
+                    conn
+                )
 
                 buzzer_threshold = None
                 if not df_scan_settings.empty and 'buzzer_distance_setting' in df_scan_settings.columns:
-                    buzzer_threshold = df_scan_settings['buzzer_distance_setting'].iloc[0]
+                    # buzzer_distance_setting NULL değilse değeri al
+                    if pd.notnull(df_scan_settings['buzzer_distance_setting'].iloc[0]):
+                        buzzer_threshold = float(df_scan_settings['buzzer_distance_setting'].iloc[0])
 
                 if not df_point.empty:
                     dist_val = df_point['mesafe_cm'].iloc[0]
@@ -595,15 +607,27 @@ def update_realtime_values(n_intervals):
                     distance_str = f"{dist_val:.1f} cm" if pd.notnull(dist_val) else "-- cm"
                     speed_str = f"{speed_val:.1f} cm/s" if pd.notnull(speed_val) else "-- cm/s"
 
-                    # Stil kontrolü
+                    # Stil kontrolü (Buzzer aktif mi?)
                     if buzzer_threshold is not None and pd.notnull(dist_val) and dist_val <= buzzer_threshold:
-                        distance_style = {'backgroundColor': '#d9534f', 'color': 'white', 'padding': '10px',
-                                          'borderRadius': '5px', 'transition': 'background-color 0.5s ease'}
-                    # else: # Varsayılan stil zaten yukarıda tanımlı
-                    #    distance_style = {'padding': '10px', 'transition': 'background-color 0.5s ease'}
+                        distance_style = {
+                            'backgroundColor': '#d9534f',  # Kırmızı
+                            'color': 'white',
+                            'padding': '10px',
+                            'borderRadius': '5px',
+                            'transition': 'background-color 0.5s ease'
+                        }
+                    # else: # Buzzer aktif değilse varsayılan stil zaten ayarlı
+                    #    distance_style = {'padding': '10px', 'transition': 'background-color 0.5s ease', 'borderRadius': '5px'}
+                else:
+                    # Eğer df_point boşsa, yani o scan_id için hiç nokta yoksa, varsayılanları göster
+                    angle_str, distance_str, speed_str = "--°", "-- cm", "-- cm/s"
+            else:
+                # Eğer latest_id bulunamadıysa (hiç tarama yoksa)
+                angle_str, distance_str, speed_str = "--°", "-- cm", "-- cm/s"
+
         except Exception as e:
             print(f"Anlık değerler güncellenirken hata: {e}")
-            # Hata durumunda da varsayılan stili döndür
+            # Hata durumunda da varsayılan değerleri ve stili döndür
         finally:
             if conn: conn.close()
 
