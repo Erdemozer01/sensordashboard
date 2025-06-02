@@ -136,15 +136,36 @@ estimation_card = dbc.Card([
 
 visualization_tabs = dbc.Tabs(
     [
-        dbc.Tab(dcc.Graph(id='scan-map-graph', style={'height': '75vh'}), label="2D Kartezyen Harita",
+        # Sekme 1: Ana Kartezyen Harita
+        dbc.Tab(dcc.Graph(id='scan-map-graph', style={'height': '75vh'}),
+                label="2D Kartezyen Harita",
                 tab_id="tab-map"),
 
-        dbc.Tab(dcc.Graph(id='regression-analysis-graph', style={'height': '75vh'}), label="Regresyon Analizi",
-                tab_id="tab-regression"),
-        # -------------------------
-        dbc.Tab(dcc.Graph(id='polar-graph', style={'height': '75vh'}), label="Polar Grafik", tab_id="tab-polar"),
-        dbc.Tab(dcc.Graph(id='time-series-graph', style={'height': '75vh'}), label="Zaman Serisi (Mesafe)",
+        # Sekme 2: İkili Regresyon Analizi
+        dbc.Tab(
+            dbc.Container([
+                dbc.Row([
+                    # Sütun 1: Geometrik (Kartezyen) Regresyon Grafiği
+                    dbc.Col(dcc.Graph(id='regression-analysis-graph', style={'height': '75vh'}), md=6),
+                    # Sütun 2: Açı-Mesafe (Polar) Regresyon Grafiği
+                    dbc.Col(dcc.Graph(id='polar-regression-graph', style={'height': '75vh'}), md=6),
+                ])
+            ], fluid=True),
+            label="Regresyon Analizi",
+            tab_id="tab-regression",
+        ),
+
+        # Sekme 3: Polar Grafik
+        dbc.Tab(dcc.Graph(id='polar-graph', style={'height': '75vh'}),
+                label="Polar Grafik",
+                tab_id="tab-polar"),
+
+        # Sekme 4: Zaman Serisi Grafiği
+        dbc.Tab(dcc.Graph(id='time-series-graph', style={'height': '75vh'}),
+                label="Zaman Serisi (Mesafe)",
                 tab_id="tab-time"),
+
+        # Sekme 5: Veri Tablosu
         dbc.Tab(
             dcc.Loading(id="loading-datatable", children=[html.Div(id='tab-content-datatable')]),
             label="Veri Tablosu",
@@ -237,6 +258,46 @@ def add_scan_rays(fig, df):
         line=dict(color='rgba(255, 100, 100, 0.4)', dash='dash', width=1),
         showlegend=False
     ))
+
+
+from sklearn.linear_model import RANSACRegressor  # Zaten import edilmiş olmalı
+
+
+def analyze_polar_regression(df_valid):
+    if len(df_valid) < 5:
+        return None, "Polar regresyon için yetersiz veri."
+
+    X = df_valid[['derece']].values
+    y = df_valid['mesafe_cm'].values
+
+    try:
+        # RANSAC outliers'a (aykırı değerlere) karşı daha dayanıklıdır
+        ransac = RANSACRegressor(random_state=42)
+        ransac.fit(X, y)
+
+        slope = ransac.estimator_.coef_[0]
+        # intercept = ransac.estimator_.intercept_ # Gerekirse kullanılabilir
+
+        # Eğim değerine göre çıkarım yap
+        inference = ""
+        # Eğim (slope) birimi cm/derece'dir. Yani 1 derece dönünce mesafenin kaç cm değiştiğini gösterir.
+        if abs(slope) < 0.1:  # Eğim eşik değeri (ayarlanabilir)
+            inference = f"Polar Regresyon: Yüzey dairesel veya tarama yayına paralel görünüyor (Eğim: {slope:.3f} cm/derece)."
+        elif slope > 0:
+            inference = f"Polar Regresyon: Yüzey, açı arttıkça (sağa doğru) uzaklaşıyor (Eğim: {slope:.3f} cm/derece)."
+        else:  # slope < 0
+            inference = f"Polar Regresyon: Yüzey, açı arttıkça (sağa doğru) yaklaşıyor (Eğim: {slope:.3f} cm/derece)."
+
+        # Grafik üzerinde çizilecek çizginin verisini oluştur
+        x_range = np.array([df_valid['derece'].min(), df_valid['derece'].max()]).reshape(-1, 1)
+        y_predicted = ransac.predict(x_range)
+
+        line_data = {'x': x_range.flatten(), 'y': y_predicted}
+
+        return line_data, inference
+    except Exception as e:
+        print(f"Polar regresyon analizi sırasında hata: {e}")
+        return None, "Polar regresyon analizi sırasında bir hata oluştu."
 
 
 def add_sector_area(fig, df):
@@ -464,7 +525,8 @@ def analyze_environment_shape(fig, df_valid):
 
 
 def update_polar_graph(fig, df):
-    fig.add_trace(go.Scatterpolar(r=df['mesafe_cm'], theta=df['derece'], mode='lines+markers', name='Mesafe')) # DEĞİŞTİ
+    fig.add_trace(
+        go.Scatterpolar(r=df['mesafe_cm'], theta=df['derece'], mode='lines+markers', name='Mesafe'))  # DEĞİŞTİ
     fig.update_layout(
         polar=dict(radialaxis=dict(visible=True, range=[0, 200]), angularaxis=dict(direction="clockwise")))
 
@@ -603,7 +665,8 @@ def update_realtime_values(n_intervals):
             latest_id = get_latest_scan_id_from_db(conn_param=conn)
             if latest_id:
                 df_point = pd.read_sql_query(
-                    f"SELECT mesafe_cm, derece, hiz_cm_s FROM scan_points WHERE scan_id = {latest_id} ORDER BY id DESC LIMIT 1", # DEĞİŞTİ
+                    f"SELECT mesafe_cm, derece, hiz_cm_s FROM scan_points WHERE scan_id = {latest_id} ORDER BY id DESC LIMIT 1",
+                    # DEĞİŞTİ
                     conn
                 )
                 df_scan_settings = pd.read_sql_query(
@@ -618,7 +681,7 @@ def update_realtime_values(n_intervals):
 
                 if not df_point.empty:
                     dist_val = df_point['mesafe_cm'].iloc[0]
-                    angle_val = df_point['derece'].iloc[0] # DEĞİŞTİ
+                    angle_val = df_point['derece'].iloc[0]  # DEĞİŞTİ
                     speed_val = df_point['hiz_cm_s'].iloc[0]
 
                     angle_str = f"{angle_val:.0f}°" if pd.notnull(angle_val) else "--°"
@@ -703,9 +766,13 @@ def update_system_card(n_intervals):
     return script_status_text, status_class_name, cpu_percent, f"{cpu_percent}%", ram_percent, f"{ram_percent}%"
 
 
+# --- Ana Callback Fonksiyonu ---
+from dash import html
+
 @app.callback(
     [Output('scan-map-graph', 'figure'),
      Output('regression-analysis-graph', 'figure'),
+     Output('polar-regression-graph', 'figure'),
      Output('polar-graph', 'figure'),
      Output('time-series-graph', 'figure'),
      Output('environment-estimation-text', 'children')],
@@ -713,14 +780,12 @@ def update_system_card(n_intervals):
 )
 def update_all_graphs(n_intervals):
     # 1. Figürleri ve varsayılan metinleri başlangıçta oluştur
-    fig_map = go.Figure()
-    fig_regression = go.Figure()
-    fig_polar = go.Figure()
-    fig_time = go.Figure()
-    estimation_text = "Veri bekleniyor..."
-    id_to_plot = None  # uirevision için kullanılacak
+    fig_map, fig_regression, fig_polar_regression, fig_polar, fig_time = go.Figure(), go.Figure(), go.Figure(), go.Figure(), go.Figure()
+    estimation_text_cartesian = "Kartezyen analiz için veri bekleniyor..."
+    estimation_text_polar = "Polar analiz için veri bekleniyor..."
+    id_to_plot = None
+    conn = None
 
-    conn = None # conn değişkenini try bloğu dışında tanımla
     try:
         # 2. Veritabanından veri almayı dene
         conn, error_msg_conn = get_db_connection()
@@ -734,37 +799,41 @@ def update_all_graphs(n_intervals):
                     df_valid = df_points[(df_points['mesafe_cm'] > 1.0) & (df_points['mesafe_cm'] < 250.0)].copy()
 
                     if len(df_valid) >= 2:
-                        # 3. Veri varsa figürleri doldur
-                        # Önce regresyon figürü
+                        # 3a. Kartezyen (Geometrik) Analiz ve Harita Oluşturma
                         add_sensor_position(fig_regression)
-                        estimation_text = analyze_environment_shape(fig_regression, df_valid)
-
-                        # Ana haritayı, regresyon figürünü kopyalayarak ve üzerine ek katmanlar ekleyerek oluştur
+                        estimation_text_cartesian = analyze_environment_shape(fig_regression, df_valid)
                         fig_map = go.Figure(data=fig_regression.data, layout=fig_regression.layout)
                         add_scan_rays(fig_map, df_valid)
                         add_sector_area(fig_map, df_valid)
 
-                        # Diğer grafikleri güncelle
+                        # 3b. Polar (Açı-Mesafe) Regresyon Analizi
+                        polar_line_data, estimation_text_polar = analyze_polar_regression(df_valid)
+                        fig_polar_regression.add_trace(go.Scatter(x=df_valid['derece'], y=df_valid['mesafe_cm'], mode='markers', name='Ölçülen Noktalar'))
+                        if polar_line_data:
+                            fig_polar_regression.add_trace(go.Scatter(x=polar_line_data['x'], y=polar_line_data['y'], mode='lines', name='Regresyon Çizgisi', line=dict(color='red', width=3)))
+
+                        # 3c. Diğer Grafikleri Güncelle
                         update_polar_graph(fig_polar, df_valid)
                         update_time_series_graph(fig_time, df_valid)
                     else:
-                        estimation_text = "Analiz için yeterli geçerli nokta bulunamadı."
-                        add_sensor_position(fig_map) # Boş haritalara sensör pozisyonunu yine de ekle
+                        estimation_text_cartesian = "Analiz için yeterli geçerli nokta bulunamadı."
+                        add_sensor_position(fig_map)
                         add_sensor_position(fig_regression)
                 else:
-                    estimation_text = f"Tarama ID {id_to_plot} için nokta bulunamadı."
+                    estimation_text_cartesian = f"Tarama ID {id_to_plot} için nokta bulunamadı."
                     add_sensor_position(fig_map)
                     add_sensor_position(fig_regression)
             else:
-                estimation_text = "Tarama başlatın."
+                estimation_text_cartesian = "Tarama başlatın."
                 add_sensor_position(fig_map)
                 add_sensor_position(fig_regression)
         else:
-            estimation_text = f"Veritabanı bağlantı hatası: {error_msg_conn}"
+            estimation_text_cartesian = f"Veritabanı bağlantı hatası: {error_msg_conn}"
 
     except Exception as e:
-        print(f"HATA: Grafikleme hatası: {e}")
-        estimation_text = f"Hata: {e}"
+        import traceback
+        print(f"HATA: Grafikleme hatası: {e}\n{traceback.format_exc()}")
+        estimation_text_cartesian = f"Kritik Hata: {e}"
     finally:
         if conn:
             conn.close()
@@ -777,16 +846,28 @@ def update_all_graphs(n_intervals):
         legend=dict(title_text='Gösterim Katmanları', orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
     )
     fig_regression.update_layout(
-        title_text='Geometrik Regresyon Analizi',
+        title_text='Geometrik Regresyon Analizi (X-Y Uzayı)',
         xaxis_title="Yatay Mesafe (cm)", yaxis_title="Dikey Mesafe (cm)",
         yaxis_scaleanchor="x", yaxis_scaleratio=1, uirevision=id_to_plot,
         legend=dict(title_text='Tespit Edilen Yapılar', orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
     )
+    fig_polar_regression.update_layout(
+        title='Açıya Göre Mesafe Regresyonu',
+        xaxis_title="Açı (Derece)", yaxis_title="Mesafe (cm)",
+        uirevision=id_to_plot
+    )
     fig_polar.update_layout(title='Polar Grafik', uirevision=id_to_plot)
     fig_time.update_layout(title='Zaman Serisi - Mesafe', uirevision=id_to_plot)
 
-    # 5. Her şeyi döndür
-    return fig_map, fig_regression, fig_polar, fig_time, estimation_text
+    # 5. İki analizden gelen metinleri birleştirip göster
+    final_estimation_text = html.Div([
+        html.P(estimation_text_cartesian),
+        html.Hr(),
+        html.P(estimation_text_polar)
+    ])
+
+    # 6. Her şeyi yeni sıraya göre döndür
+    return fig_map, fig_regression, fig_polar_regression, fig_polar, fig_time, final_estimation_text
 
 
 @app.callback(
@@ -846,7 +927,7 @@ def render_and_update_data_table(active_tab, n_intervals):
             latest_id = get_latest_scan_id_from_db(conn_param=conn)
             if not latest_id:
                 return html.P("Henüz görüntülenecek tarama verisi yok.")
-            query = f"SELECT id, derece, mesafe_cm, hiz_cm_s, x_cm, y_cm, timestamp FROM scan_points WHERE scan_id = {latest_id} ORDER BY id DESC" # DEĞİŞTİ
+            query = f"SELECT id, derece, mesafe_cm, hiz_cm_s, x_cm, y_cm, timestamp FROM scan_points WHERE scan_id = {latest_id} ORDER BY id DESC"  # DEĞİŞTİ
             df = pd.read_sql_query(query, conn)
             df['timestamp'] = pd.to_datetime(df['timestamp'], unit='s').dt.strftime('%H:%M:%S.%f').str[:-3]
             columns = [{"name": i.replace("_", " ").title(), "id": i} for i in df.columns]
