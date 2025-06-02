@@ -755,7 +755,7 @@ def update_all_graphs(n_intervals):
 
                 # --- HATA MUHTEMELEN BU SATIRDA ---
                 # analyze_environment_shape fonksiyonuna df_valid gönderildiğinden emin olun:
-                estimation_text = analyze_environment_shape(df_valid)
+                estimation_text = analyze_environment_shape(fig_map, df_valid)
                 # ---------------------------------
 
                 update_polar_graph(fig_polar, df_valid)
