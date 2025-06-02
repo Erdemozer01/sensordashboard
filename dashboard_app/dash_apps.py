@@ -410,9 +410,9 @@ def analyze_environment_shape(fig, df_valid):  # Parametre adı df -> df_valid o
     if object_clusters_points:
         final_description += f" Ayrıca {len(object_clusters_points)} adet nesne tespit edildi."
         # İsteğe bağlı: Nesnelerin de şeklini analiz edip ekleyebilirsiniz.
-        # for i, obj_cluster in enumerate(object_clusters_points):
-        #     obj_shape = analyze_polygon_properties(obj_cluster)
-        #     final_description += f" Nesne {i+1} {obj_shape}."
+        for i, obj_cluster in enumerate(object_clusters_points):
+             obj_shape = analyze_polygon_properties(obj_cluster)
+             final_description += f" Nesne {i+1} {obj_shape}."
 
     # Küme çizimleri (bu kısım değişmedi, fig'e ekleniyor)
     colors = plt.cm.get_cmap('viridis', len(unique_labels) if len(unique_labels) > 0 else 1)

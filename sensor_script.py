@@ -96,8 +96,6 @@ def init_hardware():
     return hardware_ok
 
 
-# sensor_script.py -> init_db_for_scan fonksiyonu içinde
-
 def init_db_for_scan():
     global current_scan_id_global
     conn = None
