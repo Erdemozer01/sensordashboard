@@ -1,4 +1,4 @@
-# dashboard_app/dash_apps.py (Gelişmiş 2D Harita)
+# dashboard_app/dash_apps.py (Buzzer Argümanı Eklendi)
 
 import os
 import sys
@@ -79,6 +79,7 @@ PID_FILE_PATH_FOR_DASH = '/tmp/sensor_scan_script.pid'
 DEFAULT_UI_INITIAL_ANGLE = 135
 DEFAULT_UI_SCAN_ARC = 270
 DEFAULT_UI_SCAN_STEP_ANGLE = 10
+DEFAULT_UI_BUZZER_THRESHOLD = 2.0  # <<< YENİ: Buzzer için varsayılan eşik
 
 print(
     f"--- [PID:{os.getpid()}] dash_apps.py: Constants defined. DB_PATH: {DB_PATH}, SENSOR_SCRIPT_PATH: {SENSOR_SCRIPT_PATH} ---")
@@ -127,6 +128,10 @@ control_panel = dbc.Card([
         dbc.InputGroup([dbc.InputGroupText("Adım Açısı (°)", style={"width": "120px"}),
                         dbc.Input(id="step-angle-input", type="number", value=DEFAULT_UI_SCAN_STEP_ANGLE, min=1, max=45,
                                   step=1)], className="mb-2"),
+        # <<< YENİ: Buzzer Eşik Mesafesi Girişi >>>
+        dbc.InputGroup([dbc.InputGroupText("Buzzer Eşiği (cm)", style={"width": "120px"}),
+                        dbc.Input(id="buzzer-threshold-input", type="number", value=DEFAULT_UI_BUZZER_THRESHOLD, min=1,
+                                  max=10, step=0.5)], className="mb-2"),
     ])
 ])
 stats_panel = dbc.Card([dbc.CardHeader("Anlık Sensör Değerleri", className="bg-info text-white"), dbc.CardBody(dbc.Row(
@@ -292,24 +297,34 @@ if app:
                     print(f"DB kapatma hatası (fetch_data_for_store): {e_close}")
 
 
+    # <<< BAŞLATMA BUTONU CALLBACK'İ GÜNCELLENDİ (Buzzer State Eklendi) >>>
     @app.callback(Output('scan-status-message', 'children'),
                   [Input('start-scan-button', 'n_clicks')],
                   [State('initial-angle-input', 'value'),
                    State('scan-arc-input', 'value'),
-                   State('step-angle-input', 'value')],
+                   State('step-angle-input', 'value'),
+                   State('buzzer-threshold-input', 'value')],  # <<< YENİ State >>>
                   prevent_initial_call=True)
-    def handle_start_scan_script(n_clicks_start, initial_angle_val, scan_arc_val, step_angle_val):
+    def handle_start_scan_script(n_clicks_start, initial_angle_val, scan_arc_val, step_angle_val,
+                                 buzzer_threshold_val):  # <<< YENİ Argüman >>>
         if n_clicks_start == 0: return no_update
-        initial_a_conceptual = initial_angle_val if initial_angle_val is not None else DEFAULT_UI_INITIAL_ANGLE
+
+        initial_a = initial_angle_val if initial_angle_val is not None else DEFAULT_UI_INITIAL_ANGLE
         scan_arc = scan_arc_val if scan_arc_val is not None else DEFAULT_UI_SCAN_ARC
         step_a = step_angle_val if step_angle_val is not None else DEFAULT_UI_SCAN_STEP_ANGLE
-        final_a_conceptual = initial_a_conceptual - scan_arc
-        if not (-179 <= initial_a_conceptual <= 179): return dbc.Alert("Başlangıç açısı -179 ile 179 arasında olmalı!",
-                                                                       color="danger", duration=4000)
+        buzzer_thresh = buzzer_threshold_val if buzzer_threshold_val is not None else DEFAULT_UI_BUZZER_THRESHOLD
+
+        final_a = initial_a - scan_arc
+
+        if not (-179 <= initial_a <= 179): return dbc.Alert("Başlangıç açısı -179 ile 179 arasında olmalı!",
+                                                            color="danger", duration=4000)
         if not (10 <= scan_arc <= 340): return dbc.Alert("Tarama açısı 10 ile 340 derece arasında olmalı!",
                                                          color="danger", duration=4000)
         if not (1 <= step_a <= 45): return dbc.Alert("Adım açısı 1 ile 45 arasında olmalı!", color="danger",
                                                      duration=4000)
+        if not (0.5 <= buzzer_thresh <= 10.0): return dbc.Alert("Buzzer eşiği 0.5cm ile 10cm arasında olmalı!",
+                                                                color="danger", duration=4000)
+
         current_pid = None
         if os.path.exists(PID_FILE_PATH_FOR_DASH):
             try:
@@ -330,8 +345,12 @@ if app:
             python_executable = sys.executable
             if not os.path.exists(SENSOR_SCRIPT_PATH): return dbc.Alert(f"Betik bulunamadı: {SENSOR_SCRIPT_PATH}",
                                                                         color="danger", duration=4000)
-            cmd = [python_executable, SENSOR_SCRIPT_PATH, "--initial_goto_angle", str(initial_a_conceptual),
-                   "--scan_end_angle", str(final_a_conceptual), "--scan_step_angle", str(step_a)]
+
+            cmd = [python_executable, SENSOR_SCRIPT_PATH,
+                   "--initial_goto_angle", str(initial_a),
+                   "--scan_end_angle", str(final_a),
+                   "--scan_step_angle", str(step_a),
+                   "--buzzer_distance", str(buzzer_thresh)]  # <<< YENİ Argüman >>>
             print(f"Dash: Sensör betiği başlatılıyor: {' '.join(cmd)}")
             process = subprocess.Popen(cmd, start_new_session=(os.name == 'posix'),
                                        creationflags=(subprocess.CREATE_NEW_PROCESS_GROUP if os.name != 'posix' else 0),
@@ -349,6 +368,7 @@ if app:
                 pass
             except Exception as e_comm:
                 print(f"Sensor script communicate hatası: {e_comm}")
+
             if os.path.exists(PID_FILE_PATH_FOR_DASH):
                 new_pid = None
                 try:
@@ -372,211 +392,95 @@ if app:
             return dbc.Alert(f"Sensör başlatılırken hata: {str(e)}", color="danger", duration=6000)
 
 
-    # <<< 2D HARİTA CALLBACK'İ GÜNCELLENDİ >>>
     @app.callback(
-        [Output('scan-map-graph', 'figure'),
-         Output('polar-graph', 'figure'),
-         Output('time-series-graph', 'figure'),
-         Output('environment-estimation-text', 'children')],  # Şekil tahmini de buradan güncellenecek
+        [Output('scan-map-graph', 'figure'), Output('polar-graph', 'figure'), Output('time-series-graph', 'figure')],
         Input('live-scan-data-store', 'data')
     )
-    def update_all_visuals_and_estimation(stored_data):
-        # Varsayılan boş figürler ve tahmin metni
-        empty_layout = go.Layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(248,248,248,0.95)')
-        fig_map = go.Figure(layout=empty_layout).update_layout(title_text='2D Harita (Veri Bekleniyor)')
-        fig_polar = go.Figure(layout=empty_layout).update_layout(title_text='Polar Grafik (Veri Bekleniyor)')
-        fig_time = go.Figure(layout=empty_layout).update_layout(title_text='Zaman Serisi (Veri Bekleniyor)')
-        estimation_text = "Tahmin: Bekleniyor..."
-
-        if not stored_data:
-            return fig_map, fig_polar, fig_time, estimation_text
-
-        db_error = stored_data.get('error')
-        scan_id = stored_data.get('scan_id', "N/A")
-        scan_info = stored_data.get('info', {})
-        scan_status = scan_info.get('status', 'Bilinmiyor')
-        points_data = stored_data.get('points', [])
-
-        title_suffix = f"(ID: {scan_id}, Durum: {scan_status})"
-
-        if db_error:
-            error_title = f'Veri Hatası: {str(db_error)[:50]} {title_suffix}'
-            fig_map.update_layout(title_text=error_title)
-            fig_polar.update_layout(title_text=error_title)
-            fig_time.update_layout(title_text=error_title)
-            return fig_map, fig_polar, fig_time, "Tahmin: Veri Hatası"
-
-        if not points_data:
-            no_data_title = f'Nokta Verisi Yok {title_suffix}'
-            fig_map.update_layout(title_text=no_data_title)
-            fig_polar.update_layout(title_text=no_data_title)
-            fig_time.update_layout(title_text=no_data_title)
-            return fig_map, fig_polar, fig_time, "Tahmin: Nokta Verisi Yok"
-
-        df_points = pd.DataFrame(points_data)
-        max_plot_dist = 200.0  # cm
-
-        # --- 2D Harita ---
-        fig_map.update_layout(
-            title_text='Ortamın 2D Haritası / 2D Map of the Environment ' + title_suffix,
-            xaxis_title="X Mesafesi (cm)",
-            yaxis_title="Y Mesafesi (cm)",
-            yaxis_scaleanchor="x",
-            yaxis_scaleratio=1,
-            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
-        )
-        if not df_points.empty:
-            try:
-                # Sadece geçerli x, y ve mesafe değerlerini al
-                df_valid_map = df_points[
-                    df_points['x_cm'].notna() &
-                    df_points['y_cm'].notna() &
-                    df_points['mesafe_cm'].notna() &
-                    (df_points['mesafe_cm'] > 0.1) &
-                    (df_points['mesafe_cm'] < max_plot_dist)
-                    ].copy()
-
-                if not df_valid_map.empty:
-                    # Noktaları çizdir (renk skalası açıya göre)
-                    fig_map.add_trace(go.Scatter(
-                        x=df_valid_map['y_cm'],  # X ekseninde y_cm (genişlik)
-                        y=df_valid_map['x_cm'],  # Y ekseninde x_cm (derinlik)
-                        mode='markers',
-                        name='Algılanan Noktalar (Detected Points)',
-                        marker=dict(
-                            size=6,
-                            color=df_valid_map['angle_deg'],  # Göreli açıya göre renklendirme
-                            colorscale='Viridis',  # Popüler bir renk skalası
-                            showscale=True,
-                            colorbar=dict(title='Açı (Derece)/Angle (Degrees)')
-                        )
-                    ))
-                    # Sensörden noktalara kesikli çizgiler
-                    for _, row in df_valid_map.iterrows():
-                        fig_map.add_shape(
-                            type="line",
-                            x0=0, y0=0, x1=row['y_cm'], y1=row['x_cm'],
-                            line=dict(color="rgba(255,0,0,0.3)", width=1, dash="dash")
-                        )
-            except KeyError as ke:
-                fig_map.update_layout(title_text='Harita Veri Formatı Hatası ' + title_suffix)
-                print(f"2D Harita için DataFrame'de sütun hatası: {ke}")
-
-            fig_map.add_trace(go.Scatter(
-                x=[0], y=[0], mode='markers',
-                marker=dict(size=12, symbol='diamond', color='red', line=dict(width=1, color='DarkSlateGrey')),
-                name='Sensör Pozisyonu (Sensor Position)'
-            ))
-
-        # --- Polar Grafik ---
-        fig_polar.update_layout(title_text='Polar Grafik ' + title_suffix)
-        if not df_points.empty:
-            try:
-                df_valid_polar = df_points[df_points['mesafe_cm'].notna() & df_points['angle_deg'].notna() & (
-                            df_points['mesafe_cm'] < max_plot_dist)].copy()
-                if not df_valid_polar.empty:
-                    fig_polar.add_trace(go.Scatterpolar(
-                        r=df_valid_polar['mesafe_cm'],
-                        theta=df_valid_polar['angle_deg'],  # Göreli açı
-                        mode='markers',  # Sadece noktalar
-                        name='Mesafe',
-                        marker=dict(
-                            size=5,
-                            color=df_valid_polar['mesafe_cm'],
-                            colorscale='Plasma',
-                            showscale=True,
-                            colorbar_title_text="Mesafe (cm)"
-                        )
-                    ))
-            except KeyError as ke:
-                fig_polar.update_layout(title_text='Polar Veri Formatı Hatası ' + title_suffix)
-                print(f"Polar grafik için DataFrame'de sütun hatası: {ke}")
-        fig_polar.update_layout(
-            polar=dict(
-                radialaxis=dict(visible=True, range=[0, max_plot_dist]),
-                angularaxis=dict(direction="counterclockwise", ticksuffix="°", showticklabels=True, showline=True,
-                                 showgrid=True)  # Göreli açılar için CCW
-            )
-        )
-
-        # --- Zaman Serisi ---
-        fig_time.update_layout(title_text='Zaman Serisi - Mesafe ' + title_suffix, xaxis_title="Zaman",
-                               yaxis_title="Mesafe (cm)")
-        if not df_points.empty and 'timestamp' in df_points.columns:
-            try:
-                df_valid_time = df_points[df_points['mesafe_cm'].notna() & df_points['timestamp'].notna() & (
-                            df_points['mesafe_cm'] < max_plot_dist)].copy()
-                if not df_valid_time.empty:
-                    df_valid_time_sorted = df_valid_time.sort_values(by='timestamp')
-                    datetime_series = pd.to_datetime(df_valid_time_sorted['timestamp'], unit='s')
-                    fig_time.add_trace(
+    def update_all_graphs_from_store(stored_data):
+        try:
+            empty_fig_layout = go.Layout(title_text='Veri Bekleniyor...', paper_bgcolor='rgba(0,0,0,0)',
+                                         plot_bgcolor='rgba(248,248,248,0.95)');
+            error_fig_layout = go.Layout(title_text='Grafik Yüklenemedi', paper_bgcolor='rgba(0,0,0,0)',
+                                         plot_bgcolor='rgba(248,248,248,0.95)');
+            empty_fig = go.Figure(layout=empty_fig_layout);
+            error_fig = go.Figure(layout=error_fig_layout)
+            if not stored_data: return empty_fig, empty_fig, empty_fig
+            db_error = stored_data.get('error');
+            scan_id_for_title = stored_data.get('scan_id', "N/A");
+            scan_status_for_title = stored_data.get('info', {}).get('status', 'Bilinmiyor');
+            title_suffix_base = f"(ID: {scan_id_for_title}, Durum: {scan_status_for_title})"
+            if db_error: error_fig.update_layout(
+                title_text=f'Veri Hatası: {str(db_error)[:50]} {title_suffix_base}'); return error_fig, error_fig, error_fig
+            if not stored_data.get('points') and not db_error: empty_fig.update_layout(
+                title_text=f'Nokta Verisi Yok {title_suffix_base}'); return empty_fig, empty_fig, empty_fig
+            df_points = pd.DataFrame(stored_data.get('points', []));
+            title_suffix = title_suffix_base;
+            max_plot_dist = 200.0
+            fig_map_layout = go.Layout(title_text='Ortamın 2D Haritası / 2D Map of the Environment ' + title_suffix,
+                                       xaxis_title="X Mesafesi (cm)", yaxis_title="Y Mesafesi (cm)",
+                                       yaxis_scaleanchor="x", yaxis_scaleratio=1, paper_bgcolor='rgba(0,0,0,0)',
+                                       plot_bgcolor='rgba(248,248,248,0.95)',
+                                       legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1));
+            fig_map = go.Figure(layout=fig_map_layout)
+            if not df_points.empty:
+                try:
+                    df_valid_map = df_points[
+                        df_points['x_cm'].notna() & df_points['y_cm'].notna() & df_points['mesafe_cm'].notna() & (
+                                    df_points['mesafe_cm'] > 0.1) & (df_points['mesafe_cm'] < max_plot_dist)].copy()
+                    if not df_valid_map.empty:
+                        fig_map.add_trace(go.Scatter(x=df_valid_map['y_cm'], y=df_valid_map['x_cm'], mode='markers',
+                                                     name='Algılanan Noktalar',
+                                                     marker=dict(size=6, color=df_valid_map['angle_deg'],
+                                                                 colorscale='Viridis', showscale=True,
+                                                                 colorbar=dict(title='Açı (Derece)'))))
+                        for _, row in df_valid_map.iterrows():
+                            fig_map.add_shape(type="line", x0=0, y0=0, x1=row['y_cm'], y1=row['x_cm'],
+                                              line=dict(color="rgba(255,0,0,0.3)", width=1, dash="dash"))
+                except KeyError as ke:
+                    fig_map.update_layout(title_text='Harita Veri Formatı Hatası ' + title_suffix); print(
+                        f"2D Harita sütun hatası: {ke}")
+                fig_map.add_trace(go.Scatter(x=[0], y=[0], mode='markers',
+                                             marker=dict(size=12, symbol='diamond', color='red',
+                                                         line=dict(width=1, color='DarkSlateGrey')),
+                                             name='Sensör Pozisyonu'))
+            fig_polar_layout = go.Layout(title_text='Polar Grafik ' + title_suffix, paper_bgcolor='rgba(0,0,0,0)',
+                                         plot_bgcolor='rgba(248,248,248,0.95)');
+            fig_polar = go.Figure(layout=fig_polar_layout)
+            if not df_points.empty:
+                try:
+                    df_valid_polar = df_points[df_points['mesafe_cm'].notna() & df_points['angle_deg'].notna() & (
+                                df_points['mesafe_cm'] < max_plot_dist)].copy()
+                    if not df_valid_polar.empty: fig_polar.add_trace(
+                        go.Scatterpolar(r=df_valid_polar['mesafe_cm'], theta=df_valid_polar['angle_deg'],
+                                        mode='markers', name='Mesafe',
+                                        marker=dict(size=5, color=df_valid_polar['mesafe_cm'], colorscale='Plasma',
+                                                    showscale=True, colorbar_title_text="Mesafe (cm)")))
+                except KeyError as ke:
+                    fig_polar.update_layout(title_text='Polar Veri Formatı Hatası ' + title_suffix); print(
+                        f"Polar grafik sütun hatası: {ke}")
+            fig_polar.update_layout(polar=dict(radialaxis=dict(visible=True, range=[0, max_plot_dist]),
+                                               angularaxis=dict(direction="counterclockwise", ticksuffix="°",
+                                                                showticklabels=True, showline=True, showgrid=True)))
+            fig_time_layout = go.Layout(title_text='Zaman Serisi - Mesafe ' + title_suffix, xaxis_title="Zaman",
+                                        yaxis_title="Mesafe (cm)", paper_bgcolor='rgba(0,0,0,0)',
+                                        plot_bgcolor='rgba(248,248,248,0.95)');
+            fig_time = go.Figure(layout=fig_time_layout)
+            if not df_points.empty and 'timestamp' in df_points.columns:
+                try:
+                    df_valid_time = df_points[df_points['mesafe_cm'].notna() & df_points['timestamp'].notna() & (
+                                df_points['mesafe_cm'] < max_plot_dist)].copy()
+                    if not df_valid_time.empty: df_valid_time_sorted = df_valid_time.sort_values(
+                        by='timestamp'); datetime_series = pd.to_datetime(df_valid_time_sorted['timestamp'],
+                                                                          unit='s'); fig_time.add_trace(
                         go.Scatter(x=datetime_series, y=df_valid_time_sorted['mesafe_cm'], mode='lines+markers',
-                                   name='Mesafe (cm)'))
-                    fig_time.update_xaxes(type='date', tickformat='%H:%M:%S')
-            except KeyError as ke:
-                fig_time.update_layout(title_text='Zaman Serisi Veri Formatı Hatası ' + title_suffix)
-                print(f"Zaman serisi için DataFrame'de sütun hatası: {ke}")
-
-        # --- Şekil Tahmini (Bu callback'ten yönetiliyor) ---
-        estimation_text = "Tahmin: Bekleniyor..."  # Default
-        if scan_status == 'completed_analysis' and isinstance(scan_info, dict) and scan_info:
-            try:
-                max_g = scan_info.get('max_genislik_cm');
-                max_d = scan_info.get('max_derinlik_cm')
-                if pd.notnull(max_g) and pd.notnull(max_d) and max_d > 0.01:
-                    aspect_ratio = max_g / max_d
-                    if 0.8 < aspect_ratio < 1.25:
-                        estimation_text = "Oda benzeri/Geniş alan."
-                    elif aspect_ratio >= 1.25:
-                        estimation_text = "Geniş koridor/Yayvan engel."
-                    else:
-                        estimation_text = "Dar koridor/Uzun engel."
-                    estimation_text += f" (G/D: {aspect_ratio:.2f})"
-
-                    if scipy_available and simplification_available and points_data and len(points_data) >= 3:
-                        df_hull_pts = pd.DataFrame(points_data)
-                        if {'x_cm', 'y_cm', 'mesafe_cm'}.issubset(df_hull_pts.columns):
-                            df_valid_hull = df_hull_pts[df_hull_pts['x_cm'].notna() & df_hull_pts['y_cm'].notna() & (
-                                        df_hull_pts['mesafe_cm'] < max_plot_dist) & (df_hull_pts['mesafe_cm'] > 0.1)][
-                                ['y_cm', 'x_cm']].copy()
-                            if len(df_valid_hull) >= 3:
-                                try:
-                                    points_np = df_valid_hull.values;
-                                    hull = ConvexHull(points_np)
-                                    estimation_text += f" Sınır: {len(hull.vertices)} köşe, Alan: {hull.area:.0f}cm²."
-                                    # Haritaya Convex Hull çizimi
-                                    hull_path = np.append(hull.vertices,
-                                                          hull.vertices[0])  # Kapatmak için ilk noktayı sona ekle
-                                    fig_map.add_trace(go.Scatter(
-                                        x=points_np[hull_path, 0],  # y_cm
-                                        y=points_np[hull_path, 1],  # x_cm
-                                        mode='lines',
-                                        line=dict(color='rgba(255,0,0,0.5)', width=2, dash='dot'),
-                                        name='Tahmini Dış Sınır',
-                                        fill="toself", fillcolor='rgba(255,0,0,0.1)'
-                                    ))
-                                except scipy.spatial.qhull.QhullError as qe:
-                                    estimation_text += " (Sınır analizi hatası.)"
-                                except Exception as e_hull:
-                                    estimation_text += " (Sınır analizi hatası.)"
-                            else:
-                                estimation_text += " (Sınır için yetersiz nokta.)"
-                        else:
-                            estimation_text += " (Sınır için veri eksik.)"
-                    elif not scipy_available or not simplification_available:
-                        estimation_text += " (Gerekli kütüphane eksik.)"
-                elif scan_status == 'completed_analysis':
-                    estimation_text = "Analiz verisi (G/D) eksik."
-            except KeyError as ke:
-                estimation_text = f"Tahmin veri hatası."
-            except Exception as e:
-                estimation_text = f"Tahmin genel hata."
-        elif scan_status == 'running':
-            estimation_text = "Tahmin: Tarama sürüyor..."
-        elif scan_status in ['completed_insufficient_points', 'completed_analysis_error', 'completed']:
-            estimation_text = "Tahmin: Yetersiz veri veya analiz hatası."
-
-        return fig_map, fig_polar, fig_time, f"Tahmin: {estimation_text}"
+                                   name='Mesafe (cm)')); fig_time.update_xaxes(type='date', tickformat='%H:%M:%S')
+                except KeyError as ke:
+                    fig_time.update_layout(title_text='Zaman Serisi Veri Formatı Hatası ' + title_suffix); print(
+                        f"Zaman serisi sütun hatası: {ke}")
+            return fig_map, fig_polar, fig_time
+        except Exception as e:
+            print(f"Grafik oluşturma genel hata: {e}"); error_fig.update_layout(
+                title_text=f'Grafik Oluşturma Hatası: {str(e)[:30]}'); return error_fig, error_fig, error_fig
 
 
     @app.callback(
@@ -665,8 +569,65 @@ if app:
                 {"name": f"Tablo Hatası: {str(e)[:30]}", "id": "table_error"}]
 
 
-    # handle_stop_scan_script, update_system_card, export_csv_callback, export_excel_callback
-    # fonksiyonları önceki versiyondaki gibi kalabilir.
+    @app.callback(
+        Output('environment-estimation-text', 'children'),
+        Input('live-scan-data-store', 'data'),
+        prevent_initial_call=True
+    )
+    def update_environment_estimation_from_store(stored_data):
+        default_text = "Tahmin: Bekleniyor..."
+        if not stored_data: return default_text
+        scan_info = stored_data.get('info');
+        points_data = stored_data.get('points');
+        scan_status = scan_info.get('status') if isinstance(scan_info, dict) else None
+        if not scan_info or not isinstance(scan_info, dict) or not scan_info:
+            if scan_status == 'running': return "Tarama sürüyor..."
+            return "Tahmin için tarama bilgisi eksik."
+        if scan_status == 'running': return "Tarama sürüyor..."
+        if scan_status not in ['completed_analysis']: return f"Analiz bekleniyor (Durum: {scan_status})."
+        shape_guess = default_text
+        try:
+            max_g = scan_info.get('max_genislik_cm');
+            max_d = scan_info.get('max_derinlik_cm')
+            if pd.notnull(max_g) and pd.notnull(max_d) and max_d > 0.01:
+                aspect_ratio = max_g / max_d
+                if 0.8 < aspect_ratio < 1.25:
+                    shape_guess = "Oda benzeri/Geniş alan."
+                elif aspect_ratio >= 1.25:
+                    shape_guess = "Geniş koridor/Yayvan engel."
+                else:
+                    shape_guess = "Dar koridor/Uzun engel."
+                shape_guess += f" (G/D: {aspect_ratio:.2f})"
+                if scipy_available and simplification_available and points_data and len(points_data) >= 3:
+                    df_points_for_hull = pd.DataFrame(points_data)
+                    if {'x_cm', 'y_cm', 'mesafe_cm'}.issubset(df_points_for_hull.columns):
+                        df_valid_hull = df_points_for_hull[
+                            df_points_for_hull['x_cm'].notna() & df_points_for_hull['y_cm'].notna() & (
+                                        df_points_for_hull['mesafe_cm'] < 200) & (
+                                        df_points_for_hull['mesafe_cm'] > 0.1)][['y_cm', 'x_cm']].copy()
+                        if len(df_valid_hull) >= 3:
+                            try:
+                                points_np = df_valid_hull.values; hull = ConvexHull(
+                                    points_np); shape_guess += f" Sınır: {len(hull.vertices)} köşe, Alan: {hull.area:.0f}cm²."
+                            except scipy.spatial.qhull.QhullError as qe:
+                                print(f"Convex Hull (Qhull) hatası: {qe}"); shape_guess += " (Sınır analizi hatası.)"
+                            except Exception as e_hull:
+                                print(f"Convex Hull genel hatası: {e_hull}"); shape_guess += " (Sınır analizi hatası.)"
+                        else:
+                            shape_guess += " (Sınır için yetersiz nokta.)"
+                    else:
+                        shape_guess += " (Sınır için veri eksik.)"
+                elif not scipy_available or not simplification_available:
+                    shape_guess += " (Gerekli kütüphane eksik.)"
+            elif scan_status == 'completed_analysis':
+                shape_guess = "Analiz verisi (G/D) eksik."
+        except KeyError as ke:
+            print(f"Şekil tahmini anahtar hatası: {ke}"); shape_guess = f"Tahmin veri hatası."
+        except Exception as e:
+            print(f"Şekil tahmini genel hata: {e}"); shape_guess = f"Tahmin genel hata."
+        return f"Tahmin: {shape_guess}"
+
+
     @app.callback(Output('scan-status-message', 'children', allow_duplicate=True),
                   [Input('stop-scan-button', 'n_clicks')], prevent_initial_call=True)
     def handle_stop_scan_script(n_clicks_stop):
@@ -682,38 +643,48 @@ if app:
                 pid_to_kill = None
         if pid_to_kill and is_process_running(pid_to_kill):
             try:
-                print(f"Sensör betiği (PID: {pid_to_kill}) durduruluyor (SIGTERM)...");
-                os.kill(pid_to_kill, signal.SIGTERM);
+                print(f"Sensör betiği (PID: {pid_to_kill}) durduruluyor (SIGTERM)...")
+                os.kill(pid_to_kill, signal.SIGTERM)
                 time.sleep(2.5)
-                if is_process_running(pid_to_kill): print(
-                    f"Betik (PID: {pid_to_kill}) SIGTERM'e yanıt vermedi, SIGKILL gönderiliyor..."); os.kill(
-                    pid_to_kill, signal.SIGKILL); time.sleep(0.5)
+                if is_process_running(pid_to_kill):
+                    print(f"Betik (PID: {pid_to_kill}) SIGTERM'e yanıt vermedi, SIGKILL gönderiliyor...")
+                    os.kill(pid_to_kill, signal.SIGKILL)
+                    time.sleep(0.5)
                 msg_suffix = ""
                 if os.path.exists(PID_FILE_PATH_FOR_DASH):
-                    try: os.remove(PID_FILE_PATH_FOR_DASH);msg_suffix += " PID dosyası silindi."
-                    except OSError as e_rm_pid: msg_suffix += f" PID dosyası silinemedi ({e_rm_pid})."
+                    try:
+                        os.remove(PID_FILE_PATH_FOR_DASH)
+                        msg_suffix += " PID dosyası silindi."
+                    except OSError as e_rm_pid:
+                        msg_suffix += f" PID dosyası silinemedi ({e_rm_pid})."
                 if os.path.exists(LOCK_FILE_PATH_FOR_DASH):
-                    try: os.remove(LOCK_FILE_PATH_FOR_DASH); msg_suffix += " Kilit dosyası silindi."
-                    except OSError as e_rm_lock: msg_suffix += f" Kilit dosyası silinemedi ({e_rm_lock})."
+                    try:
+                        os.remove(LOCK_FILE_PATH_FOR_DASH)
+                        msg_suffix += " Kilit dosyası silindi."
+                    except OSError as e_rm_lock:
+                        msg_suffix += f" Kilit dosyası silinemedi ({e_rm_lock})."
                 if not is_process_running(pid_to_kill):
-                    return dbc.Alert(f"Betik (PID: {pid_to_kill}) başarıyla durduruldu.{msg_suffix}", color="info",
-                                     duration=5000)
+                    return dbc.Alert(f"Betik (PID: {pid_to_kill}) başarıyla durduruldu.{msg_suffix}", color="info", duration=5000)
                 else:
-                    return dbc.Alert(f"Betik (PID: {pid_to_kill}) durdurulamadı!{msg_suffix}", color="danger",
-                                     duration=5000)
+                    return dbc.Alert(f"Betik (PID: {pid_to_kill}) durdurulamadı!{msg_suffix}", color="danger", duration=5000)
             except ProcessLookupError:
                 return dbc.Alert(f"Betik (PID: {pid_to_kill}) zaten çalışmıyor.", color="warning", duration=4000)
             except Exception as e:
                 return dbc.Alert(f"Betik (PID: {pid_to_kill}) durdurulurken hata: {e}", color="danger", duration=5000)
         else:
-            msg = "Çalışan bir betik bulunamadı.";
+            msg = "Çalışan bir betik bulunamadı."
             cleaned = False
             try:
-                if os.path.exists(LOCK_FILE_PATH_FOR_DASH): os.remove(LOCK_FILE_PATH_FOR_DASH); cleaned = True
-                if os.path.exists(PID_FILE_PATH_FOR_DASH): os.remove(PID_FILE_PATH_FOR_DASH); cleaned = True
+                if os.path.exists(LOCK_FILE_PATH_FOR_DASH):
+                    os.remove(LOCK_FILE_PATH_FOR_DASH)
+                    cleaned = True
+                if os.path.exists(PID_FILE_PATH_FOR_DASH):
+                    os.remove(PID_FILE_PATH_FOR_DASH)
+                    cleaned = True
             except OSError:
                 pass
-            if cleaned: msg += " Kalıntı dosyalar temizlendi."
+            if cleaned:
+                msg += " Kalıntı dosyalar temizlendi."
             return dbc.Alert(msg, color="warning", duration=4000)
 
 
@@ -748,53 +719,68 @@ if app:
         return script_status_text, status_class_name, cpu_percent, f"{cpu_percent}%", ram_percent, f"{ram_percent}%"
 
 
-    @app.callback(Output('download-csv', 'data'), [Input('export-csv-button', 'n_clicks')],
-                  State('live-scan-data-store', 'data'), prevent_initial_call=True)
+    @app.callback(Output('download-csv', 'data'), [Input('export-csv-button', 'n_clicks')], State('live-scan-data-store', 'data'), prevent_initial_call=True)
     def export_csv_callback(n_clicks, stored_data):
-        if n_clicks == 0 or not stored_data or not stored_data.get('scan_id'): return no_update
-        latest_id = stored_data['scan_id'];
+        if n_clicks == 0 or not stored_data or not stored_data.get('scan_id'):
+            return no_update
+        latest_id = stored_data['scan_id']
         conn, error = get_db_connection()
-        if error or not conn: print(f"CSV Export DB Hatası: {error}"); return no_update
+        if error or not conn:
+            print(f"CSV Export DB Hatası: {error}")
+            return no_update
         if latest_id:
             try:
-                df = pd.read_sql_query(f"SELECT * FROM scan_points WHERE scan_id = {latest_id} ORDER BY id ASC", conn)
-                if not df.empty: return dcc.send_data_frame(df.to_csv, f"tarama_id_{latest_id}_noktalar.csv", index=False)
+                df = pd.read_sql_query(
+                    "SELECT * FROM scan_points WHERE scan_id = ? ORDER BY id ASC", conn, params=(latest_id,))
+                if not df.empty:
+                    return dcc.send_data_frame(df.to_csv, f"tarama_id_{latest_id}_noktalar.csv", index=False)
             except (sqlite3.Error, pd.io.sql.DatabaseError) as e:
                 print(f"CSV indirme DB hatası: {e}")
             except Exception as e:
                 print(f"CSV indirme genel hata: {e}")
             finally:
-                if conn: conn.close()
+                if conn:
+                    conn.close()
         return no_update
 
+    @app.callback(Output('download-excel', 'data'), [Input('export-excel-button', 'n_clicks')], State('live-scan-data-store', 'data'), prevent_initial_call=True)
+    def export_excel_callback(n_clicks, stored_data):
+        if n_clicks == 0 or not stored_data or not stored_data.get('scan_id'):
+            return no_update
+        latest_id = stored_data['scan_id']
+        conn, error = get_db_connection()
+        if error or not conn:
+            print(f"Excel Export DB Hatası: {error}")
+            return no_update
+        if latest_id:
+            try:
+                df_points = pd.read_sql_query(
+                    "SELECT * FROM scan_points WHERE scan_id = ? ORDER BY id ASC", conn, params=(latest_id,))
+                df_scan_info = pd.read_sql_query(
+                    "SELECT * FROM servo_scans WHERE id = ?", conn, params=(latest_id,))
+                if df_points.empty and df_scan_info.empty:
+                    return no_update
+                excel_buffer = io.BytesIO()
+                with pd.ExcelWriter(excel_buffer, engine='xlsxwriter') as writer:
+                    if not df_points.empty:
+                        df_points.to_excel(writer, sheet_name=f'Scan_{latest_id}_Points', index=False)
+                    if not df_scan_info.empty:
+                        df_scan_info.to_excel(writer, sheet_name=f'Scan_{latest_id}_Info', index=False)
+                excel_buffer.seek(0)
+                return dcc.send_bytes(excel_buffer.read(), f"tarama_detaylari_id_{latest_id}.xlsx")
+            except (sqlite3.Error, pd.io.sql.DatabaseError) as e:
+                print(f"Excel indirme DB hatası: {e}")
+            except Exception as e:
+                print(f"Excel indirme genel hata: {e}")
+            finally:
+                if conn:
+                    conn.close()
+        return no_update
+else:
+    print(f"!!!!!! [PID:{os.getpid()}] dash_apps.py: 'app' is None, callbacks are NOT being defined. !!!!!!")
 
-@app.callback(Output('download-excel', 'data'), [Input('export-excel-button', 'n_clicks')],
-              State('live-scan-data-store', 'data'), prevent_initial_call=True)
-def export_excel_callback(n_clicks, stored_data):
-    if n_clicks == 0 or not stored_data or not stored_data.get('scan_id'): return no_update
-    latest_id = stored_data['scan_id'];
-    conn, error = get_db_connection()
-    if error or not conn: print(f"Excel Export DB Hatası: {error}"); return no_update
-    if latest_id:
-        try:
-            df_points = pd.read_sql_query(f"SELECT * FROM scan_points WHERE scan_id = {latest_id} ORDER BY id ASC",
-                                          conn);
-            df_scan_info = pd.read_sql_query(f"SELECT * FROM servo_scans WHERE id = {latest_id}", conn)
-            if df_points.empty and df_scan_info.empty: return no_update
-            excel_buffer = io.BytesIO()
-            with pd.ExcelWriter(excel_buffer, engine='xlsxwriter') as writer:
-                if not df_points.empty: df_points.to_excel(writer, sheet_name=f'Scan_{latest_id}_Points', index=False)
-                if not df_scan_info.empty: df_scan_info.to_excel(writer, sheet_name=f'Scan_{latest_id}_Info',
-                                                                 index=False)
-            excel_buffer.seek(0);
-            return dcc.send_bytes(excel_buffer.read(), f"tarama_detaylari_id_{latest_id}.xlsx")
-        except (sqlite3.Error, pd.io.sql.DatabaseError) as e:
-            print(f"Excel indirme DB hatası: {e}")
-        except Exception as e:
-            print(f"Excel indirme genel hata: {e}")
-        finally:
-            if conn: conn.close()
-    return no_update
-
-
+if app:
+    print(f"--- [PID:{os.getpid()}] dash_apps.py loaded successfully. 'app' object type: {type(app)} ---")
+else:
+    print(f"!!!!!! [PID:{os.getpid()}] dash_apps.py FAILED to load. 'app' object is None. !!!!!!")
 
