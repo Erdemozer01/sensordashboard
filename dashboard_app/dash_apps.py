@@ -141,31 +141,21 @@ visualization_tabs = dbc.Tabs(
                 label="2D Kartezyen Harita",
                 tab_id="tab-map"),
 
-        # Sekme 2: İkili Regresyon Analizi
+        # Sekme 2: Sadece Açı-Mesafe Regresyon Analizi
         dbc.Tab(
-            dbc.Container([
-                dbc.Row([
-                    # Sütun 1: Geometrik (Kartezyen) Regresyon Grafiği
-                    dbc.Col(dcc.Graph(id='regression-analysis-graph', style={'height': '75vh'}), md=6),
-                    # Sütun 2: Açı-Mesafe (Polar) Regresyon Grafiği
-                    dbc.Col(dcc.Graph(id='polar-regression-graph', style={'height': '75vh'}), md=6),
-                ])
-            ], fluid=True),
+            # İçerik, içinde tek bir grafik olacak şekilde basitleştirildi
+            dcc.Graph(id='polar-regression-graph', style={'height': '75vh'}),
             label="Regresyon Analizi",
             tab_id="tab-regression",
         ),
 
-        # Sekme 3: Polar Grafik
+        # Diğer sekmeler aynı kalır
         dbc.Tab(dcc.Graph(id='polar-graph', style={'height': '75vh'}),
                 label="Polar Grafik",
                 tab_id="tab-polar"),
-
-        # Sekme 4: Zaman Serisi Grafiği
         dbc.Tab(dcc.Graph(id='time-series-graph', style={'height': '75vh'}),
                 label="Zaman Serisi (Mesafe)",
                 tab_id="tab-time"),
-
-        # Sekme 5: Veri Tablosu
         dbc.Tab(
             dcc.Loading(id="loading-datatable", children=[html.Div(id='tab-content-datatable')]),
             label="Veri Tablosu",
@@ -771,7 +761,6 @@ from dash import html
 
 @app.callback(
     [Output('scan-map-graph', 'figure'),
-     Output('regression-analysis-graph', 'figure'),
      Output('polar-regression-graph', 'figure'),
      Output('polar-graph', 'figure'),
      Output('time-series-graph', 'figure'),
@@ -780,7 +769,7 @@ from dash import html
 )
 def update_all_graphs(n_intervals):
     # 1. Figürleri ve varsayılan metinleri başlangıçta oluştur
-    fig_map, fig_regression, fig_polar_regression, fig_polar, fig_time = go.Figure(), go.Figure(), go.Figure(), go.Figure(), go.Figure()
+    fig_map, fig_polar_regression, fig_polar, fig_time = go.Figure(), go.Figure(), go.Figure(), go.Figure()
     estimation_text_cartesian = "Kartezyen analiz için veri bekleniyor..."
     estimation_text_polar = "Polar analiz için veri bekleniyor..."
     id_to_plot = None
@@ -800,11 +789,12 @@ def update_all_graphs(n_intervals):
 
                     if len(df_valid) >= 2:
                         # 3a. Kartezyen (Geometrik) Analiz ve Harita Oluşturma
-                        add_sensor_position(fig_regression)
-                        estimation_text_cartesian = analyze_environment_shape(fig_regression, df_valid)
-                        fig_map = go.Figure(data=fig_regression.data, layout=fig_regression.layout)
+                        # Tüm analizler doğrudan ana harita (fig_map) üzerine yapılır
+                        add_sensor_position(fig_map)
                         add_scan_rays(fig_map, df_valid)
                         add_sector_area(fig_map, df_valid)
+                        # analyze_environment_shape, kümeleri ve RANSAC çizgilerini doğrudan fig_map'e ekler
+                        estimation_text_cartesian = analyze_environment_shape(fig_map, df_valid)
 
                         # 3b. Polar (Açı-Mesafe) Regresyon Analizi
                         polar_line_data, estimation_text_polar = analyze_polar_regression(df_valid)
@@ -818,15 +808,12 @@ def update_all_graphs(n_intervals):
                     else:
                         estimation_text_cartesian = "Analiz için yeterli geçerli nokta bulunamadı."
                         add_sensor_position(fig_map)
-                        add_sensor_position(fig_regression)
                 else:
                     estimation_text_cartesian = f"Tarama ID {id_to_plot} için nokta bulunamadı."
                     add_sensor_position(fig_map)
-                    add_sensor_position(fig_regression)
             else:
                 estimation_text_cartesian = "Tarama başlatın."
                 add_sensor_position(fig_map)
-                add_sensor_position(fig_regression)
         else:
             estimation_text_cartesian = f"Veritabanı bağlantı hatası: {error_msg_conn}"
 
@@ -840,16 +827,10 @@ def update_all_graphs(n_intervals):
 
     # 4. Her durumda, fonksiyonun sonunda tüm figürlerin layout'larını ayarla
     fig_map.update_layout(
-        title_text='Ortamın 2D Haritası (Tüm Katmanlar)',
+        title_text='Ortamın 2D Haritası (Analizli)',
         xaxis_title="Yatay Mesafe (cm)", yaxis_title="Dikey Mesafe (cm)",
         yaxis_scaleanchor="x", yaxis_scaleratio=1, uirevision=id_to_plot,
         legend=dict(title_text='Gösterim Katmanları', orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
-    )
-    fig_regression.update_layout(
-        title_text='Geometrik Regresyon Analizi (X-Y Uzayı)',
-        xaxis_title="Yatay Mesafe (cm)", yaxis_title="Dikey Mesafe (cm)",
-        yaxis_scaleanchor="x", yaxis_scaleratio=1, uirevision=id_to_plot,
-        legend=dict(title_text='Tespit Edilen Yapılar', orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
     )
     fig_polar_regression.update_layout(
         title='Açıya Göre Mesafe Regresyonu',
@@ -867,7 +848,7 @@ def update_all_graphs(n_intervals):
     ])
 
     # 6. Her şeyi yeni sıraya göre döndür
-    return fig_map, fig_regression, fig_polar_regression, fig_polar, fig_time, final_estimation_text
+    return fig_map, fig_polar_regression, fig_polar, fig_time, final_estimation_text
 
 
 @app.callback(
