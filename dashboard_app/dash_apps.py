@@ -1,527 +1,542 @@
-from django_plotly_dash import DjangoDash
-
-from dash import html, dcc, Output, Input, State, no_update, dash_table
-import dash_bootstrap_components as dbc
-import plotly.graph_objects as go
-import matplotlib.pyplot as plt  # analyze_environment_shape içinde renk haritası için kullanılıyor
-
+from gpiozero import DistanceSensor, LED, Buzzer
+from RPLCD.i2c import CharLCD
+import RPi.GPIO as GPIO # Step motor kontrolü için RPi.GPIO
+import time
 import sqlite3
-import pandas as pd
 import os
 import sys
-import subprocess
-import time
-import io
-import signal
-import psutil
-import numpy as np
-from scipy.spatial import ConvexHull
-from simplification.cutil import simplify_coords
-from sklearn.linear_model import RANSACRegressor
-from sklearn.cluster import DBSCAN
+import fcntl # Dosya kilitleme için (Linux/macOS)
+import atexit # Çıkışta fonksiyon çalıştırmak için
+import math
+import argparse
 
 # ==============================================================================
-# --- SABİTLER VE UYGULAMA BAŞLATMA ---
+# --- Pin Tanımlamaları ve Donanım Ayarları ---
+# ==============================================================================
+# --- Ultrasonik Sensör Pinleri ---
+TRIG_PIN = 23
+ECHO_PIN = 24
+
+# --- Step Motor Pin Tanımlamaları (ULN2003 Sürücü Kartı için Örnek) ---
+# Lütfen bu pinleri kendi Raspberry Pi bağlantınıza göre güncelleyin!
+IN1_PIN = 6   # Sürücü kartındaki IN1'e bağlı GPIO pini
+IN2_PIN = 13  # Sürücü kartındaki IN2'ye bağlı GPIO pini
+IN3_PIN = 19  # Sürücü kartındaki IN3'e bağlı GPIO pini
+IN4_PIN = 26  # Sürücü kartındaki IN4'e bağlı GPIO pini
+
+# --- Diğer Donanım Pinleri ---
+YELLOW_LED_PIN = 27 # Durum/Uyarı LED'i
+BUZZER_PIN = 17     # Buzzer
+
+# --- LCD Ayarları ---
+LCD_I2C_ADDRESS = 0x27      # LCD'nin I2C adresi
+LCD_PORT_EXPANDER = 'PCF8574' # Kullanılan I2C port genişletici
+LCD_COLS = 16               # LCD sütun sayısı
+LCD_ROWS = 2                # LCD satır sayısı
+I2C_PORT = 1                # Raspberry Pi I2C portu (genellikle 1)
+
+# ==============================================================================
+# --- Varsayılan Tarama ve Eşik Değerleri ---
+# ==============================================================================
+DEFAULT_TERMINATION_DISTANCE_CM = 1  # Bu mesafeden yakınsa tarama durur (cm)
+DEFAULT_BUZZER_DISTANCE = 10         # Buzzer'ın çalmaya başlayacağı mesafe (cm)
+DEFAULT_SCAN_START_ANGLE = 0         # Tarama başlangıç açısı (derece)
+DEFAULT_SCAN_END_ANGLE = 180         # Tarama bitiş açısı (derece)
+DEFAULT_SCAN_STEP_ANGLE = 10         # Tarama adım açısı (derece)
+
+# --- Step Motor Zamanlama Ayarları ---
+# Bu değerler motorunuzun tipine ve istediğiniz hıza göre ayarlanmalıdır.
+# 28BYJ-48 için 0.001 ile 0.002 arası iyi bir başlangıç olabilir. Daha düşük değer = daha hızlı.
+STEP_MOTOR_INTER_STEP_DELAY = 0.0015 # Adım fazları arasındaki gecikme (saniye)
+STEP_MOTOR_SETTLE_TIME = 0.05      # Adım grubundan sonra motorun durması için bekleme (saniye)
+LOOP_TARGET_INTERVAL_S = 0.6       # Her bir ölçüm döngüsünün hedeflenen süresi (saniye)
+
+# ==============================================================================
+# --- Dosya Yolları ve Global Değişkenler ---
 # ==============================================================================
 try:
-    # __file__ bu betik Django context'inde çalıştığında tanımlı olmayabilir.
-    PROJECT_ROOT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..')
-except NameError:
-    # Eğer __file__ tanımlı değilse (örneğin interaktif bir shell'de),
-    # mevcut çalışma dizinini kök dizin olarak varsayalım.
+    PROJECT_ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
+except NameError: # __file__ tanımlı değilse (örn: interaktif mod)
     PROJECT_ROOT_DIR = os.getcwd()
-    # print(f"UYARI: __file__ tanımlı değil. PROJECT_ROOT_DIR şuna ayarlandı: {PROJECT_ROOT_DIR}")
 
-DB_FILENAME = 'live_scan_data.sqlite3'
-DB_PATH = os.path.join(PROJECT_ROOT_DIR, DB_FILENAME)
-SENSOR_SCRIPT_FILENAME = 'sensor_script.py'
-SENSOR_SCRIPT_PATH = os.path.join(PROJECT_ROOT_DIR, SENSOR_SCRIPT_FILENAME)
-LOCK_FILE_PATH_FOR_DASH = '/tmp/sensor_scan_script.lock'
-PID_FILE_PATH_FOR_DASH = '/tmp/sensor_scan_script.pid'
+DB_NAME_ONLY = 'live_scan_data.sqlite3'
+DB_PATH = os.path.join(PROJECT_ROOT_DIR, DB_NAME_ONLY)
+LOCK_FILE_PATH = '/tmp/sensor_scan_script.lock'
+PID_FILE_PATH = '/tmp/sensor_scan_script.pid'
 
-DEFAULT_UI_SCAN_START_ANGLE = 0
-DEFAULT_UI_SCAN_END_ANGLE = 180
-DEFAULT_UI_SCAN_STEP_ANGLE = 10
-DEFAULT_UI_BUZZER_DISTANCE = 10
+# --- Global Değişkenler ---
+sensor, yellow_led, lcd, buzzer = None, None, None, None
+lock_file_handle, current_scan_id_global, db_conn_main_script_global = None, None, None
+script_exit_status_global = 'interrupted_unexpectedly' # Betiğin çıkış durumu
 
-app = DjangoDash('RealtimeSensorDashboard', external_stylesheets=[dbc.themes.BOOTSTRAP])
+# --- Step Motor Özellikleri (28BYJ-48 Yarım Adım Modu için Tipik) ---
+# ÖNEMLİ: Bu değeri kendi motorunuzun datasheet'ine ve sürüş modunuza göre ayarlayın!
+# 28BYJ-48 motorlar genellikle iç dişli oranına sahiptir.
+# Yarım adım (half-step) modunda, çıkış milinin bir tam turu için 4096 adım yaygın bir değerdir.
+STEPS_PER_REVOLUTION_OUTPUT_SHAFT = 4096
+DEG_PER_STEP = 360.0 / STEPS_PER_REVOLUTION_OUTPUT_SHAFT # Bir adımda çıkış milinin döndüğü derece
+current_motor_angle_global = 0.0 # Motorun mevcut açısını derece cinsinden takip eder
+current_step_sequence_index = 0  # Motorun mevcut adım fazını (sekans içindeki indeksi) takip eder
 
-# ==============================================================================
-# --- LAYOUT (ARAYÜZ) BİLEŞENLERİ ---
-# ==============================================================================
-title_card = dbc.Row([
-    dbc.Col(html.H1("Dream Pi Kullanıcı Paneli", className="text-center my-3 mb-5"), width=12),
-    html.Hr(),
-])
+# Yarım adım (half-step) sekansı (8 adım) - ULN2003 ve 28BYJ-48 için yaygın
+# Motor sargılarına ve bağlantı sırasına göre bu sekans veya pinlerin sırası değişebilir!
+# [IN1, IN2, IN3, IN4]
+step_sequence = [
+    [1,0,0,0], # Faz 1
+    [1,1,0,0], # Faz 2
+    [0,1,0,0], # Faz 3
+    [0,1,1,0], # Faz 4
+    [0,0,1,0], # Faz 5
+    [0,0,1,1], # Faz 6
+    [0,0,0,1], # Faz 7
+    [1,0,0,1]  # Faz 8
+]
+# Alternatif: Tam Adım (Daha az hassas, potansiyel olarak daha fazla tork)
+# step_sequence_full = [[1,1,0,0], [0,1,1,0], [0,0,1,1], [1,0,0,1]]
+# Alternatif: Dalga Sürüşü (Wave Drive - Daha az tork)
+# step_sequence_wave = [[1,0,0,0], [0,1,0,0], [0,0,1,0], [0,0,0,1]]
 
-control_panel = dbc.Card([
-    dbc.CardHeader("Tarama Kontrol ve Ayarları", className="bg-primary text-white"),
-    dbc.CardBody([
-        dbc.Row([
-            dbc.Col(html.Button('2D Taramayı Başlat', id='start-scan-button', n_clicks=0,
-                                className="btn btn-success btn-lg w-100 mb-2"), width=6),
-            dbc.Col(html.Button('Taramayı Durdur', id='stop-scan-button', n_clicks=0,
-                                className="btn btn-danger btn-lg w-100 mb-2"), width=6)
-        ]),
-        html.Div(id='scan-status-message', style={'marginTop': '10px', 'minHeight': '40px', 'textAlign': 'center'},
-                 className="mb-3"),
-        html.Hr(),
-        html.H6("Tarama Parametreleri:", className="mt-2"),
-        dbc.InputGroup([dbc.InputGroupText("Başl. Açı (°)", style={"width": "120px"}),
-                        dbc.Input(id="start-angle-input", type="number", value=DEFAULT_UI_SCAN_START_ANGLE, min=0,
-                                  max=180, step=5)], className="mb-2"),
-        dbc.InputGroup([dbc.InputGroupText("Bitiş Açısı (°)", style={"width": "120px"}),
-                        dbc.Input(id="end-angle-input", type="number", value=DEFAULT_UI_SCAN_END_ANGLE, min=0, max=180,
-                                  step=5)], className="mb-2"),
-        dbc.InputGroup([dbc.InputGroupText("Adım Açısı (°)", style={"width": "120px"}),
-                        dbc.Input(id="step-angle-input", type="number", value=DEFAULT_UI_SCAN_STEP_ANGLE, min=1, max=45,
-                                  step=1)], className="mb-2"),
-        dbc.InputGroup([dbc.InputGroupText("Buzzer Mes. (cm)", style={"width": "120px"}),
-                        dbc.Input(id="buzzer-distance-input", type="number", value=DEFAULT_UI_BUZZER_DISTANCE, min=0,
-                                  max=200, step=1)], className="mb-2"),
-    ])
-])
-
-stats_panel = dbc.Card([
-    dbc.CardHeader("Anlık Sensör Değerleri", className="bg-info text-white"),
-    dbc.CardBody(
-        dbc.Row([
-            dbc.Col(html.Div([html.H6("Mevcut Açı:"), html.H4(id='current-angle', children="--°")]), width=3,
-                    className="text-center border-end"),  # Sütun genişliği ve kenarlık eklendi
-            dbc.Col(html.Div([html.H6("Mevcut Mesafe:"), html.H4(id='current-distance', children="-- cm")]),
-                    id='current-distance-col', width=3, className="text-center rounded border-end"),
-            # Sütun genişliği ve kenarlık eklendi
-            dbc.Col(html.Div([html.H6("Anlık Hız:"), html.H4(id='current-speed', children="-- cm/s")]), width=3,
-                    className="text-center border-end"),  # Sütun genişliği ve kenarlık eklendi
-            dbc.Col(
-                html.Div([html.H6("Max. Algılanan Mesafe:"), html.H4(id='max-detected-distance', children="-- cm")]),
-                width=3, className="text-center")  # YENİ EKLENEN SÜTUN
-        ]))
-], className="mb-3")
-
-system_card = dbc.Card([
-    dbc.CardHeader("Sistem Durumu", className="bg-secondary text-white"),
-    dbc.CardBody([
-        dbc.Row([dbc.Col(html.Div([html.H6("Sensör Durumu:"), html.H5(id='script-status', children="Beklemede")]))],
-                className="mb-2"),
-        dbc.Row([
-            dbc.Col(html.Div([html.H6("Pi CPU Kullanımı:"),
-                              dbc.Progress(id='cpu-usage', value=0, color="success", style={"height": "20px"},
-                                           className="mb-1", label="0%")])),
-            dbc.Col(html.Div([html.H6("Pi RAM Kullanımı:"),
-                              dbc.Progress(id='ram-usage', value=0, color="info", style={"height": "20px"},
-                                           className="mb-1", label="0%")]))
-        ])])
-], className="mb-3")
-
-export_card = dbc.Card([
-    dbc.CardHeader("Veri Dışa Aktarma (En Son Tarama)", className="bg-light"),
-    dbc.CardBody([
-        dbc.Button('En Son Taramayı CSV İndir', id='export-csv-button', color="primary", className="w-100 mb-2"),
-        dcc.Download(id='download-csv'),
-        dbc.Button('En Son Taramayı Excel İndir', id='export-excel-button', color="success", className="w-100"),
-        dcc.Download(id='download-excel'),
-    ])
-], className="mb-3")
-
-analysis_card = dbc.Card([
-    dbc.CardHeader("Tarama Analizi (En Son Tarama)", className="bg-dark text-white"),
-    dbc.CardBody([
-        dbc.Row([
-            dbc.Col([html.H6("Hesaplanan Alan:"), html.H4(id='calculated-area', children="-- cm²")]),
-            dbc.Col([html.H6("Çevre Uzunluğu:"), html.H4(id='perimeter-length', children="-- cm")])
-        ]),
-        dbc.Row([
-            dbc.Col([html.H6("Max Genişlik:"), html.H4(id='max-width', children="-- cm")]),
-            dbc.Col([html.H6("Max Derinlik:"), html.H4(id='max-depth', children="-- cm")])
-        ], className="mt-2")
-    ])
-])
-
-estimation_card = dbc.Card([
-    dbc.CardHeader("Akıllı Ortam Analizi", className="bg-success text-white"),
-    dbc.CardBody(html.Div("Tahmin: Bekleniyor...", id='environment-estimation-text', className="text-center"))
-])
-
-visualization_tabs = dbc.Tabs(
-    [
-        dbc.Tab(dcc.Graph(id='scan-map-graph', style={'height': '75vh'}), label="2D Kartezyen Harita",
-                tab_id="tab-map"),
-        dbc.Tab(dcc.Graph(id='polar-regression-graph', style={'height': '75vh'}), label="Regresyon Analizi",
-                tab_id="tab-regression"),
-        dbc.Tab(dcc.Graph(id='polar-graph', style={'height': '75vh'}), label="Polar Grafik", tab_id="tab-polar"),
-        dbc.Tab(dcc.Graph(id='time-series-graph', style={'height': '75vh'}), label="Zaman Serisi (Mesafe)",
-                tab_id="tab-time"),
-        dbc.Tab(dcc.Loading(id="loading-datatable", children=[html.Div(id='tab-content-datatable')]),
-                label="Veri Tablosu", tab_id="tab-datatable")
-    ],
-    id="visualization-tabs-main",
-    active_tab="tab-map",
-)
-
-app.layout = dbc.Container(fluid=True, children=[
-    title_card,
-    dbc.Row([
-        dbc.Col([
-            control_panel,
-            dbc.Row(html.Div(style={"height": "15px"})),
-            stats_panel,
-            dbc.Row(html.Div(style={"height": "15px"})),
-            system_card,
-            dbc.Row(html.Div(style={"height": "15px"})),
-            export_card
-        ], md=4, className="mb-3"),
-        dbc.Col([
-            visualization_tabs,
-            dbc.Row(html.Div(style={"height": "15px"})),
-            dbc.Row([
-                dbc.Col(analysis_card, md=8),
-                dbc.Col(estimation_card, md=4)
-            ])
-        ], md=8)
-    ]),
-    dcc.Store(id='clustered-data-store'),
-    dbc.Modal([
-        dbc.ModalHeader(dbc.ModalTitle(id="modal-title")),
-        dbc.ModalBody(id="modal-body"),
-    ], id="cluster-info-modal", is_open=False, centered=True),
-    dcc.Interval(id='interval-component-main', interval=3000, n_intervals=0),
-    dcc.Interval(id='interval-component-system', interval=3000, n_intervals=0),
-])
-
+# --- Çalışma Zamanı Ayarları (Argümanlarla Değişebilir) ---
+TERMINATION_DISTANCE_CM = DEFAULT_TERMINATION_DISTANCE_CM
+BUZZER_DISTANCE_CM = DEFAULT_BUZZER_DISTANCE
+SCAN_START_ANGLE = DEFAULT_SCAN_START_ANGLE
+SCAN_END_ANGLE = DEFAULT_SCAN_END_ANGLE
+SCAN_STEP_ANGLE = DEFAULT_SCAN_STEP_ANGLE
 
 # ==============================================================================
-# --- YARDIMCI FONKSİYONLAR ---
+# --- GPIO ve Donanım Başlatma Fonksiyonları ---
 # ==============================================================================
-def is_process_running(pid):
-    if pid is None: return False
+def setup_gpio_stepper_4in():
+    """Step motor için GPIO pinlerini ayarlar."""
+    GPIO.setmode(GPIO.BCM) # Broadcom pin numaralandırmasını kullan
+    GPIO.setwarnings(False) # GPIO uyarılarını kapat
+    GPIO.setup(IN1_PIN, GPIO.OUT)
+    GPIO.setup(IN2_PIN, GPIO.OUT)
+    GPIO.setup(IN3_PIN, GPIO.OUT)
+    GPIO.setup(IN4_PIN, GPIO.OUT)
+    # Başlangıçta tüm motor pinlerini LOW (kapalı) yap
+    GPIO.output(IN1_PIN, GPIO.LOW)
+    GPIO.output(IN2_PIN, GPIO.LOW)
+    GPIO.output(IN3_PIN, GPIO.LOW)
+    GPIO.output(IN4_PIN, GPIO.LOW)
+
+def init_hardware():
+    """Tüm donanım bileşenlerini başlatır."""
+    global sensor, yellow_led, lcd, buzzer, current_motor_angle_global
+    hardware_ok = True
+    pid = os.getpid()
     try:
-        os.kill(pid, 0)
-    except OSError:
-        return False
+        print(f"[{pid}] Donanımlar başlatılıyor...")
+        setup_gpio_stepper_4in() # Step motor GPIO ayarları
+        print(f"[{pid}] 4-girişli step motor pinleri (IN1-IN4) ayarlandı.")
+
+        sensor = DistanceSensor(echo=ECHO_PIN, trigger=TRIG_PIN, max_distance=2.0, queue_len=2)
+        yellow_led = LED(YELLOW_LED_PIN)
+        buzzer = Buzzer(BUZZER_PIN)
+
+        yellow_led.off() # Başlangıçta LED kapalı
+        buzzer.off()   # Başlangıçta buzzer kapalı
+        
+        # Step motoru başlangıç açısına (SCAN_START_ANGLE) getir.
+        # ÖNEMLİ: Bu, motorun mevcut fiziksel pozisyonunun 0 derece olduğunu varsayar.
+        # Daha hassas bir sistem için, açılışta bir "homing" rutini (limit switch ile)
+        # veya bilinen bir referans noktasına gitmesi gerekebilir.
+        print(f"[{pid}] Step motor başlangıç açısına ({SCAN_START_ANGLE}°) ayarlanıyor...")
+        move_motor_to_angle(SCAN_START_ANGLE) # Hedef açıya git
+        # current_motor_angle_global, move_motor_to_angle içinde güncellenir.
+        # Ancak tam olarak set etmek için:
+        current_motor_angle_global = float(SCAN_START_ANGLE) 
+        print(f"[{pid}] Step motor yaklaşık {current_motor_angle_global:.2f}° pozisyonuna getirildi.")
+
+        print(f"[{pid}] Temel donanımlar (Sensör, LED, Buzzer, Step Motor) başarıyla başlatıldı.")
+    except Exception as e:
+        print(f"[{pid}] KRİTİK HATA: Temel donanım başlatma hatası: {e}. GPIO pinlerini ve bağlantıları kontrol edin.");
+        hardware_ok = False
+
+    if hardware_ok: # Sadece temel donanımlar sorunsuz başlatıldıysa LCD'yi dene
+        try:
+            lcd = CharLCD(i2c_expander=LCD_PORT_EXPANDER, address=LCD_I2C_ADDRESS, port=I2C_PORT,
+                          cols=LCD_COLS, rows=LCD_ROWS, dotsize=8, charmap='A02', auto_linebreaks=False)
+            lcd.clear()
+            lcd.cursor_pos = (0, 0); lcd.write_string("Dream Pi Step".ljust(LCD_COLS)[:LCD_COLS])
+            if LCD_ROWS > 1: lcd.cursor_pos = (1, 0); lcd.write_string("Hazirlaniyor...".ljust(LCD_COLS)[:LCD_COLS])
+            time.sleep(1.5) # Mesajın okunması için bekle
+            print(f"[{pid}] LCD Ekran (Adres: {hex(LCD_I2C_ADDRESS)}) başarıyla başlatıldı.")
+        except Exception as e_lcd_init:
+            print(f"[{pid}] UYARI: LCD başlatma hatası: {e_lcd_init}. LCD olmadan devam edilecek.");
+            lcd = None # LCD kullanılamaz durumda
     else:
-        return True
+        lcd = None # Temel donanım hatası varsa LCD'yi de None yap
+    return hardware_ok
 
+# ==============================================================================
+# --- Step Motor Kontrol Fonksiyonları (4-Girişli Sürücü için) ---
+# ==============================================================================
+def _set_step_pins(s1, s2, s3, s4):
+    """IN1, IN2, IN3, IN4 pinlerine belirtilen değerleri atar."""
+    GPIO.output(IN1_PIN, s1)
+    GPIO.output(IN2_PIN, s2)
+    GPIO.output(IN3_PIN, s3)
+    GPIO.output(IN4_PIN, s4)
 
-def get_db_connection():
-    try:
-        if not os.path.exists(DB_PATH): return None, f"Veritabanı dosyası ({DB_PATH}) bulunamadı."
-        conn = sqlite3.connect(f'file:{DB_PATH}?mode=ro', uri=True, timeout=5)
-        return conn, None
-    except sqlite3.OperationalError as e:
-        return None, f"DB Kilitli/Hata: {e}"
-    except Exception as e:
-        return None, f"DB Bağlantı Hatası: {e}"
+def _step_motor_4in(num_steps, direction_clockwise):
+    """
+    Belirtilen sayıda adımı belirtilen yönde atar (4-girişli sürücü için).
+    `direction_clockwise`: True ise saat yönü (açı artışı), False ise tersi.
+    """
+    global current_step_sequence_index
+    
+    for _ in range(int(num_steps)): # Adım sayısı tam sayı olmalı
+        if direction_clockwise:
+            current_step_sequence_index = (current_step_sequence_index + 1) % len(step_sequence)
+        else: # Saat yönünün tersi
+            current_step_sequence_index = (current_step_sequence_index - 1 + len(step_sequence)) % len(step_sequence)
+        
+        current_phase = step_sequence[current_step_sequence_index]
+        _set_step_pins(current_phase[0], current_phase[1], current_phase[2], current_phase[3])
+        time.sleep(STEP_MOTOR_INTER_STEP_DELAY) # Adımlar (fazlar) arası gecikme (hızı belirler)
+    
+    # Adımlar tamamlandıktan sonra motor sargılarının enerjisini kesmek isteyebilirsiniz (güç tasarrufu).
+    # Ancak bu, motorun pozisyonunu tutma torkunu kaybetmesine neden olur.
+    # Tarama sırasında enerjili kalması genellikle daha iyidir.
+    # _set_step_pins(0,0,0,0) # Opsiyonel: Motoru serbest bırakmak için tüm pinleri LOW yap
+    
+    time.sleep(STEP_MOTOR_SETTLE_TIME) # Adım grubu tamamlandıktan sonra motorun yerleşmesi için bekle
 
+def move_motor_to_angle(target_angle_deg):
+    """Motoru mevcut açısından hedef açıya taşır."""
+    global current_motor_angle_global
+    
+    # Hedef açı ile mevcut açı arasındaki farkı hesapla
+    angle_diff_deg = target_angle_deg - current_motor_angle_global
+    
+    # Eğer fark çok küçükse (bir adımın yarısından az), hareket etme
+    if abs(angle_diff_deg) < (DEG_PER_STEP / 2.0):
+        return
 
-def get_latest_scan_id_from_db(conn_param=None):
-    internal_conn, conn_to_use, latest_id = False, conn_param, None
-    if not conn_to_use:
-        conn_to_use, error = get_db_connection()
-        if error: print(f"DB Hatası (get_latest_scan_id): {error}"); return None
-        internal_conn = True
-    if conn_to_use:
-        try:
-            df_scan_running = pd.read_sql_query(
-                "SELECT id FROM servo_scans WHERE status = 'running' ORDER BY start_time DESC LIMIT 1", conn_to_use)
-            if not df_scan_running.empty:
-                latest_id = int(df_scan_running['id'].iloc[0])
-            else:
-                df_scan_last = pd.read_sql_query("SELECT id FROM servo_scans ORDER BY start_time DESC LIMIT 1",
-                                                 conn_to_use)
-                if not df_scan_last.empty: latest_id = int(df_scan_last['id'].iloc[0])
-        except Exception as e:
-            print(f"Son tarama ID alınırken hata: {e}")
-        finally:
-            if internal_conn and conn_to_use: conn_to_use.close()
-    return latest_id
+    # Atılması gereken adım sayısını hesapla
+    num_steps_to_move = round(abs(angle_diff_deg) / DEG_PER_STEP)
+    
+    if num_steps_to_move == 0:
+        return
 
-
-# --- GRAFİK YARDIMCI FONKSİYONLARI ---
-def add_scan_rays(fig, df):
-    x_lines, y_lines = [], []
-    for _, row in df.iterrows():
-        x_lines.extend([0, row['y_cm'], None]);
-        y_lines.extend([0, row['x_cm'], None])
-    fig.add_trace(
-        go.Scatter(x=x_lines, y=y_lines, mode='lines', line=dict(color='rgba(255,100,100,0.4)', dash='dash', width=1),
-                   showlegend=False))
-
-
-def add_sector_area(fig, df):
-    poly_x, poly_y = df['y_cm'].tolist(), df['x_cm'].tolist()
-    fig.add_trace(
-        go.Scatter(x=[0] + poly_x, y=[0] + poly_y, mode='lines', fill='toself', fillcolor='rgba(255,0,0,0.15)',
-                   line=dict(color='rgba(255,0,0,0.4)'), name='Taranan Sektör'))
-
-
-def add_sensor_position(fig):
-    fig.add_trace(
-        go.Scatter(x=[0], y=[0], mode='markers', marker=dict(size=12, symbol='circle', color='red'), name='Sensör'))
-
-
-def update_polar_graph(fig, df):
-    fig.add_trace(go.Scatterpolar(r=df['mesafe_cm'], theta=df['derece'], mode='lines+markers', name='Mesafe'))
-    fig.update_layout(
-        polar=dict(radialaxis=dict(visible=True, range=[0, 200]), angularaxis=dict(direction="clockwise")))
-
-
-def update_time_series_graph(fig, df):
-    df_s = df.sort_values(by='timestamp')
-    fig.add_trace(go.Scatter(x=pd.to_datetime(df_s['timestamp'], unit='s'), y=df_s['mesafe_cm'], mode='lines+markers',
-                             name='Mesafe'))
-    fig.update_layout(xaxis_title="Zaman", yaxis_title="Mesafe (cm)")
-
-
-# --- ANALİZ YARDIMCI FONKSİYONLARI ---
-def find_clearest_path(df_valid):
-    if df_valid.empty: return "En açık yol için veri yok."
-    try:
-        cp = df_valid.loc[df_valid['mesafe_cm'].idxmax()]
-        return f"En Açık Yol: {cp['derece']:.0f}° yönünde, {cp['mesafe_cm']:.0f} cm."
-    except Exception as e:
-        return f"En açık yol hesaplanamadı: {e}"
-
-
-def analyze_polar_regression(df_valid):
-    if len(df_valid) < 5: return None, "Polar regresyon için yetersiz veri."
-    X, y = df_valid[['derece']].values, df_valid['mesafe_cm'].values
-    try:
-        ransac = RANSACRegressor(random_state=42);
-        ransac.fit(X, y)
-        slope = ransac.estimator_.coef_[0]
-        inf = f"Yüzey dairesel/paralel (Eğim:{slope:.3f})" if abs(slope) < 0.1 else (
-            f"Yüzey açı arttıkça uzaklaşıyor (Eğim:{slope:.3f})" if slope > 0 else f"Yüzey açı arttıkça yaklaşıyor (Eğim:{slope:.3f})")
-        xr = np.array([df_valid['derece'].min(), df_valid['derece'].max()]).reshape(-1, 1)
-        return {'x': xr.flatten(), 'y': ransac.predict(xr)}, "Polar Regresyon: " + inf
-    except Exception as e:
-        return None, f"Polar regresyon hatası: {e}"
-
-
-def analyze_environment_shape(fig, df_valid):
-    points_all = df_valid[['y_cm', 'x_cm']].to_numpy()
-    if len(points_all) < 10:
-        df_valid['cluster'] = -2;
-        return "Analiz için yetersiz veri.", df_valid
-    db = DBSCAN(eps=5, min_samples=2).fit(points_all)
-    labels = db.labels_;
-    df_valid['cluster'] = labels
-    desc = []
-    unique_clusters = set(labels)
-    num_actual_clusters = len(unique_clusters - {-1})
-    desc.append(
-        f"{num_actual_clusters} potansiyel nesne kümesi bulundu." if num_actual_clusters > 0 else "Belirgin nesne kümesi yok.")
-    # --- RANSAC ile Duvar/Koridor/Köşe Tespiti buraya eklenebilir ---
-    colors = plt.cm.get_cmap('viridis', len(unique_clusters) if unique_clusters else 1)
-    for k in unique_clusters:
-        pts = points_all[labels == k]
-        is_noise = (k == -1)
-        clr, sz, nm = ('rgba(128,128,128,0.3)', 5, 'Gürültü') if is_noise else (
-            f'rgba({colors(k / (len(unique_clusters) - 1 if len(unique_clusters) > 1 else 1))[0] * 255:.0f},{colors(k / (len(unique_clusters) - 1 if len(unique_clusters) > 1 else 1))[1] * 255:.0f},{colors(k / (len(unique_clusters) - 1 if len(unique_clusters) > 1 else 1))[2] * 255:.0f},0.9)',
-            8, f'Küme {k}')
-        fig.add_trace(go.Scatter(x=pts[:, 0], y=pts[:, 1], mode='markers', marker=dict(color=clr, size=sz), name=nm,
-                                 customdata=[k] * len(pts)))
-    return " ".join(desc), df_valid
+    # Hareket yönünü belirle
+    # Eğer target_angle > current_motor_angle_global ise, pozitif yönde (açı artışı) hareket etmeli.
+    # Bu genellikle saat yönünün tersi (CCW) olarak kabul edilir, ancak motor bağlantısına göre değişebilir.
+    # Bizim `step_sequence` artan index ile pozitif açı artışı sağlıyorsa, `direction_clockwise`
+    # burada `angle_diff_deg > 0` ile doğru eşleşir.
+    direction_positive_angle_change = (angle_diff_deg > 0) 
+                                                
+    print(f"[{os.getpid()}] Motor {current_motor_angle_global:.2f}°'den {target_angle_deg:.2f}°'ye hareket ediyor ({num_steps_to_move} adım, Yön: {'Açı Artışı (+)' if direction_positive_angle_change else 'Açı Azalışı (-)'}).")
+    _step_motor_4in(num_steps_to_move, direction_positive_angle_change)
+    
+    # Gerçekleşen açıyı, atılan adım sayısına göre güncelle
+    actual_angle_moved_this_step = num_steps_to_move * DEG_PER_STEP * (1 if direction_positive_angle_change else -1)
+    current_motor_angle_global += actual_angle_moved_this_step
+    
+    # Çok küçük yuvarlama farkları varsa, hedef açıya eşitle
+    if abs(current_motor_angle_global - target_angle_deg) < DEG_PER_STEP:
+        current_motor_angle_global = float(target_angle_deg)
+    # print(f"[{os.getpid()}] Motor yeni pozisyonu: {current_motor_angle_global:.2f}°")
 
 
 # ==============================================================================
-# --- CALLBACK FONKSİYONLARI ---
+# --- Veritabanı, Kilit ve Diğer Yardımcı Fonksiyonlar ---
 # ==============================================================================
-@app.callback(Output('scan-status-message', 'children'), [Input('start-scan-button', 'n_clicks')],
-              [State('start-angle-input', 'value'), State('end-angle-input', 'value'),
-               State('step-angle-input', 'value'), State('buzzer-distance-input', 'value')], prevent_initial_call=True)
-def handle_start_scan_script(n, sa, ea, spa, bd):
-    # ... (Önceki versiyonla aynı, kısaltıldı)
-    return dbc.Alert("Başlatma fonksiyonu içeriği.", color="info")
-
-
-@app.callback(Output('scan-status-message', 'children', allow_duplicate=True), [Input('stop-scan-button', 'n_clicks')],
-              prevent_initial_call=True)
-def handle_stop_scan_script(n):
-    # ... (Önceki versiyonla aynı, kısaltıldı)
-    return dbc.Alert("Durdurma fonksiyonu içeriği.", color="info")
-
-
-@app.callback(
-    [Output('current-angle', 'children'), Output('current-distance', 'children'),
-     Output('current-speed', 'children'), Output('current-distance-col', 'style'),
-     Output('max-detected-distance', 'children')],  # YENİ OUTPUT
-    [Input('interval-component-main', 'n_intervals')]
-)
-def update_realtime_values(n_intervals):
-    conn, error = get_db_connection()
-    angle_s, dist_s, speed_s, max_dist_s = "--°", "-- cm", "-- cm/s", "-- cm"
-    dist_style = {'padding': '10px', 'transition': 'background-color 0.5s ease', 'borderRadius': '5px'}
-    if error: return angle_s, dist_s, speed_s, dist_style, max_dist_s
-    if conn:
-        try:
-            latest_id = get_latest_scan_id_from_db(conn)
-            if latest_id:
-                # Anlık değerler için son nokta
-                q_curr = f"SELECT mesafe_cm, derece, hiz_cm_s FROM scan_points WHERE scan_id = {latest_id} ORDER BY id DESC LIMIT 1"
-                df_p = pd.read_sql_query(q_curr, conn)
-                # Buzzer ayarı
-                q_set = f"SELECT buzzer_distance_setting FROM servo_scans WHERE id = {latest_id}"
-                df_set = pd.read_sql_query(q_set, conn)
-                buzzer_thr = float(df_set['buzzer_distance_setting'].iloc[0]) if not df_set.empty and pd.notnull(
-                    df_set['buzzer_distance_setting'].iloc[0]) else None
-
-                if not df_p.empty:
-                    d, a, s = df_p['mesafe_cm'].iloc[0], df_p['derece'].iloc[0], df_p['hiz_cm_s'].iloc[0]
-                    angle_s = f"{a:.0f}°" if pd.notnull(a) else "--°"
-                    dist_s = f"{d:.1f} cm" if pd.notnull(d) else "-- cm"
-                    speed_s = f"{s:.1f} cm/s" if pd.notnull(s) else "-- cm/s"
-                    if buzzer_thr is not None and pd.notnull(d) and d <= buzzer_thr:
-                        dist_style.update({'backgroundColor': '#d9534f', 'color': 'white'})
-
-                # Mevcut taramadaki maksimum mesafe
-                q_max = f"SELECT MAX(mesafe_cm) as max_dist FROM scan_points WHERE scan_id = {latest_id} AND mesafe_cm < 250"  # Geçerli aralıkta
-                df_max = pd.read_sql_query(q_max, conn)
-                if not df_max.empty and pd.notnull(df_max['max_dist'].iloc[0]):
-                    max_dist_s = f"{df_max['max_dist'].iloc[0]:.0f} cm"
-        except Exception as e:
-            print(f"Anlık değerler/max mesafe güncellenirken hata: {e}")
-        finally:
-            conn.close()
-    return angle_s, dist_s, speed_s, dist_style, max_dist_s
-
-
-@app.callback(
-    [Output('calculated-area', 'children'), Output('perimeter-length', 'children'), Output('max-width', 'children'),
-     Output('max-depth', 'children')], [Input('interval-component-main', 'n_intervals')])
-def update_analysis_panel(n):
-    # ... (Önceki versiyonla aynı, kısaltıldı)
-    return "-- cm²", "-- cm", "-- cm", "-- cm"
-
-
-@app.callback([Output('script-status', 'children'), Output('script-status', 'className'), Output('cpu-usage', 'value'),
-               Output('cpu-usage', 'label'), Output('ram-usage', 'value'), Output('ram-usage', 'label')],
-              [Input('interval-component-system', 'n_intervals')])
-def update_system_card(n):
-    # ... (Önceki versiyonla aynı, kısaltıldı)
-    return "Beklemede", "text-secondary", 0, "0%", 0, "0%"
-
-
-@app.callback(Output('download-csv', 'data'), [Input('export-csv-button', 'n_clicks')], prevent_initial_call=True)
-def export_csv_callback(n):
-    # ... (Önceki versiyonla aynı, kısaltıldı)
-    return no_update
-
-
-@app.callback(Output('download-excel', 'data'), [Input('export-excel-button', 'n_clicks')], prevent_initial_call=True)
-def export_excel_callback(n):
-    # ... (Önceki versiyonla aynı, kısaltıldı)
-    return no_update
-
-
-@app.callback(Output('tab-content-datatable', 'children'),
-              [Input('visualization-tabs-main', 'active_tab'), Input('interval-component-main', 'n_intervals')])
-def render_and_update_data_table(active_tab, n):
-    # ... (Önceki versiyonla aynı, kısaltıldı)
-    return None
-
-
-@app.callback(
-    [Output('scan-map-graph', 'figure'), Output('polar-regression-graph', 'figure'),
-     Output('polar-graph', 'figure'), Output('time-series-graph', 'figure'),
-     Output('environment-estimation-text', 'children'), Output('clustered-data-store', 'data')],
-    [Input('interval-component-main', 'n_intervals')]
-)
-def update_all_graphs(n_intervals):
-    figs = [go.Figure() for _ in range(4)]  # fig_map, fig_polar_reg, fig_polar, fig_time
-    est_cart, est_polar, clear_path = "Veri bekleniyor...", "Veri bekleniyor...", ""
-    id_plot, conn, store_data = None, None, None
+def init_db_for_scan():
+    """Veritabanını başlatır ve yeni bir tarama kaydı oluşturur."""
+    global current_scan_id_global
+    pid = os.getpid()
+    conn = None
     try:
-        conn, err_conn = get_db_connection()
-        if conn and not err_conn:
-            id_plot = get_latest_scan_id_from_db(conn)
-            if id_plot:
-                df_pts = pd.read_sql_query(f"SELECT * FROM scan_points WHERE scan_id = {id_plot} ORDER BY derece ASC",
-                                           conn)
-                if not df_pts.empty:
-                    df_val = df_pts[(df_pts['mesafe_cm'] > 1.0) & (df_pts['mesafe_cm'] < 250.0)].copy()
-                    if len(df_val) >= 2:
-                        add_sensor_position(figs[0]);
-                        add_scan_rays(figs[0], df_val);
-                        add_sector_area(figs[0], df_val)
-                        est_cart, df_clus = analyze_environment_shape(figs[0], df_val)
-                        store_data = df_clus.to_json(orient='split')
-
-                        line_data, est_polar = analyze_polar_regression(df_val)
-                        figs[1].add_trace(
-                            go.Scatter(x=df_val['derece'], y=df_val['mesafe_cm'], mode='markers', name='Noktalar'))
-                        if line_data: figs[1].add_trace(
-                            go.Scatter(x=line_data['x'], y=line_data['y'], mode='lines', name='Regresyon',
-                                       line=dict(color='red', width=3)))
-
-                        clear_path = find_clearest_path(df_val)
-                        update_polar_graph(figs[2], df_val)
-                        update_time_series_graph(figs[3], df_val)
-                    else:
-                        add_sensor_position(figs[0])
-                else:
-                    add_sensor_position(figs[0])
-            else:
-                add_sensor_position(figs[0])
-    except Exception as e:
-        import traceback; print(f"Grafikleme HATA: {e}\n{traceback.format_exc()}"); est_cart = f"Kritik Hata: {e}"
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        cursor.execute('''CREATE TABLE IF NOT EXISTS servo_scans (id INTEGER PRIMARY KEY AUTOINCREMENT, start_time REAL UNIQUE, status TEXT, hesaplanan_alan_cm2 REAL DEFAULT NULL, cevre_cm REAL DEFAULT NULL, max_genislik_cm REAL DEFAULT NULL, max_derinlik_cm REAL DEFAULT NULL, start_angle_setting REAL, end_angle_setting REAL, step_angle_setting REAL, buzzer_distance_setting REAL)''')
+        cursor.execute('''CREATE TABLE IF NOT EXISTS scan_points (id INTEGER PRIMARY KEY AUTOINCREMENT, scan_id INTEGER, derece REAL, mesafe_cm REAL, hiz_cm_s REAL, timestamp REAL, x_cm REAL, y_cm REAL, FOREIGN KEY(scan_id) REFERENCES servo_scans(id) ON DELETE CASCADE)''')
+        cursor.execute("UPDATE servo_scans SET status = 'interrupted_prior_run' WHERE status = 'running'")
+        scan_start_time = time.time()
+        cursor.execute("INSERT INTO servo_scans (start_time, status, start_angle_setting, end_angle_setting, step_angle_setting, buzzer_distance_setting) VALUES (?, ?, ?, ?, ?, ?)", (scan_start_time, 'running', SCAN_START_ANGLE, SCAN_END_ANGLE, SCAN_STEP_ANGLE, BUZZER_DISTANCE_CM))
+        current_scan_id_global = cursor.lastrowid
+        conn.commit()
+        print(f"[{pid}] Veritabanı '{DB_PATH}' hazırlandı. Yeni tarama ID: {current_scan_id_global}")
+    except sqlite3.Error as e_db_init:
+        print(f"[{pid}] KRİTİK HATA: DB başlatma/tarama kaydı hatası: {e_db_init}"); current_scan_id_global = None
     finally:
         if conn: conn.close()
 
-    titles = ['Ortamın 2D Haritası (Analizli)', 'Açıya Göre Mesafe Regresyonu', 'Polar Grafik', 'Zaman Serisi - Mesafe']
-    for i, fig in enumerate(figs):
-        fig.update_layout(title_text=titles[i], uirevision=id_plot,
-                          legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
-        if i == 0:
-            fig.update_layout(xaxis_title="Yatay Mesafe (cm)", yaxis_title="Dikey Mesafe (cm)", yaxis_scaleanchor="x",
-                              yaxis_scaleratio=1)
-        elif i == 1:
-            fig.update_layout(xaxis_title="Açı (Derece)", yaxis_title="Mesafe (cm)")
-
-    final_est_text = html.Div(
-        [html.P(clear_path, className="fw-bold text-primary"), html.Hr(), html.P(est_cart), html.Hr(),
-         html.P(est_polar)])
-    return figs[0], figs[1], figs[2], figs[3], final_est_text, store_data
-
-
-@app.callback(
-    [Output("cluster-info-modal", "is_open"), Output("modal-title", "children"), Output("modal-body", "children")],
-    [Input("scan-map-graph", "clickData")],
-    [State("clustered-data-store", "data")],
-    prevent_initial_call=True,
-)
-def display_cluster_info(clickData, stored_data):
-    if not clickData or not stored_data: return False, no_update, no_update
+def acquire_lock_and_pid():
+    """Betik için kilit dosyası oluşturur ve PID'yi yazar."""
+    global lock_file_handle
+    pid = os.getpid()
     try:
-        df_clus = pd.read_json(stored_data, orient='split')
-        if 'cluster' not in df_clus.columns: return False, "Hata", "Küme verisi eksik."
+        lock_file_handle = open(LOCK_FILE_PATH, 'w')
+        fcntl.flock(lock_file_handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        with open(PID_FILE_PATH, 'w') as pf: pf.write(str(pid))
+        print(f"[{pid}] Betik kilidi ve PID başarıyla oluşturuldu.")
+        return True
+    except BlockingIOError:
+        existing_pid = 'Bilinmiyor'; # ... (hata mesajı aynı kalır)
+        print(f"[{pid}] UYARI: Kilit dosyası mevcut. Betik zaten çalışıyor olabilir (PID: {existing_pid}). Çıkılıyor.")
+        if lock_file_handle: lock_file_handle.close(); lock_file_handle = None
+        return False
+    except PermissionError as e: # ... (hata mesajı aynı kalır)
+        print(f"[{pid}] KRİTİK İZİN HATASI: '{e.filename}' oluşturulamıyor. 'sudo' ile deneyin veya eski dosyaları silin.")
+        if lock_file_handle: lock_file_handle.close(); lock_file_handle = None
+        return False
+    except Exception as e: # ... (hata mesajı aynı kalır)
+        print(f"[{pid}] Kilit/PID alınırken beklenmedik hata: {e}")
+        if lock_file_handle: lock_file_handle.close(); lock_file_handle = None
+        return False
 
-        pt = clickData["points"][0]
-        # customdata'dan küme etiketini al (analyze_environment_shape içinde ayarlanmıştı)
-        # Eğer customdata yoksa veya tıklanan nokta bir küme değilse (örn: ışın, sensör)
-        # En yakın noktayı bularak küme etiketini tahmin etmeye çalış.
-        cluster_label = pt.get('customdata')
+def shoelace_formula(noktalar):
+    """Bir poligonun alanını Shoelace formülü ile hesaplar."""
+    n = len(noktalar); area = 0.0
+    if n < 3: return 0.0
+    for i in range(n): area += (noktalar[i][0] * noktalar[(i + 1) % n][1]) - (noktalar[(i + 1) % n][0] * noktalar[i][1])
+    return abs(area) / 2.0
 
-        if cluster_label is None:  # customdata yoksa, en yakın noktayı bul
-            clicked_x, clicked_y = pt["x"], pt["y"]
-            distances = np.sqrt((df_clus['y_cm'] - clicked_x) ** 2 + (df_clus['x_cm'] - clicked_y) ** 2)
-            if distances.empty: return False, "Hata", "En yakın nokta bulunamadı."
-            cluster_label = df_clus.loc[distances.idxmin()]['cluster']
+def calculate_perimeter(cartesian_points):
+    """Verilen kartezyen noktalardan oluşan bir sektörün çevresini hesaplar."""
+    perimeter, n = 0.0, len(cartesian_points)
+    if n == 0: return 0.0
+    perimeter += math.sqrt(cartesian_points[0][0]**2 + cartesian_points[0][1]**2) # (0,0)'dan ilk noktaya
+    for i in range(n - 1): perimeter += math.sqrt((cartesian_points[i+1][0] - cartesian_points[i][0])**2 + (cartesian_points[i+1][1] - cartesian_points[i][1])**2)
+    perimeter += math.sqrt(cartesian_points[-1][0]**2 + cartesian_points[-1][1]**2) # Son noktadan (0,0)'a
+    return perimeter
 
-        if cluster_label == -1:
-            title, body = "Gürültü Noktası", "Bu nokta gürültü olarak sınıflandırıldı."
-        elif cluster_label == -2:
-            title, body = "Analiz Yapılamadı", "Bu bölge için analiz yapılamadı."
+def release_resources_on_exit():
+    """Betik sonlandığında çağrılacak temizleme fonksiyonu."""
+    global lock_file_handle, current_scan_id_global, db_conn_main_script_global, script_exit_status_global
+    global sensor, yellow_led, lcd, buzzer
+    pid = os.getpid()
+    print(f"[{pid}] `release_resources_on_exit` çağrıldı. Çıkış durumu: {script_exit_status_global}")
+    
+    if db_conn_main_script_global:
+        try: db_conn_main_script_global.close(); db_conn_main_script_global = None
+        except: pass
+    
+    if current_scan_id_global: # Veritabanı durumunu güncelle
+        conn_exit = None
+        try:
+            conn_exit = sqlite3.connect(DB_PATH)
+            cursor_exit = conn_exit.cursor()
+            cursor_exit.execute("SELECT status FROM servo_scans WHERE id = ?", (current_scan_id_global,))
+            db_status = cursor_exit.fetchone()
+            if db_status and db_status[0] == 'running':
+                expected_statuses = ['completed_analysis', 'completed_insufficient_points', 'terminated_close_object', 'interrupted_ctrl_c', 'error_in_loop']
+                final_status = script_exit_status_global if script_exit_status_global in expected_statuses else 'interrupted_unexpectedly'
+                cursor_exit.execute("UPDATE servo_scans SET status = ? WHERE id = ?", (final_status, current_scan_id_global))
+                conn_exit.commit()
+        except Exception as e: print(f"[{pid}] HATA: Çıkışta DB durum güncelleme: {e}")
+        finally:
+            if conn_exit: conn_exit.close()
+
+    print(f"[{pid}] Donanım kapatılıyor...")
+    try: # Step motor pinlerini serbest bırak (enerjiyi kes)
+        _set_step_pins(0,0,0,0)
+        print(f"[{pid}] Step motor pinleri LOW durumuna getirildi (enerji kesildi).")
+    except Exception as e: print(f"[{pid}] Step motor pinleri sıfırlanırken hata: {e}")
+    
+    try: # Tüm GPIO pinlerini temizle
+        GPIO.cleanup()
+        print(f"[{pid}] GPIO pinleri temizlendi.")
+    except Exception as e: print(f"[{pid}] GPIO temizlenirken hata: {e}")
+
+    if yellow_led and hasattr(yellow_led, 'close'):
+        if hasattr(yellow_led, 'is_active') and yellow_led.is_active: yellow_led.off()
+        yellow_led.close()
+    if buzzer and hasattr(buzzer, 'close'):
+        if hasattr(buzzer, 'is_active') and buzzer.is_active: buzzer.off()
+        buzzer.close()
+    if sensor and hasattr(sensor, 'close'): sensor.close()
+    if lcd:
+        try:
+            lcd.clear(); lcd.cursor_pos = (0,0); lcd.write_string("DreamPi Kapandi".ljust(LCD_COLS)[:LCD_COLS])
+            time.sleep(1); lcd.clear()
+            lcd.cursor_pos = (0,0); lcd.write_string("M.Erdem OZER".ljust(LCD_COLS)[:LCD_COLS])
+            if LCD_ROWS > 1: lcd.cursor_pos = (1,0); lcd.write_string("(PhD.)".ljust(LCD_COLS)[:LCD_COLS])
+        except: pass
+
+    if lock_file_handle: # Kilit dosyasını serbest bırak
+        try: fcntl.flock(lock_file_handle.fileno(), fcntl.LOCK_UN); lock_file_handle.close(); lock_file_handle = None
+        except: pass
+    
+    for f_path in [PID_FILE_PATH, LOCK_FILE_PATH]: # PID ve Kilit dosyalarını sil
+        try:
+            if os.path.exists(f_path):
+                if f_path == PID_FILE_PATH:
+                    can_del = False; # ... (PID dosyası silme mantığı aynı)
+                    try:
+                        with open(f_path, 'r') as pf_c:
+                            if int(pf_c.read().strip()) == pid: can_del = True
+                    except: pass
+                    if can_del: os.remove(f_path)
+                elif f_path == LOCK_FILE_PATH: os.remove(f_path) # Kilit dosyasını her zaman sil
+        except: pass
+    print(f"[{pid}] Temizleme fonksiyonu tamamlandı.")
+
+# ==============================================================================
+# --- ANA ÇALIŞMA BLOĞU ---
+# ==============================================================================
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Step Motorlu 2D Alan Tarama Betiği")
+    parser.add_argument("--start_angle", type=float, default=DEFAULT_SCAN_START_ANGLE, help="Tarama başlangıç açısı (derece)")
+    parser.add_argument("--end_angle", type=float, default=DEFAULT_SCAN_END_ANGLE, help="Tarama bitiş açısı (derece)")
+    parser.add_argument("--step_angle", type=float, default=DEFAULT_SCAN_STEP_ANGLE, help="Tarama adım açısı (derece)")
+    parser.add_argument("--buzzer_distance", type=int, default=DEFAULT_BUZZER_DISTANCE, help="Buzzer uyarı mesafesi (cm)")
+    args = parser.parse_args()
+
+    SCAN_START_ANGLE, SCAN_END_ANGLE, SCAN_STEP_ANGLE, BUZZER_DISTANCE_CM = \
+        float(args.start_angle), float(args.end_angle), float(args.step_angle), int(args.buzzer_distance)
+    
+    if SCAN_STEP_ANGLE <= 0:
+        print("UYARI: Adım açısı pozitif olmalıdır. Varsayılan 1 derece kullanılıyor.")
+        SCAN_STEP_ANGLE = 1.0
+
+    atexit.register(release_resources_on_exit) # Çıkışta kaynakları serbest bırak
+
+    if not acquire_lock_and_pid(): sys.exit(1)
+    if not init_hardware(): sys.exit(1) # Bu artık 4-girişli step motoru başlatır
+    init_db_for_scan()
+    if not current_scan_id_global:
+        print(f"[{os.getpid()}] KRİTİK HATA: Veritabanında tarama ID'si oluşturulamadı. Çıkılıyor.")
+        sys.exit(1)
+
+    ölçüm_tamponu_hız_için_yerel = [] # Hız hesaplaması için (şu an kullanılmıyor ama kalabilir)
+    collected_cartesian_points_for_area = [] # Alan/çevre hesabı için (x,y) noktaları
+    pid = os.getpid()
+
+    print(f"[{pid}] Step Motor ile 2D Tarama Başlıyor (Tarama ID: {current_scan_id_global})...")
+    if lcd:
+        lcd.clear(); lcd.cursor_pos=(0,0); lcd.write_string(f"ScanID:{current_scan_id_global} Step".ljust(LCD_COLS)[:LCD_COLS])
+        if LCD_ROWS > 1: lcd.cursor_pos=(1,0); lcd.write_string(f"A:{SCAN_START_ANGLE:.0f}-{SCAN_END_ANGLE:.0f} S:{SCAN_STEP_ANGLE:.0f}".ljust(LCD_COLS)[:LCD_COLS])
+
+    scan_completed_successfully = False
+    lcd_warning_mode = False
+    try:
+        db_conn_main_script_global = sqlite3.connect(DB_PATH, timeout=10)
+        cursor_main = db_conn_main_script_global.cursor()
+
+        # Tarama yönünü ve adım sayısını belirle
+        # `current_motor_angle_global` zaten `init_hardware` içinde `SCAN_START_ANGLE`'e ayarlandı.
+        target_loop_angle = float(SCAN_START_ANGLE)
+
+        while True:
+            loop_iteration_start_time = time.time()
+            
+            # Motoru hedef açıya hareket ettir
+            move_motor_to_angle(target_loop_angle)
+            # Gerçekleşen açı, ölçüm için current_motor_angle_global'dan alınır
+            current_effective_degree_for_scan = current_motor_angle_global
+
+            if yellow_led: yellow_led.toggle() # Çalıştığını gösteren LED
+            
+            # Sensör okuması
+            current_timestamp = time.time()
+            distance_m = sensor.distance
+            distance_cm = distance_m * 100
+
+            # Kartezyen koordinatları hesapla
+            angle_rad = math.radians(current_effective_degree_for_scan)
+            x_cm = distance_cm * math.cos(angle_rad)
+            y_cm = distance_cm * math.sin(angle_rad)
+
+            # Alan hesabı için geçerli noktaları topla
+            if 0 < distance_cm < (sensor.max_distance * 100 - 1): # max_distance'dan biraz küçük
+                collected_cartesian_points_for_area.append((x_cm, y_cm))
+
+            # Hız hesaplaması (basit, isteğe bağlı)
+            hiz_cm_s = 0.0
+            # if ölçüm_tamponu_hız_için_yerel: ... (hız hesaplama mantığı buraya gelebilir)
+
+            # Buzzer kontrolü
+            is_object_close = distance_cm <= BUZZER_DISTANCE_CM
+            if buzzer:
+                if is_object_close and not buzzer.is_active: buzzer.on()
+                elif not is_object_close and buzzer.is_active: buzzer.off()
+
+            # LCD'ye anlık bilgileri yazdır
+            if lcd:
+                try:
+                    # ... (LCD yazdırma mantığı, `derece` yerine `current_effective_degree_for_scan` kullanılır)
+                    # ... (Önceki versiyonla aynı, sadece açı değişkeni farklı)
+                    if is_object_close and not lcd_warning_mode:
+                        lcd.clear(); lcd.cursor_pos=(0,0); lcd.write_string("!!! UYARI !!!".center(LCD_COLS)); lcd_warning_mode=True
+                        if LCD_ROWS > 1: lcd.cursor_pos=(1,0); lcd.write_string("NESNE YAKIN!".center(LCD_COLS))
+                    elif not is_object_close and lcd_warning_mode:
+                        lcd.clear(); lcd_warning_mode=False # Normal moda dön, ekranı temizle ve yaz
+                    if not lcd_warning_mode: # Sadece normal modda yaz
+                        lcd.cursor_pos=(0,0); lcd.write_string(f"A:{current_effective_degree_for_scan:<3.0f} M:{distance_cm:5.1f}cm".ljust(LCD_COLS)[:LCD_COLS])
+                        if LCD_ROWS > 1: lcd.cursor_pos=(1,0); lcd.write_string(f"X{x_cm:3.0f}Y{y_cm:3.0f} H{hiz_cm_s:3.0f}".ljust(LCD_COLS)[:LCD_COLS])
+                except Exception as e_lcd_write: print(f"[{pid}] UYARI: LCD yazma hatası: {e_lcd_write}")
+
+            # Çok yakın nesne algılanırsa taramayı sonlandır
+            if distance_cm < TERMINATION_DISTANCE_CM:
+                print(f"[{pid}] DİKKAT: NESNE ÇOK YAKIN ({distance_cm:.2f}cm)! Tarama sonlandırılıyor.")
+                if lcd: lcd.clear(); lcd.cursor_pos=(0,0); lcd.write_string("COK YAKIN! DUR!".ljust(LCD_COLS)[:LCD_COLS])
+                if yellow_led: yellow_led.on()
+                script_exit_status_global = 'terminated_close_object'
+                time.sleep(1.0); break # Döngüden çık
+
+            # Veritabanına ölçüm noktasını kaydet
+            try:
+                cursor_main.execute('''INSERT INTO scan_points (scan_id, derece, mesafe_cm, hiz_cm_s, timestamp, x_cm, y_cm) VALUES (?, ?, ?, ?, ?, ?, ?)''',
+                                    (current_scan_id_global, current_effective_degree_for_scan, distance_cm, hiz_cm_s, current_timestamp, x_cm, y_cm))
+                db_conn_main_script_global.commit()
+            except Exception as e_db_insert: print(f"[{pid}] HATA: DB Ekleme Hatası: {e_db_insert}")
+            
+            # Bir sonraki hedef açıyı belirle ve döngü sonlandırma kontrolü
+            # Tarama yönüne göre ilerle
+            if SCAN_END_ANGLE >= SCAN_START_ANGLE: # İleri tarama (açı artıyor)
+                if target_loop_angle >= SCAN_END_ANGLE: break # Bitiş açısına ulaşıldı veya geçildi
+                target_loop_angle += SCAN_STEP_ANGLE
+                if target_loop_angle > SCAN_END_ANGLE: target_loop_angle = float(SCAN_END_ANGLE) # Son açıyı aşma
+            else: # Geri tarama (açı azalıyor)
+                if target_loop_angle <= SCAN_END_ANGLE: break # Bitiş açısına ulaşıldı veya geçildi
+                target_loop_angle -= SCAN_STEP_ANGLE
+                if target_loop_angle < SCAN_END_ANGLE: target_loop_angle = float(SCAN_END_ANGLE) # Son açıyı aşma
+            
+            # Döngü süresini hedef aralıkta tutmak için bekleme
+            loop_processing_time = time.time() - loop_iteration_start_time
+            sleep_duration = max(0, LOOP_TARGET_INTERVAL_S - loop_processing_time)
+            if sleep_duration > 0 : time.sleep(sleep_duration)
+        
+        # Döngü bittikten sonra (break ile çıkıldıktan sonra) analiz yap
+        hesaplanan_alan_cm2, perimeter_cm, max_genislik_cm_scan, max_derinlik_cm_scan = 0.0, 0.0, 0.0, 0.0
+        if len(collected_cartesian_points_for_area) >= 2:
+            polygon_for_area = [(0.0,0.0)] + collected_cartesian_points_for_area
+            hesaplanan_alan_cm2 = shoelace_formula(polygon_for_area)
+            perimeter_cm = calculate_perimeter(collected_cartesian_points_for_area)
+            # ... (max genişlik/derinlik hesaplama aynı kalır) ...
+            x_coords = [p[0] for p in collected_cartesian_points_for_area if p[0] is not None]
+            y_coords = [p[1] for p in collected_cartesian_points_for_area if p[1] is not None]
+            if x_coords: max_derinlik_cm_scan = max(x_coords) if x_coords else 0.0
+            if y_coords: max_genislik_cm_scan = (max(y_coords) - min(y_coords)) if y_coords else 0.0
+
+            print(f"\n[{pid}] TARAMA TAMAMLANDI. Analiz sonuçları:") # ... (analiz sonuçları yazdırma)
+            if lcd: lcd.clear(); lcd.cursor_pos=(0,0); lcd.write_string("Tarama Tamamlandi".ljust(LCD_COLS)[:LCD_COLS]); # ...
+            script_exit_status_global = 'completed_analysis'
+            try:
+                cursor_main.execute("UPDATE servo_scans SET hesaplanan_alan_cm2=?,cevre_cm=?,max_genislik_cm=?,max_derinlik_cm=?,status=? WHERE id=?",
+                                    (hesaplanan_alan_cm2, perimeter_cm, max_genislik_cm_scan, max_derinlik_cm_scan, script_exit_status_global, current_scan_id_global))
+                db_conn_main_script_global.commit()
+            except Exception as e_db_upd: print(f"[{pid}] HATA: DB Analiz Güncelleme: {e_db_upd}")
         else:
-            cluster_df = df_clus[df_clus['cluster'] == cluster_label]
-            n_pts, w, d = len(cluster_df), (cluster_df['y_cm'].max() - cluster_df['y_cm'].min()) if len(
-                cluster_df) > 0 else 0, (cluster_df['x_cm'].max() - cluster_df['x_cm'].min()) if len(
-                cluster_df) > 0 else 0
-            title = f"Küme #{int(cluster_label)} Detayları"
-            body = html.Div([html.P(f"Nokta Sayısı: {n_pts}"), html.P(f"Yaklaşık Genişlik: {w:.1f} cm"),
-                             html.P(f"Yaklaşık Derinlik: {d:.1f} cm")])
-        return True, title, body
-    except Exception as e:
-        import traceback; print(
-            f"Modal HATA: {e}\n{traceback.format_exc()}"); return True, "Hata", f"Detaylar gösterilemedi: {e}"
+            script_exit_status_global = 'completed_insufficient_points'
+            # ... (yetersiz nokta mesajları ve DB güncelleme) ...
+        scan_completed_successfully = True
 
+    except KeyboardInterrupt:
+        script_exit_status_global = 'interrupted_ctrl_c'; print(f"\n[{pid}] Tarama kullanıcı tarafından (Ctrl+C) kesildi.")
+        if lcd: lcd.clear(); lcd.cursor_pos=(0,0); lcd.write_string("DURDURULDU (C)".ljust(LCD_COLS)[:LCD_COLS])
+    except Exception as e:
+        script_exit_status_global = 'error_in_loop'; print(f"[{pid}] KRİTİK HATA: Ana döngüde: {e}")
+        import traceback; traceback.print_exc()
+        if lcd: lcd.clear(); lcd.cursor_pos=(0,0); lcd.write_string("HATA OLUSTU!".ljust(LCD_COLS)[:LCD_COLS])
+    finally:
+        if not scan_completed_successfully and script_exit_status_global not in ['interrupted_ctrl_c', 'error_in_loop', 'terminated_close_object']:
+             script_exit_status_global = 'interrupted_unexpectedly_in_main'
+        if buzzer and buzzer.is_active: buzzer.off()
+        if yellow_led and yellow_led.is_active: yellow_led.off()
+        print(f"[{pid}] Ana betik sonlanıyor. Çıkış durumu: {script_exit_status_global}")
+        # atexit fonksiyonu geri kalan temizliği yapacak.
