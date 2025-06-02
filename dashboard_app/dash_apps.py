@@ -73,7 +73,6 @@ control_panel = dbc.Card([
     ])
 ])
 
-# DÜZELTME: 'current-distance-col' ID'si eklendi
 stats_panel = dbc.Card([
     dbc.CardHeader("Anlık Sensör Değerleri", className="bg-info text-white"),
     dbc.CardBody(
@@ -81,9 +80,9 @@ stats_panel = dbc.Card([
             dbc.Col(html.Div([html.H6("Mevcut Açı:"), html.H4(id='current-angle', children="--°")]), width=4,
                     className="text-center"),
             dbc.Col(html.Div([html.H6("Mevcut Mesafe:"), html.H4(id='current-distance', children="-- cm")]),
-                    id='current-distance-col',  # <--- ID BURAYA EKLENDİ
+                    id='current-distance-col',
                     width=4,
-                    className="text-center rounded"),  # Köşeleri yuvarla
+                    className="text-center rounded"),
             dbc.Col(html.Div([html.H6("Anlık Hız:"), html.H4(id='current-speed', children="-- cm/s")]), width=4,
                     className="text-center")
         ]))
@@ -280,7 +279,7 @@ def analyze_polygon_properties(points):
                 angle = np.degrees(np.arccos(cos_angle))
                 angles.append(angle)
 
-            are_angles_right = all(78 < ang < 102 for ang in angles) if angles else False  # angles boşsa False
+            are_angles_right = all(78 < ang < 102 for ang in angles) if angles else False
             sides = [np.linalg.norm(simplified_points[i] - simplified_points[(i + 1) % num_vertices]) for i in
                      range(num_vertices)]
 
@@ -300,25 +299,23 @@ def analyze_polygon_properties(points):
         return "tanımlanamayan bir nesne"
 
 
-# app.py dosyanızdaki yardımcı fonksiyonlardan biri
-
 def add_detected_points(fig, df):
     """
     Grafiğe algılanan ham sensör noktalarını, açıya göre renklendirilmiş
     olarak ekler.
     """
     fig.add_trace(go.Scatter(
-        x=df['y_cm'],  # Yatay eksen için (bizim hesaplamamızda y_cm)
-        y=df['x_cm'],  # Dikey eksen için (bizim hesaplamamızda x_cm)
+        x=df['y_cm'],
+        y=df['x_cm'],
         mode='markers',
         marker=dict(
-            color=df['angle_deg'],  # Noktaları açı değerine göre renklendir
-            colorscale='Viridis',   # Renk skalası
-            showscale=True,         # Renk çubuğunu göster
+            color=df['derece'],  # DEĞİŞTİ
+            colorscale='Viridis',
+            showscale=True,
             colorbar=dict(title='Açı (Derece)'),
-            size=8                  # Nokta boyutu
+            size=8
         ),
-        name='Taranan Noktalar'     # Lejanttaki ismi
+        name='Taranan Noktalar'
     ))
 
 
@@ -327,7 +324,6 @@ def analyze_environment_shape(fig, df_valid):
     if len(points_all) < 10:
         return "Analiz için yetersiz veri."
 
-    # --- 1. Genel Mesafe Bazlı Tahminler (Tüm df_valid üzerinden) ---
     avg_dist_all = np.mean(df_valid['mesafe_cm'])
     std_dist_all = np.std(df_valid['mesafe_cm'])
     min_dist_all = np.min(df_valid['mesafe_cm'])
@@ -343,16 +339,14 @@ def analyze_environment_shape(fig, df_valid):
         descriptions.append("Dar veya oldukça kapalı bir alandasın.")
         environment_description_found_by_distance_stats = True
 
-    # --- DBSCAN ile Kümeleme ---
     db = DBSCAN(eps=5, min_samples=2).fit(points_all)
     labels = db.labels_
-    unique_labels_plot = set(labels)  # Çizim için tüm etiketler
+    unique_labels_plot = set(labels)
 
-    # Gürültü olmayan kümeleri al
     clusters_points = [points_all[labels == k] for k in unique_labels_plot if k != -1]
 
     if not clusters_points:
-        if descriptions:  # Eğer yukarıda mesafe bazlı bir yorum yapıldıysa onu kullan
+        if descriptions:
             return " ".join(descriptions)
         return "Belirgin bir yapı veya nesne bulunamadı (DBSCAN)."
 
@@ -360,8 +354,6 @@ def analyze_environment_shape(fig, df_valid):
     main_environment_cluster_points = clusters_points[0]
     object_clusters_points = clusters_points[1:]
 
-    # --- Ana Ortam Detaylı Analizi (RANSAC ve Poligon) ---
-    # Bu analizler ana_environment_cluster_points üzerinde yapılacak
     environment_description_found_by_geometry = False
     temp_geometry_description = ""
 
@@ -369,7 +361,6 @@ def analyze_environment_shape(fig, df_valid):
         X_main = main_environment_cluster_points[:, 0].reshape(-1, 1)
         y_main = main_environment_cluster_points[:, 1]
 
-        # Koridor Tespiti
         if len(main_environment_cluster_points) >= 20:
             try:
                 ransac1 = RANSACRegressor(min_samples=10)
@@ -396,7 +387,6 @@ def analyze_environment_shape(fig, df_valid):
             except Exception as e:
                 print(f"Koridor analizi sırasında istisna: {e}")
 
-        # Dikdörtgen Köşe Tespiti
         if not environment_description_found_by_geometry and len(main_environment_cluster_points) >= 10:
             try:
                 ransac_c1 = RANSACRegressor(min_samples=5);
@@ -428,33 +418,25 @@ def analyze_environment_shape(fig, df_valid):
             except Exception as e:
                 print(f"Köşe analizi sırasında istisna: {e}")
 
-        # Eğer RANSAC bir şey bulamadıysa, standart sapma ve poligon analizine geç
         if not environment_description_found_by_geometry:
-            if std_dist_all < 7:  # Daha önce 10 idi, kavisli/düz duvar için daha hassas
-                # Burada ek olarak ana kümenin düz bir çizgi olup olmadığına bakılabilir
+            if std_dist_all < 7:
                 temp_geometry_description = "Karşında ya sana paralel düz bir duvar ya da kavisli bir yüzey var."
                 environment_description_found_by_geometry = True
-            else:  # Fallback: Genel poligon analizi
+            else:
                 main_shape_description = analyze_polygon_properties(main_environment_cluster_points)
                 temp_geometry_description = f"Ana ortam {main_shape_description} olarak görünüyor."
-                environment_description_found_by_geometry = True  # Her zaman bir şekil bulunur
+                environment_description_found_by_geometry = True
 
         if temp_geometry_description:
             descriptions.append(temp_geometry_description)
 
-    elif not environment_description_found_by_distance_stats:  # Ana küme analiz edilemediyse ve mesafe de bir şey demediyse
+    elif not environment_description_found_by_distance_stats:
         descriptions.append("Ana ortam yapısı anlaşılamadı (çok az nokta).")
 
-    # Tespit edilen nesneler varsa ekle
     if object_clusters_points:
         object_description = f"Ayrıca ortamda {len(object_clusters_points)} adet farklı nesne grubu tespit edildi."
-        # Her nesne için de şekil analizi yapıp ekleyebiliriz:
-        # for i, obj_cluster in enumerate(object_clusters_points):
-        #     obj_shape = analyze_polygon_properties(obj_cluster)
-        #     object_description += f" Nesne {i+1} {obj_shape}."
         descriptions.append(object_description)
 
-    # Küme çizimleri (Grafiğe ekleniyor)
     colors = plt.cm.get_cmap('viridis', len(unique_labels_plot) if len(unique_labels_plot) > 0 else 1)
     for k_label in unique_labels_plot:
         cluster_points_to_plot = points_all[labels == k_label]
@@ -478,7 +460,7 @@ def analyze_environment_shape(fig, df_valid):
 
 
 def update_polar_graph(fig, df):
-    fig.add_trace(go.Scatterpolar(r=df['mesafe_cm'], theta=df['angle_deg'], mode='lines+markers', name='Mesafe'))
+    fig.add_trace(go.Scatterpolar(r=df['mesafe_cm'], theta=df['derece'], mode='lines+markers', name='Mesafe')) # DEĞİŞTİ
     fig.update_layout(
         polar=dict(radialaxis=dict(visible=True, range=[0, 200]), angularaxis=dict(direction="clockwise")))
 
@@ -596,33 +578,28 @@ def handle_stop_scan_script(n_clicks_stop):
         return dbc.Alert("Çalışan bir sensör betiği bulunamadı.", color="warning")
 
 
-# app.py dosyanızdaki bu fonksiyonu aşağıdakiyle değiştirin:
-
 @app.callback(
     [Output('current-angle', 'children'),
      Output('current-distance', 'children'),
      Output('current-speed', 'children'),
-     Output('current-distance-col', 'style')],  # Stil güncellemesi için Output eklendi
+     Output('current-distance-col', 'style')],
     [Input('interval-component-main', 'n_intervals')]
 )
 def update_realtime_values(n_intervals):
     conn, error = get_db_connection()
     angle_str, distance_str, speed_str = "--°", "-- cm", "-- cm/s"
-    # Varsayılan stil (buzzer aktif olmadığında)
     distance_style = {'padding': '10px', 'transition': 'background-color 0.5s ease', 'borderRadius': '5px'}
 
-    if error:  # Veritabanı bağlantı hatası varsa
+    if error:
         print(f"DB Bağlantı Hatası (update_realtime_values): {error}")
-        # Hata durumunda varsayılan değerleri ve stili döndür
         return angle_str, distance_str, speed_str, distance_style
 
     if conn:
         try:
             latest_id = get_latest_scan_id_from_db(conn_param=conn)
             if latest_id:
-                # Hem anlık noktayı hem de tarama ayarlarından buzzer mesafesini al
                 df_point = pd.read_sql_query(
-                    f"SELECT mesafe_cm, angle_deg, hiz_cm_s FROM scan_points WHERE scan_id = {latest_id} ORDER BY id DESC LIMIT 1",
+                    f"SELECT mesafe_cm, derece, hiz_cm_s FROM scan_points WHERE scan_id = {latest_id} ORDER BY id DESC LIMIT 1", # DEĞİŞTİ
                     conn
                 )
                 df_scan_settings = pd.read_sql_query(
@@ -632,40 +609,28 @@ def update_realtime_values(n_intervals):
 
                 buzzer_threshold = None
                 if not df_scan_settings.empty and 'buzzer_distance_setting' in df_scan_settings.columns:
-                    # buzzer_distance_setting NULL değilse değeri al
                     if pd.notnull(df_scan_settings['buzzer_distance_setting'].iloc[0]):
                         buzzer_threshold = float(df_scan_settings['buzzer_distance_setting'].iloc[0])
 
                 if not df_point.empty:
                     dist_val = df_point['mesafe_cm'].iloc[0]
-                    angle_val = df_point['angle_deg'].iloc[0]
+                    angle_val = df_point['derece'].iloc[0] # DEĞİŞTİ
                     speed_val = df_point['hiz_cm_s'].iloc[0]
 
                     angle_str = f"{angle_val:.0f}°" if pd.notnull(angle_val) else "--°"
                     distance_str = f"{dist_val:.1f} cm" if pd.notnull(dist_val) else "-- cm"
                     speed_str = f"{speed_val:.1f} cm/s" if pd.notnull(speed_val) else "-- cm/s"
 
-                    # Stil kontrolü (Buzzer aktif mi?)
                     if buzzer_threshold is not None and pd.notnull(dist_val) and dist_val <= buzzer_threshold:
                         distance_style = {
-                            'backgroundColor': '#d9534f',  # Kırmızı
+                            'backgroundColor': '#d9534f',
                             'color': 'white',
                             'padding': '10px',
                             'borderRadius': '5px',
                             'transition': 'background-color 0.5s ease'
                         }
-                    # else: # Buzzer aktif değilse varsayılan stil zaten ayarlı
-                    #    distance_style = {'padding': '10px', 'transition': 'background-color 0.5s ease', 'borderRadius': '5px'}
-                else:
-                    # Eğer df_point boşsa, yani o scan_id için hiç nokta yoksa, varsayılanları göster
-                    angle_str, distance_str, speed_str = "--°", "-- cm", "-- cm/s"
-            else:
-                # Eğer latest_id bulunamadıysa (hiç tarama yoksa)
-                angle_str, distance_str, speed_str = "--°", "-- cm", "-- cm/s"
-
         except Exception as e:
             print(f"Anlık değerler güncellenirken hata: {e}")
-            # Hata durumunda da varsayılan değerleri ve stili döndür
         finally:
             if conn: conn.close()
 
@@ -752,7 +717,7 @@ def update_all_graphs(n_intervals):
     if not conn or not id_to_plot:
         if conn: conn.close()
         fig_map.update_layout(
-            title_text='Ortamın 2D Haritası (2D Map of the Environment)',
+            title_text='Ortamın 2D Haritası',
             xaxis_title="X Mesafesi (cm)", yaxis_title="Y Mesafesi (cm)",
             yaxis_scaleanchor="x", yaxis_scaleratio=1, uirevision=id_to_plot,
             legend=dict(title_text='Gösterim Katmanları', orientation="h", yanchor="bottom", y=1.02, xanchor="right",
@@ -761,7 +726,7 @@ def update_all_graphs(n_intervals):
         return fig_map, fig_polar, fig_time, "Tarama başlatın."
     try:
         df_points = pd.read_sql_query(
-            f"SELECT x_cm, y_cm, angle_deg, mesafe_cm, timestamp FROM scan_points WHERE scan_id = {id_to_plot} ORDER BY angle_deg ASC",
+            f"SELECT x_cm, y_cm, derece, mesafe_cm, timestamp FROM scan_points WHERE scan_id = {id_to_plot} ORDER BY derece ASC", # DEĞİŞTİ
             conn)
         if not df_points.empty:
             df_valid = df_points[(df_points['mesafe_cm'] > 1.0) & (df_points['mesafe_cm'] < 250.0)].copy()
@@ -772,10 +737,7 @@ def update_all_graphs(n_intervals):
                 add_detected_points(fig_map, df_valid)
                 add_sensor_position(fig_map)
 
-                # --- HATA MUHTEMELEN BU SATIRDA ---
-                # analyze_environment_shape fonksiyonuna df_valid gönderildiğinden emin olun:
                 estimation_text = analyze_environment_shape(fig_map, df_valid)
-                # ---------------------------------
 
                 update_polar_graph(fig_polar, df_valid)
                 update_time_series_graph(fig_time, df_valid)
@@ -854,7 +816,7 @@ def render_and_update_data_table(active_tab, n_intervals):
             latest_id = get_latest_scan_id_from_db(conn_param=conn)
             if not latest_id:
                 return html.P("Henüz görüntülenecek tarama verisi yok.")
-            query = f"SELECT id, angle_deg, mesafe_cm, hiz_cm_s, x_cm, y_cm, timestamp FROM scan_points WHERE scan_id = {latest_id} ORDER BY id DESC"
+            query = f"SELECT id, derece, mesafe_cm, hiz_cm_s, x_cm, y_cm, timestamp FROM scan_points WHERE scan_id = {latest_id} ORDER BY id DESC" # DEĞİŞTİ
             df = pd.read_sql_query(query, conn)
             df['timestamp'] = pd.to_datetime(df['timestamp'], unit='s').dt.strftime('%H:%M:%S.%f').str[:-3]
             columns = [{"name": i.replace("_", " ").title(), "id": i} for i in df.columns]

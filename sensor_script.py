@@ -1,4 +1,3 @@
-# sensor_script.py
 from gpiozero import AngularServo, DistanceSensor, LED, Buzzer
 from RPLCD.i2c import CharLCD
 import time
@@ -102,27 +101,25 @@ def init_db_for_scan():
     try:
         conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
-        # BUZZER_DISTANCE_SETTING SÜTUNUNUN BURADA OLDUĞUNDAN EMİN OLUN:
         cursor.execute('''
                        CREATE TABLE IF NOT EXISTS servo_scans
                        (id INTEGER PRIMARY KEY AUTOINCREMENT, start_time REAL UNIQUE, status TEXT,
                         hesaplanan_alan_cm2 REAL DEFAULT NULL, cevre_cm REAL DEFAULT NULL,
                         max_genislik_cm REAL DEFAULT NULL, max_derinlik_cm REAL DEFAULT NULL,
                         start_angle_setting REAL, end_angle_setting REAL, step_angle_setting REAL,
-                        buzzer_distance_setting REAL)''') # <--- BU SÜTUN
+                        buzzer_distance_setting REAL)''')
         cursor.execute('''
                        CREATE TABLE IF NOT EXISTS scan_points
-                       (id INTEGER PRIMARY KEY AUTOINCREMENT, scan_id INTEGER, angle_deg REAL, mesafe_cm REAL,
+                       (id INTEGER PRIMARY KEY AUTOINCREMENT, scan_id INTEGER, derece REAL, mesafe_cm REAL,
                         hiz_cm_s REAL, timestamp REAL, x_cm REAL, y_cm REAL,
-                        FOREIGN KEY(scan_id) REFERENCES servo_scans(id))''')
+                        FOREIGN KEY(scan_id) REFERENCES servo_scans(id))''') # DEĞİŞTİ
         cursor.execute("UPDATE servo_scans SET status = 'interrupted_prior_run' WHERE status = 'running'")
         scan_start_time = time.time()
-        # BUZZER_DISTANCE_CM'NİN BURADA EKLENDİĞİNDEN EMİN OLUN:
         cursor.execute("""
                        INSERT INTO servo_scans
                        (start_time, status, start_angle_setting, end_angle_setting, step_angle_setting, buzzer_distance_setting)
-                       VALUES (?, ?, ?, ?, ?, ?)""", # <--- 6. SORU İŞARETİ
-                       (scan_start_time, 'running', SCAN_START_ANGLE, SCAN_END_ANGLE, SCAN_STEP_ANGLE, BUZZER_DISTANCE_CM)) # <--- 6. DEĞER
+                       VALUES (?, ?, ?, ?, ?, ?)""",
+                       (scan_start_time, 'running', SCAN_START_ANGLE, SCAN_END_ANGLE, SCAN_STEP_ANGLE, BUZZER_DISTANCE_CM))
         current_scan_id_global = cursor.lastrowid
         conn.commit()
         print(f"[{os.getpid()}] Veritabanı '{DB_PATH}' hazırlandı. Yeni tarama ID: {current_scan_id_global}")
@@ -212,7 +209,7 @@ def release_resources_on_exit():
             print(f"DB status update error on exit: {e}")
         finally:
             if conn_exit: conn_exit.close()
-            
+
     print(f"[{pid}] Donanım kapatılıyor...")
     if servo and hasattr(servo, 'detach'):
         try:
@@ -234,7 +231,7 @@ def release_resources_on_exit():
             lcd.cursor_pos = (0, 0); lcd.write_string("Mehmet Erdem".ljust(LCD_COLS)[:LCD_COLS])
             lcd.cursor_pos = (1, 0); lcd.write_string("OZER (PhD.) ".ljust(LCD_COLS)[:LCD_COLS])
         except: pass
-        
+
     print(f"[{pid}] Kalan donanımlar ve LCD kapatıldı.")
     if lock_file_handle:
         try:
@@ -262,7 +259,7 @@ if __name__ == "__main__":
     parser.add_argument("--end_angle", type=int, default=DEFAULT_SCAN_END_ANGLE, help="Tarama bitiş açısı (derece)")
     parser.add_argument("--step_angle", type=int, default=DEFAULT_SCAN_STEP_ANGLE, help="Tarama adım açısı (derece)")
     parser.add_argument("--buzzer_distance", type=int, default=DEFAULT_BUZZER_DISTANCE, help="Buzzer uyarı mesafesi (cm)")
-    
+
     args = parser.parse_args()
 
     SCAN_START_ANGLE = args.start_angle
@@ -291,7 +288,7 @@ if __name__ == "__main__":
         if LCD_ROWS > 1: lcd.cursor_pos = (1, 0); lcd.write_string(f"A:{SCAN_START_ANGLE}-{SCAN_END_ANGLE} S:{abs(SCAN_STEP_ANGLE)}".ljust(LCD_COLS)[:LCD_COLS])
 
     scan_completed_successfully = False
-    lcd_warning_mode = False # LCD'nin uyarı modunda olup olmadığını takip eder
+    lcd_warning_mode = False
     try:
         db_conn_main_script_global = sqlite3.connect(DB_PATH, timeout=10)
         cursor_main = db_conn_main_script_global.cursor()
@@ -302,18 +299,18 @@ if __name__ == "__main__":
 
         effective_end_angle = SCAN_END_ANGLE + (actual_scan_step // abs(actual_scan_step) if actual_scan_step != 0 else 1)
 
-        for angle_deg in range(SCAN_START_ANGLE, effective_end_angle, actual_scan_step):
+        for derece in range(SCAN_START_ANGLE, effective_end_angle, actual_scan_step): # DEĞİŞTİ
             loop_iteration_start_time = time.time()
 
             if yellow_led: yellow_led.toggle()
-            if servo: servo.angle = angle_deg
+            if servo: servo.angle = derece # DEĞİŞTİ
             time.sleep(SERVO_SETTLE_TIME)
 
             current_timestamp = time.time()
             distance_m = sensor.distance
             distance_cm = distance_m * 100
 
-            angle_rad = math.radians(angle_deg)
+            angle_rad = math.radians(derece) # DEĞİŞTİ
             x_cm = distance_cm * math.cos(angle_rad)
             y_cm = distance_cm * math.sin(angle_rad)
 
@@ -327,7 +324,6 @@ if __name__ == "__main__":
                 delta_zaman = abs(current_timestamp - son_veri_noktasi['zaman_s'])
                 if delta_zaman > 0.001: hiz_cm_s = delta_mesafe / delta_zaman
 
-            # --- LCD & Buzzer Kontrolü ---
             is_object_close = distance_cm <= BUZZER_DISTANCE_CM
 
             if buzzer:
@@ -345,11 +341,11 @@ if __name__ == "__main__":
                         lcd_warning_mode = True
                     elif not is_object_close and lcd_warning_mode:
                         lcd.clear()
-                        lcd.cursor_pos = (0, 0); lcd.write_string(f"A:{angle_deg:<3} M:{distance_cm:5.1f}cm".ljust(LCD_COLS)[:LCD_COLS])
+                        lcd.cursor_pos = (0, 0); lcd.write_string(f"A:{derece:<3} M:{distance_cm:5.1f}cm".ljust(LCD_COLS)[:LCD_COLS]) # DEĞİŞTİ
                         if LCD_ROWS > 1: lcd.cursor_pos = (1, 0); lcd.write_string(f"X{x_cm:3.0f}Y{y_cm:3.0f} H{hiz_cm_s:3.0f}".ljust(LCD_COLS)[:LCD_COLS])
                         lcd_warning_mode = False
                     elif not is_object_close and not lcd_warning_mode:
-                        lcd.cursor_pos = (0, 0); lcd.write_string(f"A:{angle_deg:<3} M:{distance_cm:5.1f}cm".ljust(LCD_COLS)[:LCD_COLS])
+                        lcd.cursor_pos = (0, 0); lcd.write_string(f"A:{derece:<3} M:{distance_cm:5.1f}cm".ljust(LCD_COLS)[:LCD_COLS]) # DEĞİŞTİ
                         if LCD_ROWS > 1: lcd.cursor_pos = (1, 0); lcd.write_string(f"X{x_cm:3.0f}Y{y_cm:3.0f} H{hiz_cm_s:3.0f}".ljust(LCD_COLS)[:LCD_COLS])
                 except Exception as e:
                     print(f"LCD yazma hatası: {e}")
@@ -364,8 +360,8 @@ if __name__ == "__main__":
                 time.sleep(1.5); break
 
             try:
-                cursor_main.execute('''INSERT INTO scan_points (scan_id, angle_deg, mesafe_cm, hiz_cm_s, timestamp, x_cm, y_cm) VALUES (?, ?, ?, ?, ?, ?, ?)''',
-                                    (current_scan_id_global, angle_deg, distance_cm, hiz_cm_s, current_timestamp, x_cm, y_cm))
+                cursor_main.execute('''INSERT INTO scan_points (scan_id, derece, mesafe_cm, hiz_cm_s, timestamp, x_cm, y_cm) VALUES (?, ?, ?, ?, ?, ?, ?)''', # DEĞİŞTİ
+                                    (current_scan_id_global, derece, distance_cm, hiz_cm_s, current_timestamp, x_cm, y_cm)) # DEĞİŞTİ
                 db_conn_main_script_global.commit()
             except Exception as e:
                 print(f"DB Ekleme Hatası: {e}")
@@ -373,7 +369,7 @@ if __name__ == "__main__":
             ölçüm_tamponu_hız_için_yerel = [{'mesafe_cm': distance_cm, 'zaman_s': current_timestamp}]
             loop_processing_time = time.time() - loop_iteration_start_time
             sleep_duration = max(0, LOOP_TARGET_INTERVAL_S - loop_processing_time)
-            is_last_step_in_range = (angle_deg == SCAN_END_ANGLE)
+            is_last_step_in_range = (derece == SCAN_END_ANGLE) # DEĞİŞTİ
             if sleep_duration > 0 and not is_last_step_in_range: time.sleep(sleep_duration)
         else:
             hesaplanan_alan_cm2 = 0.0; perimeter_cm = 0.0
