@@ -247,50 +247,38 @@ def analyze_polar_regression(df_valid):
 def analyze_environment_shape(fig, df_valid):
     points_all = df_valid[['y_cm', 'x_cm']].to_numpy()
     if len(points_all) < 10:
-        df_valid['cluster'] = -2  # Analiz için yetersiz veri olduğunu belirt
+        df_valid['cluster'] = -2
         return "Analiz için yetersiz veri.", df_valid
 
-    db = DBSCAN(eps=15, min_samples=3).fit(points_all)  # eps ve min_samples ayarlanabilir
+    db = DBSCAN(eps=15, min_samples=3).fit(points_all)
     labels = db.labels_
-    df_valid['cluster'] = labels  # Küme etiketlerini dataframe'e ekle
+    df_valid['cluster'] = labels
 
     desc = []
     unique_clusters = set(labels)
-    num_actual_clusters = len(unique_clusters - {-1})  # Gürültü olmayan küme sayısı
+    num_actual_clusters = len(unique_clusters - {-1})
 
     if num_actual_clusters > 0:
         desc.append(f"{num_actual_clusters} potansiyel nesne kümesi bulundu.")
     else:
         desc.append("Belirgin bir nesne kümesi bulunamadı (DBSCAN).")
 
-    # RANSAC ile duvar/koridor/köşe tespiti buraya eklenebilir (önceki versiyonlardaki gibi)
-
-    # Kümeleri grafiğe çiz
-    # Renk haritası için N değeri, gürültü olmayan küme sayısına göre ayarlanabilir veya tüm unique_clusters'a göre.
-    # Eğer sadece gürültü varsa (unique_clusters = {-1}), len(unique_clusters) 1 olur, bu da cmap için geçerlidir.
     num_colors_for_map = len(unique_clusters) if len(unique_clusters) > 0 else 1
     colors = plt.cm.get_cmap('viridis', num_colors_for_map)
 
     for k_label in unique_clusters:
         cluster_points_to_plot = points_all[labels == k_label]
-        if k_label == -1:  # Gürültü noktaları
+        if k_label == -1:
             color_val, point_size, name_val = 'rgba(128,128,128,0.3)', 5, 'Gürültü/Diğer'
-        else:  # Küme noktaları
-            # --- DÜZELTİLMİŞ NORM_K HESAPLAMASI ---
+        else:
             num_non_noise_clusters_for_norm = len(unique_clusters - {-1})
             if num_non_noise_clusters_for_norm > 1:
-                # DBSCAN genellikle 0, 1, 2... şeklinde etiketler verir.
-                # Eğer etiketler farklıysa (örn: 0, 2, 5), bunları sıralı bir indekse eşlemek gerekebilir.
-                # Şimdilik standart 0-indeksli etiketler varsayılıyor.
                 norm_k = k_label / (num_non_noise_clusters_for_norm - 1)
-            elif num_non_noise_clusters_for_norm == 1:  # Sadece bir adet gürültü olmayan küme var
-                norm_k = 0.0  # Tek küme için ilk rengi kullan
-            else:  # Bu durum k_label != -1 iken olmamalı, ama güvenlik için
+            elif num_non_noise_clusters_for_norm == 1:
                 norm_k = 0.0
-
-            norm_k = np.clip(norm_k, 0.0, 1.0)  # Değerin [0,1] aralığında kalmasını sağla
-            # --- DÜZELTİLMİŞ NORM_K HESAPLAMASI SONU ---
-
+            else:  # Sadece gürültü varsa veya hiç küme yoksa (k_label != -1 olmamalı)
+                norm_k = 0.0
+            norm_k = np.clip(norm_k, 0.0, 1.0)
             raw_col = colors(norm_k)
             color_val = f'rgba({raw_col[0] * 255:.0f},{raw_col[1] * 255:.0f},{raw_col[2] * 255:.0f},0.9)'
             point_size, name_val = 8, f'Küme {k_label}'
@@ -298,7 +286,7 @@ def analyze_environment_shape(fig, df_valid):
         fig.add_trace(go.Scatter(
             x=cluster_points_to_plot[:, 0], y=cluster_points_to_plot[:, 1], mode='markers',
             marker=dict(color=color_val, size=point_size), name=name_val,
-            customdata=[k_label] * len(cluster_points_to_plot)  # Tıklama için küme etiketini sakla
+            customdata=[k_label] * len(cluster_points_to_plot)
         ))
     return " ".join(desc), df_valid
 
@@ -391,13 +379,17 @@ def handle_start_scan_script(n_clicks_start, start_angle_val, end_angle_val, ste
 @app.callback(Output('scan-status-message', 'children', allow_duplicate=True), [Input('stop-scan-button', 'n_clicks')],
               prevent_initial_call=True)
 def handle_stop_scan_script(n):
-    if n == 0: return no_update; pid_kill = None
+    if n == 0: return no_update
+    pid_kill = None  # Değişkeni try bloğundan önce None olarak başlat
     if os.path.exists(SENSOR_SCRIPT_PID_FILE):
         try:
             with open(SENSOR_SCRIPT_PID_FILE, 'r') as pf:
-                pid_s = pf.read().strip();pid_kill = int(pid_s) if pid_s else None
-        except:
+                pid_s = pf.read().strip()
+                pid_kill = int(pid_s) if pid_s else None
+        except (IOError, ValueError):  # Dosya okuma veya int'e çevirme hatası durumunda pid_kill None kalır
             pid_kill = None
+            print(f"PID dosyası ({SENSOR_SCRIPT_PID_FILE}) okunurken hata oluştu veya dosya boş.")
+
     if pid_kill and is_process_running(pid_kill):
         try:
             os.kill(pid_kill, signal.SIGTERM);
@@ -416,9 +408,17 @@ def handle_stop_scan_script(n):
         except Exception as e:
             return dbc.Alert(f"Sensör betiği durdurma hatası:{e}", color="danger", duration=None)
     else:
+        # PID dosyası yoksa veya process çalışmıyorsa, yine de dosyaları temizlemeyi dene
         for fp in [SENSOR_SCRIPT_PID_FILE, SENSOR_SCRIPT_LOCK_FILE]:
-            if os.path.exists(fp): os.remove(fp)
-        return dbc.Alert("Çalışan sensör betiği bulunamadı.", color="warning")
+            if os.path.exists(fp):
+                try:
+                    os.remove(fp)
+                except OSError as e_rem:
+                    print(f"Kalıntı dosya ({fp}) silinirken hata: {e_rem}")
+        if pid_kill is not None:  # Eğer PID okundu ama process bulunamadıysa
+            return dbc.Alert(f"Sensör betiği (PID: {pid_kill}) çalışmıyor.", color="warning")
+        else:  # PID dosyası hiç okunamadıysa
+            return dbc.Alert("Çalışan sensör betiği bulunamadı veya PID dosyası okunamadı.", color="warning")
 
 
 @app.callback(
