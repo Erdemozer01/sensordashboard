@@ -746,14 +746,17 @@ def update_all_graphs(n_intervals):
             conn)
         if not df_points.empty:
             df_valid = df_points[(df_points['mesafe_cm'] > 1.0) & (df_points['mesafe_cm'] < 250.0)].copy()
-            if len(df_valid) >= 2:
-                add_scan_rays(fig_map, df_valid)  # İsteğe bağlı, dekoratif ışınlar
-                add_sector_area(fig_map, df_valid)  # Kırmızı dolgulu alan (resimdeki gibi)
-                add_detected_points(fig_map, df_valid)  # Mavi sensör noktaları (resimdeki gibi)
-                add_sensor_position(fig_map)  # Kırmızı sensör noktası
 
-                # Akıllı analiz fonksiyonu artık grafiği değiştirmiyor, sadece metin döndürüyor
-                estimation_text = analyze_environment_shape(df_valid)  # Sadece df_valid gönderiliyor
+            if len(df_valid) >= 2:
+                add_scan_rays(fig_map, df_valid)
+                add_sector_area(fig_map, df_valid)
+                add_detected_points(fig_map, df_valid)
+                add_sensor_position(fig_map)
+
+                # --- HATA MUHTEMELEN BU SATIRDA ---
+                # analyze_environment_shape fonksiyonuna df_valid gönderildiğinden emin olun:
+                estimation_text = analyze_environment_shape(df_valid)
+                # ---------------------------------
 
                 update_polar_graph(fig_polar, df_valid)
                 update_time_series_graph(fig_time, df_valid)
