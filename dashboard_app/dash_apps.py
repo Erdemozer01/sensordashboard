@@ -138,6 +138,10 @@ visualization_tabs = dbc.Tabs(
     [
         dbc.Tab(dcc.Graph(id='scan-map-graph', style={'height': '75vh'}), label="2D Kartezyen Harita",
                 tab_id="tab-map"),
+
+        dbc.Tab(dcc.Graph(id='regression-analysis-graph', style={'height': '75vh'}), label="Regresyon Analizi",
+                tab_id="tab-regression"),
+        # -------------------------
         dbc.Tab(dcc.Graph(id='polar-graph', style={'height': '75vh'}), label="Polar Grafik", tab_id="tab-polar"),
         dbc.Tab(dcc.Graph(id='time-series-graph', style={'height': '75vh'}), label="Zaman Serisi (Mesafe)",
                 tab_id="tab-time"),
@@ -701,62 +705,88 @@ def update_system_card(n_intervals):
 
 @app.callback(
     [Output('scan-map-graph', 'figure'),
+     Output('regression-analysis-graph', 'figure'),
      Output('polar-graph', 'figure'),
      Output('time-series-graph', 'figure'),
      Output('environment-estimation-text', 'children')],
     [Input('interval-component-main', 'n_intervals')]
 )
 def update_all_graphs(n_intervals):
-    conn, error_msg_conn = get_db_connection()
-    id_to_plot = get_latest_scan_id_from_db(conn_param=conn) if conn else None
+    # 1. Figürleri ve varsayılan metinleri başlangıçta oluştur
     fig_map = go.Figure()
-    fig_polar = go.Figure(layout=go.Layout(title='Polar Grafik', uirevision=id_to_plot))
-    fig_time = go.Figure(layout=go.Layout(title='Zaman Serisi - Mesafe', uirevision=id_to_plot))
+    fig_regression = go.Figure()
+    fig_polar = go.Figure()
+    fig_time = go.Figure()
     estimation_text = "Veri bekleniyor..."
+    id_to_plot = None  # uirevision için kullanılacak
 
-    if not conn or not id_to_plot:
-        if conn: conn.close()
-        fig_map.update_layout(
-            title_text='Ortamın 2D Haritası',
-            xaxis_title="X Mesafesi (cm)", yaxis_title="Y Mesafesi (cm)",
-            yaxis_scaleanchor="x", yaxis_scaleratio=1, uirevision=id_to_plot,
-            legend=dict(title_text='Gösterim Katmanları', orientation="h", yanchor="bottom", y=1.02, xanchor="right",
-                        x=1, bgcolor="rgba(255, 255, 255, 0.7)", bordercolor="Black", borderwidth=1)
-        )
-        return fig_map, fig_polar, fig_time, "Tarama başlatın."
+    conn = None # conn değişkenini try bloğu dışında tanımla
     try:
-        df_points = pd.read_sql_query(
-            f"SELECT x_cm, y_cm, derece, mesafe_cm, timestamp FROM scan_points WHERE scan_id = {id_to_plot} ORDER BY derece ASC", # DEĞİŞTİ
-            conn)
-        if not df_points.empty:
-            df_valid = df_points[(df_points['mesafe_cm'] > 1.0) & (df_points['mesafe_cm'] < 250.0)].copy()
+        # 2. Veritabanından veri almayı dene
+        conn, error_msg_conn = get_db_connection()
+        if conn and not error_msg_conn:
+            id_to_plot = get_latest_scan_id_from_db(conn_param=conn)
+            if id_to_plot:
+                df_points = pd.read_sql_query(
+                    f"SELECT x_cm, y_cm, derece, mesafe_cm, timestamp FROM scan_points WHERE scan_id = {id_to_plot} ORDER BY derece ASC",
+                    conn)
+                if not df_points.empty:
+                    df_valid = df_points[(df_points['mesafe_cm'] > 1.0) & (df_points['mesafe_cm'] < 250.0)].copy()
 
-            if len(df_valid) >= 2:
-                add_scan_rays(fig_map, df_valid)
-                add_sector_area(fig_map, df_valid)
-                add_detected_points(fig_map, df_valid)
-                add_sensor_position(fig_map)
+                    if len(df_valid) >= 2:
+                        # 3. Veri varsa figürleri doldur
+                        # Önce regresyon figürü
+                        add_sensor_position(fig_regression)
+                        estimation_text = analyze_environment_shape(fig_regression, df_valid)
 
-                estimation_text = analyze_environment_shape(fig_map, df_valid)
+                        # Ana haritayı, regresyon figürünü kopyalayarak ve üzerine ek katmanlar ekleyerek oluştur
+                        fig_map = go.Figure(data=fig_regression.data, layout=fig_regression.layout)
+                        add_scan_rays(fig_map, df_valid)
+                        add_sector_area(fig_map, df_valid)
 
-                update_polar_graph(fig_polar, df_valid)
-                update_time_series_graph(fig_time, df_valid)
+                        # Diğer grafikleri güncelle
+                        update_polar_graph(fig_polar, df_valid)
+                        update_time_series_graph(fig_time, df_valid)
+                    else:
+                        estimation_text = "Analiz için yeterli geçerli nokta bulunamadı."
+                        add_sensor_position(fig_map) # Boş haritalara sensör pozisyonunu yine de ekle
+                        add_sensor_position(fig_regression)
+                else:
+                    estimation_text = f"Tarama ID {id_to_plot} için nokta bulunamadı."
+                    add_sensor_position(fig_map)
+                    add_sensor_position(fig_regression)
             else:
-                estimation_text = "Grafik için yeterli geçerli nokta bulunamadı."
+                estimation_text = "Tarama başlatın."
+                add_sensor_position(fig_map)
+                add_sensor_position(fig_regression)
+        else:
+            estimation_text = f"Veritabanı bağlantı hatası: {error_msg_conn}"
+
     except Exception as e:
         print(f"HATA: Grafikleme hatası: {e}")
         estimation_text = f"Hata: {e}"
     finally:
-        if conn: conn.close()
+        if conn:
+            conn.close()
 
+    # 4. Her durumda, fonksiyonun sonunda tüm figürlerin layout'larını ayarla
     fig_map.update_layout(
-        title_text='Ortamın 2D Haritası',
-        xaxis_title="X Mesafesi (cm)", yaxis_title="Y Mesafesi (cm)",
+        title_text='Ortamın 2D Haritası (Tüm Katmanlar)',
+        xaxis_title="Yatay Mesafe (cm)", yaxis_title="Dikey Mesafe (cm)",
         yaxis_scaleanchor="x", yaxis_scaleratio=1, uirevision=id_to_plot,
-        legend=dict(title_text='Gösterim Katmanları', orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1,
-                    bgcolor="rgba(255, 255, 255, 0.7)", bordercolor="Black", borderwidth=1)
+        legend=dict(title_text='Gösterim Katmanları', orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
     )
-    return fig_map, fig_polar, fig_time, estimation_text
+    fig_regression.update_layout(
+        title_text='Geometrik Regresyon Analizi',
+        xaxis_title="Yatay Mesafe (cm)", yaxis_title="Dikey Mesafe (cm)",
+        yaxis_scaleanchor="x", yaxis_scaleratio=1, uirevision=id_to_plot,
+        legend=dict(title_text='Tespit Edilen Yapılar', orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+    )
+    fig_polar.update_layout(title='Polar Grafik', uirevision=id_to_plot)
+    fig_time.update_layout(title='Zaman Serisi - Mesafe', uirevision=id_to_plot)
+
+    # 5. Her şeyi döndür
+    return fig_map, fig_regression, fig_polar, fig_time, estimation_text
 
 
 @app.callback(
