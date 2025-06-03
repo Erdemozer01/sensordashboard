@@ -244,8 +244,7 @@ def release_resources_on_exit():
             lcd.cursor_pos = (1, 0)
             lcd.write_string("OZER (PhD.)".ljust(LCD_COLS))
             time.sleep(3)  # Mesajın görünmesi için 3 saniye bekle
-            lcd.clear()
-            lcd.close()
+
         except Exception:
             pass
     if lock_file_handle:
