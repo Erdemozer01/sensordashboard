@@ -678,7 +678,7 @@ def render_and_update_data_table(active_tab, n):
         Output('environment-estimation-text', 'children'),
         Output('clustered-data-store', 'data')
     ],
-    [Input('interval-component-main', 'n_intervals')]
+    Input('interval-component-main', 'n_intervals')
 )
 def update_all_graphs(n):
     figs = [go.Figure() for _ in range(4)]
@@ -703,7 +703,7 @@ def update_all_graphs(n):
                         store_data = {
                             'scan_id': id_plot,
                             'clustered_data': df_clus.to_json(orient='split'),
-                            'ai_comment': None  # Başlangıçta AI yorumu yok
+                            'ai_comment': None
                         }
                         line_data, est_polar = analyze_polar_regression(df_val)
                         figs[1].add_trace(
@@ -714,8 +714,6 @@ def update_all_graphs(n):
                         clear_path, shape_estimation = find_clearest_path(df_val), estimate_geometric_shape(df_val)
                         update_polar_graph(figs[2], df_val);
                         update_time_series_graph(figs[3], df_val)
-
-
 
                     else:
                         est_cart = "Analiz için yetersiz geçerli nokta."
