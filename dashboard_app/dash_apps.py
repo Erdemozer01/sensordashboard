@@ -185,6 +185,7 @@ app.layout = dbc.Container(fluid=True, children=[
                  ], className="mt-3")], md=8)
     ]),
     dcc.Store(id='clustered-data-store'),
+    dcc.Store(id='ai-data-store'),
     dbc.Modal([dbc.ModalHeader(dbc.ModalTitle(id="modal-title")), dbc.ModalBody(id="modal-body")],
               id="cluster-info-modal", is_open=False, centered=True),
     dcc.Interval(id='interval-component-main', interval=2500, n_intervals=0),
@@ -675,13 +676,13 @@ def render_and_update_data_table(active_tab, n):
      Output('polar-graph', 'figure'),
      Output('time-series-graph', 'figure'),
      Output('environment-estimation-text', 'children'),
-     Output('clustered-data-store', 'data')],
+     Output('clustered-data-store', 'data'), Output('ai-data-store', 'data')],
     [Input('interval-component-main', 'n_intervals')]
 )
 def update_all_graphs(n):
     figs = [go.Figure() for _ in range(4)]
     est_cart, est_polar, clear_path, shape_estimation = "Veri bekleniyor...", "Veri bekleniyor...", "", "Veri bekleniyor..."
-    id_plot, store_data = None, None
+    id_plot, store_data , ai_data_store = None, None, None
     conn, err_conn = get_db_connection()
     if err_conn or not conn:
         est_cart = f"DB Bağlantı Hatası: {err_conn}"
@@ -699,6 +700,11 @@ def update_all_graphs(n):
                         add_sector_area(figs[0], df_val)
                         est_cart, df_clus = analyze_environment_shape(figs[0], df_val)
                         store_data = df_clus.to_json(orient='split')
+                        ai_data_store = {
+                            'scan_id': id_plot,
+                            'clustered_data': df_clus.to_json(orient='split'),
+                            'ai_comment': None  # Başlangıçta AI yorumu yok
+                        }
                         line_data, est_polar = analyze_polar_regression(df_val)
                         figs[1].add_trace(
                             go.Scatter(x=df_val['derece'], y=df_val['mesafe_cm'], mode='markers', name='Noktalar'))
@@ -744,7 +750,7 @@ def update_all_graphs(n):
         [html.P(shape_estimation, className="fw-bold", style={'fontSize': '1.2em', 'color': 'darkgreen'}), html.Hr(),
          html.P(clear_path, className="fw-bold text-primary", style={'fontSize': '1.1em'}), html.Hr(),
          html.P(est_cart), html.Hr(), html.P(est_polar)])
-    return figs[0], figs[1], figs[2], figs[3], final_est_text, store_data
+    return figs[0], figs[1], figs[2], figs[3], final_est_text, store_data, ai_data_store
 
 
 @app.callback(
@@ -777,7 +783,7 @@ def display_cluster_info(clickData, stored_data):
 @app.callback(
     Output('ai-yorum-sonucu', 'children'),
     [Input('ai-model-dropdown', 'value')],
-    [State('clustered-data-store', 'data')],
+    [State('ai-data-store', 'data')],
     prevent_initial_call=True
 )
 def yorumla_model_secimi(selected_model, stored_data):
