@@ -101,12 +101,14 @@ def move_motor_to_angle(target_angle_deg):
 
     current_motor_angle_global_cumulative = current_motor_angle_global + (num_steps * DEG_PER_STEP * (1 if logical_dir_positive else -1))
 
+    # Hedefe ulaşıldıysa, kümülatif açıyı hedefin tam değerine ayarla
     temp_normalized_current = current_motor_angle_global_cumulative % 360.0
     if abs(temp_normalized_current - normalized_target_angle) < DEG_PER_STEP or \
        abs(temp_normalized_current - (normalized_target_angle if normalized_target_angle != 0 else 360)) < DEG_PER_STEP :
-         current_motor_angle_global = target_angle_deg
+         current_motor_angle_global = target_angle_deg # Kümülatif hedefi al
     else:
          current_motor_angle_global = current_motor_angle_global_cumulative
+
 
 def init_db_for_scan(logical_start_angle, logical_end_angle):
     global current_scan_id_global
@@ -211,10 +213,6 @@ if __name__ == "__main__":
         physical_scan_reference_angle = current_motor_angle_global
         print(f"[{pid}] ADIM 2: Tarama başlıyor. Mantıksal [{LOGICAL_SCAN_START_ANGLE}° -> {LOGICAL_SCAN_END_ANGLE}°]. Fiziksel referans: {physical_scan_reference_angle:.1f}°")
 
-        # Tarama boyunca LED'in yanıp sönmesini başlat
-        if yellow_led:
-            yellow_led.blink()
-
         collected_points, current_logical_angle = [], LOGICAL_SCAN_START_ANGLE
 
         while True:
@@ -263,10 +261,6 @@ if __name__ == "__main__":
     except KeyboardInterrupt: script_exit_status_global = 'interrupted_ctrl_c'; print(f"\n[{pid}] Ctrl+C ile kesildi.")
     except Exception as e: script_exit_status_global = 'error_in_loop'; import traceback; traceback.print_exc(); print(f"[{pid}] KRİTİK HATA: Ana döngüde: {e}")
     finally:
-        # Tarama bitince LED'i kapat
-        if yellow_led:
-            yellow_led.off()
-
         if script_exit_status_global not in ['error_in_loop']:
              print(f"[{pid}] ADIM 3: İşlem sonu. Fiziksel başlangıca ({PHYSICAL_HOME_POSITION}°) geri dönülüyor...")
              move_motor_to_angle(PHYSICAL_HOME_POSITION)
