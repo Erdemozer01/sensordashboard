@@ -138,6 +138,8 @@ gemini = dbc.Card([
 
 
 
+
+
 visualization_tabs = dbc.Tabs(
     [dbc.Tab(dcc.Graph(id='scan-map-graph', style={'height': '75vh'}), label="2D Kartezyen Harita", tab_id="tab-map"),
      dbc.Tab(dcc.Graph(id='polar-regression-graph', style={'height': '75vh'}), label="Regresyon Analizi",
@@ -150,12 +152,6 @@ visualization_tabs = dbc.Tabs(
     id="visualization-tabs-main", active_tab="tab-map"),
 
 
-gemini = dbc.Card([
-    dbc.CardBody([
-        dbc.Button('Verileri Yorumla', id='yorumla-button', color="info", className="w-100"),
-        html.Div(id='gemini-yorum-sonucu', className="mt-3")
-    ])
-], className="mt-3")
 
 app.layout = dbc.Container(fluid=True, children=[
     title_card,
