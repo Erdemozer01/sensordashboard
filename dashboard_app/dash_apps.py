@@ -358,7 +358,7 @@ def get_latest_scan_data():
 
 
 def yorumla_tablo_verisi_gemini(df):
-    from google.generativeai import Content, Part
+    from google.generativeai.types.content_types import ContentType, PartType
 
     google_api_key = os.getenv("GOOGLE_API_KEY")
 
@@ -378,7 +378,7 @@ def yorumla_tablo_verisi_gemini(df):
 
         try:
             try:
-                contents = [Content(parts=[Part.from_text(prompt_text)], role="user")]
+                contents = [ContentType(parts=[PartType.from_text(prompt_text)], role="user")]
                 response = model.generate_content(contents=contents)
                 return response.text
             except Exception as e:
