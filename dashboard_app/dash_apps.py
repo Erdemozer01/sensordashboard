@@ -187,8 +187,7 @@ app.layout = dbc.Container(fluid=True, children=[
         dbc.Col([
             visualization_tabs,
             dbc.Row(html.Div(style={"height": "15px"})),
-            dbc.Row([dbc.Col(analysis_card, md=8), dbc.Col([estimation_card, gemini], md=4)])], md=8),
-        yapay_zeka
+            dbc.Row([dbc.Col(analysis_card, md=8), dbc.Col([estimation_card], yapay_zeka, md=4)])], md=8),
     ]),
 
     dcc.Store(id='clustered-data-store'),
