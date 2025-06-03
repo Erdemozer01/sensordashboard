@@ -177,7 +177,7 @@ app.layout = dbc.Container(fluid=True, children=[
                              dbc.CardBody(html.Div("Yorum bekleniyor...", id='ai-yorum-sonucu', className="text-center"))
                          ], className="mt-3")
                      ], md=8) # analysis_card ile aynı sütun genişliğinde
-                 ], className="mt-3")], md=12)
+                 ], className="mt-3")], md=8)
     ]),
     dcc.Store(id='clustered-data-store'),
     dbc.Modal([dbc.ModalHeader(dbc.ModalTitle(id="modal-title")), dbc.ModalBody(id="modal-body")],
