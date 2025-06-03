@@ -810,4 +810,5 @@ def yorumla_model_secimi(selected_model, stored_data):
             return dbc.Alert("Yorumlanacak geçerli veri bulunamadı.", color="warning")
     elif selected_model:
         return dbc.Alert(f"Seçilen model ({selected_model}) henüz desteklenmiyor.", color="info")
+
     return html.Div("Yorum için bir model seçin.", className="text-center")
