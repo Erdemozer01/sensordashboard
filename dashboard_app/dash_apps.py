@@ -19,15 +19,12 @@ from sklearn.cluster import DBSCAN
 
 from google import genai
 
-
 from dotenv import load_dotenv
 
 load_dotenv()
 
-
 google_api_key = os.getenv("GOOGLE_API_KEY")
 print(f"API Anahtarı Değeri: '{google_api_key}'")  # Bu satırı ekleyin
-
 
 # ==============================================================================
 # --- SABİTLER VE UYGULAMA BAŞLATMA ---
@@ -69,6 +66,17 @@ control_panel = dbc.Card([
         ]),
         html.Div(id='scan-status-message', style={'marginTop': '10px', 'minHeight': '40px', 'textAlign': 'center'},
                  className="mb-3"),
+        html.Hr(),
+        html.H6("Yapay Zeka Seçimi:", className="mt-3"),
+        dcc.Dropdown(
+            id='ai-model-dropdown',
+            options=[
+                {'label': 'Gemini', 'value': 'gemini'},
+                # Gelecekte eklenebilecek diğer modeller buraya
+            ],
+            value='gemini',
+            className="mb-3"
+        ),
         html.Hr(),
         html.H6("Tarama Parametreleri:", className="mt-2"),
         dbc.InputGroup([dbc.InputGroupText("Tarama Açısı (°)", style={"width": "150px"}),
@@ -114,16 +122,25 @@ export_card = dbc.Card([dbc.CardHeader("Veri Dışa Aktarma (En Son Tarama)", cl
      dbc.Button('En Son Taramayı Excel İndir', id='export-excel-button', color="success", className="w-100"),
      dcc.Download(id='download-excel')])], className="mb-3")
 
-analysis_card = dbc.Card([dbc.CardHeader("Tarama Analizi (En Son Tarama)", className="bg-dark text-white"),
-                          dbc.CardBody([dbc.Row(
-                              [dbc.Col([html.H6("Hesaplanan Alan:"), html.H4(id='calculated-area', children="-- cm²")]),
-                               dbc.Col(
-                                   [html.H6("Çevre Uzunluğu:"), html.H4(id='perimeter-length', children="-- cm")])]),
-                              dbc.Row([dbc.Col(
-                                  [html.H6("Max Genişlik:"), html.H4(id='max-width', children="-- cm")]),
-                                  dbc.Col([html.H6("Max Derinlik:"),
-                                           html.H4(id='max-depth', children="-- cm")])],
-                                  className="mt-2")])])
+analysis_card = dbc.Card(
+    [
+        dbc.CardHeader("Tarama Analizi (En Son Tarama)", className="bg-dark text-white"),
+        dbc.CardBody(
+            [
+                dbc.Row(
+                    [
+                        dbc.Col([html.H6("Hesaplanan Alan:"), html.H4(id='calculated-area', children="-- cm²")]),
+                        dbc.Col(
+                            [html.H6("Çevre Uzunluğu:"), html.H4(id='perimeter-length', children="-- cm")])]),
+                dbc.Row([dbc.Col(
+                    [html.H6("Max Genişlik:"), html.H4(id='max-width', children="-- cm")]),
+                    dbc.Col([html.H6("Max Derinlik:"),
+                             html.H4(id='max-depth', children="-- cm")])],
+                    className="mt-2")
+            ]
+        )
+    ]
+)
 
 estimation_card = dbc.Card(
     [
@@ -158,8 +175,16 @@ app.layout = dbc.Container(fluid=True, children=[
                  dbc.Row(html.Div(style={"height": "15px"})), system_card, dbc.Row(html.Div(style={"height": "15px"})),
                  export_card], md=4, className="mb-3"),
         dbc.Col([visualization_tabs, dbc.Row(html.Div(style={"height": "15px"})),
-                 dbc.Row([dbc.Col(analysis_card, md=8), dbc.Col([estimation_card, gemini], md=4)])], md=8)
+                 dbc.Row([dbc.Col(analysis_card, md=8), dbc.Col([estimation_card], md=4)])], md=8)
     ]),
+    dbc.Row([
+        dbc.Col([
+            dbc.Card([
+                dbc.CardHeader("Akıllı Yorumlama (Yapay Zeka)", className="bg-info text-white"),
+                dbc.CardBody(html.Div("Yorum bekleniyor...", id='ai-yorum-sonucu', className="text-center"))
+            ], className="mt-3")
+        ], md=8)  # analysis_card ile aynı sütun genişliğinde (md=8)
+    ], className="mt-3"),
     dcc.Store(id='clustered-data-store'),
     dbc.Modal([dbc.ModalHeader(dbc.ModalTitle(id="modal-title")), dbc.ModalBody(id="modal-body")],
               id="cluster-info-modal", is_open=False, centered=True),
@@ -358,10 +383,7 @@ def get_latest_scan_data():
 
 
 def yorumla_tablo_verisi_gemini(df):
-
-
     google_api_key = os.getenv("GOOGLE_API_KEY")
-
 
     if df is not None and not df.empty:
 
@@ -750,6 +772,7 @@ def display_cluster_info(clickData, stored_data):
 @app.callback(
     Output('gemini-yorum-sonucu', 'children'),
     [Input('yorumla-button', 'n_clicks')],
+    prevent_initial_call=True
 )
 def gonder_ve_yorumla(n_clicks):
     if n_clicks is None:
