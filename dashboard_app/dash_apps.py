@@ -24,7 +24,6 @@ from dotenv import load_dotenv
 load_dotenv()
 
 google_api_key = os.getenv("GOOGLE_API_KEY")
-print(f"API Anahtarı Değeri: '{google_api_key}'")  # Bu satırı ekleyin
 
 # ==============================================================================
 # --- SABİTLER VE UYGULAMA BAŞLATMA ---
