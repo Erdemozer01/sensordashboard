@@ -71,7 +71,7 @@ script_exit_status_global = 'interrupted_unexpectedly'
 # !!! DİKKAT: BU DEĞER ARTIK PANEL ÜZERİNDEN KONTROL EDİLMEKTEDİR !!!
 # ==============================================================================
 # Aşağıdaki STEPS_PER_REVOLUTION_OUTPUT_SHAFT sabitini bir varsayılan değere dönüştürüyoruz.
-DEFAULT_STEPS_PER_REVOLUTION = 4096
+DEFAULT_STEPS_PER_REVOLUTION = 8192
 STEPS_PER_REVOLUTION_OUTPUT_SHAFT = DEFAULT_STEPS_PER_REVOLUTION # Başlangıçta varsayılana ayarlı.
 
 DEG_PER_STEP = 0.0  # Başlangıçta tanımla, main içinde doğru değer atanacak
