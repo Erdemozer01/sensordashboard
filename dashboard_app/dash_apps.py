@@ -71,10 +71,10 @@ control_panel = dbc.Card([
         dcc.Dropdown(
             id='ai-model-dropdown',
             options=[
-                {'label': 'Gemini', 'value': 'gemini'},
+                {'label': 'Gemini', 'value': 'gemini-2.0-flash'},
                 # Gelecekte eklenebilecek diğer modeller buraya
             ],
-            value='gemini',
+            value='gemini-2.0-flash',
             className="mb-3"
         ),
         html.Hr(),
