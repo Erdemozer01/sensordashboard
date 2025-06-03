@@ -679,11 +679,13 @@ def render_and_update_data_table(active_tab, n):
 @app.callback(
     [Output('scan-map-graph', 'figure'), Output('polar-regression-graph', 'figure'), Output('polar-graph', 'figure'),
      Output('time-series-graph', 'figure'), Output('environment-estimation-text', 'children'),
-     Output('clustered-data-store', 'data')], [Input('interval-component-main', 'n_intervals')])
+     Output('clustered-data-store', 'data'), Output('ai-yorum-sonucu', 'children')], # Yeni çıktı eklendi
+    [Input('interval-component-main', 'n_intervals')]
+)
 def update_all_graphs(n):
     figs = [go.Figure() for _ in range(4)]
     est_cart, est_polar, clear_path, shape_estimation = "Veri bekleniyor...", "Veri bekleniyor...", "", "Veri bekleniyor..."
-    id_plot, store_data = None, None
+    id_plot, store_data, ai_yorumu = None, None, "Yorum bekleniyor..." # ai_yorumu için başlangıç değeri
     conn, err_conn = get_db_connection()
     if err_conn or not conn:
         est_cart = f"DB Bağlantı Hatası: {err_conn}"
@@ -710,6 +712,14 @@ def update_all_graphs(n):
                         clear_path, shape_estimation = find_clearest_path(df_val), estimate_geometric_shape(df_val)
                         update_polar_graph(figs[2], df_val);
                         update_time_series_graph(figs[3], df_val)
+
+                        # Yapay zeka yorumunu al ve güncelle
+                        df_yorum = df_val[['derece', 'mesafe_cm']]
+                        if not df_yorum.empty:
+                            ai_yorumu = yorumla_tablo_verisi_gemini(df_yorum)
+                        else:
+                            ai_yorumu = "Yorumlanacak geçerli veri bulunamadı."
+
                     else:
                         est_cart = "Analiz için yetersiz geçerli nokta."
                 else:
@@ -745,7 +755,7 @@ def update_all_graphs(n):
         [html.P(shape_estimation, className="fw-bold", style={'fontSize': '1.2em', 'color': 'darkgreen'}), html.Hr(),
          html.P(clear_path, className="fw-bold text-primary", style={'fontSize': '1.1em'}), html.Hr(),
          html.P(est_cart), html.Hr(), html.P(est_polar)])
-    return figs[0], figs[1], figs[2], figs[3], final_est_text, store_data
+    return figs[0], figs[1], figs[2], figs[3], final_est_text, store_data, ai_yorumu # Yeni çıktı döndürüldü
 
 
 @app.callback(
@@ -778,7 +788,6 @@ def display_cluster_info(clickData, stored_data):
 @app.callback(
     Output('gemini-yorum-sonucu', 'children'),
     [Input('yorumla-button', 'n_clicks')],
-    prevent_initial_call=True
 )
 def gonder_ve_yorumla(n_clicks):
     if n_clicks is None:
