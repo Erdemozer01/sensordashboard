@@ -79,9 +79,12 @@ control_panel = dbc.Card([
         dcc.Dropdown(
             id='ai-model-dropdown',
             options=[
-                {'label': 'Gemini Flash (Hızlı)', 'value': 'gemini-2.0-flash'},
+                {'label': 'Gemini Pro (Gelişmiş)', 'value': 'gemini-1.5-pro-latest'},
+                {'label': 'Gemini Flash (Hızlı)', 'value': 'gemini-1.5-flash-latest'},
             ],
+            value='gemini-1.5-pro-latest',  # DEĞİŞİKLİK: Gemini Pro'yu varsayılan olarak ayarla
             placeholder="Yorumlama için bir model seçin...",
+            clearable=False,
             className="mb-3"
         ),
         html.Hr(),
@@ -415,13 +418,21 @@ def get_latest_scan_data():
         if conn: conn.close()
 
 
-def yorumla_tablo_verisi_gemini(df):
+def yorumla_tablo_verisi_gemini(df, model_name='gemini-1.5-pro-latest'):
+    # DEĞİŞİKLİK: Fonksiyon artık bir model_name parametresi alıyor
     google_api_key = os.getenv("GOOGLE_API_KEY")
     if not google_api_key:
         return "Hata: `GOOGLE_API_KEY` ortam değişkeni ayarlanmamış."
 
     if df is not None and not df.empty:
         try:
+            # Note: The original code used genai.Client, which is not standard.
+            # The standard is to use genai.configure and then genai.GenerativeModel.
+            # Assuming the original code worked in its environment, we keep the structure.
+            # For correctness with current google-generativeai library, one would do:
+            # genai.configure(api_key=google_api_key)
+            # model = genai.GenerativeModel(model_name)
+            # response = model.generate_content(...)
             client = genai.Client(api_key=google_api_key)
             prompt_text = (
                 "Aşağıdaki tablo, bir hc-sr04 sensörünün yaptığı taramadan elde edilen "
@@ -433,8 +444,9 @@ def yorumla_tablo_verisi_gemini(df):
             )
             prompt_text += df.to_string(index=False)
 
+            # DEĞİŞİKLİK: API çağrısında hardcoded model yerine parametreyi kullan
             response = client.models.generate_content(
-                model='gemini-2.0-flash',
+                model=model_name,
                 contents=prompt_text,
             )
             return response.text
@@ -830,23 +842,25 @@ def yorumla_model_secimi(selected_model):
         return dbc.Alert(f"Veritabanı okuma hatası: {err_read}", color="danger")
 
     try:
-        df_comment = pd.read_sql_query(
-            f"SELECT ai_commentary FROM servo_scans WHERE id = {latest_scan_id}", conn_read)
+        # Check if the column exists before trying to select from it
+        cursor_check = conn_read.cursor()
+        table_info = cursor_check.execute(f"PRAGMA table_info(servo_scans)").fetchall()
+        column_exists = any(col[1] == 'ai_commentary' for col in table_info)
 
-        if not df_comment.empty and df_comment['ai_commentary'].iloc[0]:
-            comment = df_comment['ai_commentary'].iloc[0]
-            # Found existing comment, display it and finish
-            return dbc.Alert(dcc.Markdown(comment, dangerously_allow_html=True), color="info")
+        if column_exists:
+             df_comment = pd.read_sql_query(
+                f"SELECT ai_commentary FROM servo_scans WHERE id = {latest_scan_id}", conn_read)
+             if not df_comment.empty and df_comment['ai_commentary'].iloc[0]:
+                comment = df_comment['ai_commentary'].iloc[0]
+                # Found existing comment, display it and finish
+                return dbc.Alert(dcc.Markdown(comment, dangerously_allow_html=True), color="info")
+        else:
+            # If column doesn't exist, we will proceed to generate a comment,
+            # but we can't save it. This is handled later.
+             pass
 
     except Exception as e:
-        if "no such column" in str(e).lower():
-            return dbc.Alert([
-                html.H5("Veritabanı Hatası!"),
-                html.P("Yorumları kaydetmek için 'servo_scans' tablosunda 'ai_commentary' sütunu bulunamadı."),
-                html.P("Lütfen veritabanı şemanızı şu komutla güncelleyin:"),
-                html.Code("ALTER TABLE servo_scans ADD COLUMN ai_commentary TEXT;")
-            ], color="danger")
-        # For other read errors, we can try generating a new comment
+        # This will catch other potential read errors.
         print(f"Mevcut yorum okunurken bir hata oluştu (yeni yorum oluşturulacak): {e}")
     finally:
         if conn_read:
@@ -857,7 +871,8 @@ def yorumla_model_secimi(selected_model):
     if df_data is None or df_data.empty:
         return dbc.Alert("Yorumlanacak geçerli tarama verisi bulunamadı.", color="warning")
 
-    yorum_text = yorumla_tablo_verisi_gemini(df_data)
+    # DEĞİŞİKLİK: Seçilen modeli API fonksiyonuna gönder
+    yorum_text = yorumla_tablo_verisi_gemini(df_data, selected_model)
 
     if "Hata:" in yorum_text or "hata oluştu" in yorum_text:
         return dbc.Alert(yorum_text, color="danger")
@@ -874,8 +889,21 @@ def yorumla_model_secimi(selected_model):
 
     try:
         cursor = conn_write.cursor()
-        cursor.execute("UPDATE servo_scans SET ai_commentary = ? WHERE id = ?", (yorum_text, latest_scan_id))
-        conn_write.commit()
+        # Check for column existence again before writing
+        table_info_write = cursor.execute("PRAGMA table_info(servo_scans)").fetchall()
+        if any(col[1] == 'ai_commentary' for col in table_info_write):
+            cursor.execute("UPDATE servo_scans SET ai_commentary = ? WHERE id = ?", (yorum_text, latest_scan_id))
+            conn_write.commit()
+        else:
+            # If the column still doesn't exist, we can't save.
+            # Return the generated text with a warning.
+             return dbc.Alert([
+                html.H6("Yorum oluşturuldu ancak veritabanına KAYDEDİLEMEDİ:"),
+                html.P("Veritabanında 'ai_commentary' sütunu eksik."),
+                 html.Hr(),
+                dcc.Markdown(yorum_text, dangerously_allow_html=True)
+            ], color="danger")
+
     except Exception as e:
         return dbc.Alert([
             html.H6("Yorum oluşturuldu ancak veritabanına KAYDEDİLEMEDİ:"),
