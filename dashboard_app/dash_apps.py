@@ -52,7 +52,7 @@ control_panel = dbc.Card([
         dbc.Row([
             dbc.Col(html.Button('Başlat', id='start-scan-button', n_clicks=0,
                                 className="btn btn-success btn-lg w-100 mb-2"), width=6),
-            dbc.Col(html.Button('Taramayı Durdur', id='stop-scan-button', n_clicks=0,
+            dbc.Col(html.Button('Durdur', id='stop-scan-button', n_clicks=0,
                                 className="btn btn-danger btn-lg w-100 mb-2"), width=6)
         ]),
         html.Div(id='scan-status-message', style={'marginTop': '10px', 'minHeight': '40px', 'textAlign': 'center'},
