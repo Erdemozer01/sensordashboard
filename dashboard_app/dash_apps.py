@@ -177,7 +177,7 @@ app.layout = dbc.Container(fluid=True, children=[
                  dbc.Row(html.Div(style={"height": "15px"})), system_card, dbc.Row(html.Div(style={"height": "15px"})),
                  export_card], md=4, className="mb-3"),
         dbc.Col([visualization_tabs, dbc.Row(html.Div(style={"height": "15px"})),
-                 dbc.Row([dbc.Col(analysis_card, md=8), dbc.Col([estimation_card, gemini], md=4)], md=12), # Bu satırda md=12 yapabilirsiniz
+                 dbc.Row([dbc.Col(analysis_card, md=8), dbc.Col([estimation_card, gemini], md=4)]), # Bu satırda md=12 yapabilirsiniz
                  dbc.Row([ # Yeni row for AI yorumu
                      dbc.Col([
                          dbc.Card([
