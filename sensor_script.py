@@ -59,7 +59,7 @@ def init_hardware():
     if hardware_ok:
         try:
             lcd = CharLCD(i2c_expander=LCD_PORT_EXPANDER, address=LCD_I2C_ADDRESS, port=I2C_PORT, cols=LCD_COLS, rows=LCD_ROWS, dotsize=8, charmap='A02', auto_linebreaks=True)
-            lcd.clear(); lcd.cursor_pos = (0,0); lcd.write_string("Merhaba".ljust(LCD_COLS)); time.sleep(1.5); lcd.cursor_pos(1,0); lcd.write_string("Ben Dream Pi".ljust(LCD_COLS)); time.sleep(2.0)
+            lcd.clear(); lcd.cursor_pos = (0,0); lcd.write_string("Merhaba".ljust(LCD_COLS)); lcd.cursor_pos(1,0); lcd.write_string("Ben Dream Pi".ljust(LCD_COLS)); time.sleep(2.0)
         except Exception as e_lcd: print(f"[{pid}] LCD Başlatma UYARI: {e_lcd}"); lcd = None
     return hardware_ok
 
