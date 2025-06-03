@@ -10,6 +10,14 @@ import math
 import argparse
 
 # ==============================================================================
+# --- KONTROL DEĞİŞKENİ ---
+# Motor bağlı olmadığında test için bu değeri False yapın.
+# Motoru tekrar kullanmak istediğinizde True olarak değiştirin.
+# ==============================================================================
+MOTOR_BAGLI = False
+# ==============================================================================
+
+# ==============================================================================
 # --- Pin Tanımlamaları ve Donanım Ayarları ---
 # ==============================================================================
 TRIG_PIN, ECHO_PIN = 23, 24
@@ -54,26 +62,32 @@ def init_hardware():
     global sensor, yellow_led, lcd, buzzer, current_motor_angle_global, in1_dev, in2_dev, in3_dev, in4_dev
     pid, hardware_ok = os.getpid(), True
     try:
-        in1_dev, in2_dev, in3_dev, in4_dev = OutputDevice(IN1_GPIO_PIN), OutputDevice(IN2_GPIO_PIN), OutputDevice(
-            IN3_GPIO_PIN), OutputDevice(IN4_GPIO_PIN)
+        # DÜZENLEME: Motor pinleri sadece MOTOR_BAGLI ise başlatılacak.
+        if MOTOR_BAGLI:
+            in1_dev, in2_dev, in3_dev, in4_dev = OutputDevice(IN1_GPIO_PIN), OutputDevice(IN2_GPIO_PIN), OutputDevice(
+                IN3_GPIO_PIN), OutputDevice(IN4_GPIO_PIN)
+        else:
+            print("[UYARI] Motor bağlı değil. Motor pinleri atlanıyor.")
+
         sensor = DistanceSensor(echo=ECHO_PIN, trigger=TRIG_PIN, max_distance=2.5, queue_len=2)
         yellow_led, buzzer = LED(YELLOW_LED_PIN), Buzzer(BUZZER_PIN)
         yellow_led.off();
         buzzer.off()
         current_motor_angle_global = 0.0
     except Exception as e:
-        print(f"[{pid}] Donanım Başlatma HATA: {e}"); hardware_ok = False
+        print(f"[{pid}] Donanım Başlatma HATA: {e}");
+        hardware_ok = False
     if hardware_ok:
         try:
             lcd = CharLCD(i2c_expander=LCD_PORT_EXPANDER, address=LCD_I2C_ADDRESS, port=I2C_PORT, cols=LCD_COLS,
                           rows=LCD_ROWS, dotsize=8, charmap='A02', auto_linebreaks=True)
-            # AÇILIŞ MESAJI DEĞİŞTİRİLDİ
             lcd.clear();
             lcd.cursor_pos = (0, 0);
             lcd.write_string("Dream Pi Hazir".ljust(LCD_COLS));
             time.sleep(2)
         except Exception as e_lcd:
-            print(f"[{pid}] LCD Başlatma UYARI: {e_lcd}"); lcd = None
+            print(f"[{pid}] LCD Başlatma UYARI: {e_lcd}");
+            lcd = None
     return hardware_ok
 
 
@@ -96,6 +110,20 @@ def _step_motor_4in(num_steps, direction_positive):
 
 def move_motor_to_angle(target_angle_deg):
     global current_motor_angle_global
+
+    # DÜZENLEME: Motor bağlı değilse, hareketi simüle et ve çık.
+    if not MOTOR_BAGLI:
+        # Bu uyarıyı sadece bir kez göstermek için global bir flag kullan
+        if 'motorless_warning_printed' not in globals():
+            global motorless_warning_printed
+            print("[UYARI] MOTOR_BAGLI=False. Fiziksel motor hareketleri yapılmayacak, sadece açı güncellenecek.")
+            motorless_warning_printed = True
+
+        # Fiziksel hareket yerine, sadece global açı değişkenini güncelle.
+        current_motor_angle_global = target_angle_deg
+        return
+
+    # --- Orijinal motor kontrol kodu ---
     if DEG_PER_STEP <= 0: print(f"HATA: DEG_PER_STEP ({DEG_PER_STEP}) geçersiz!"); return
 
     normalized_current_angle = current_motor_angle_global % 360.0
@@ -116,19 +144,12 @@ def move_motor_to_angle(target_angle_deg):
     physical_dir_positive = not logical_dir_positive if INVERT_MOTOR_DIRECTION else logical_dir_positive
 
     print(
-        f"Motor Hareketi: Fiziksel {current_motor_angle_global:.1f}° (Norm: {normalized_current_angle:.1f}°) -> Hedef Fiz. {target_angle_deg:.1f}° (Norm: {normalized_target_angle:.1f}°). Fark: {angle_diff:.1f}°, Adım: {num_steps}, Yön: {'CCW' if logical_dir_positive else 'CW'}")
+        f"Motor Hareketi: Fiziksel {current_motor_angle_global:.1f}° -> Hedef Fiz. {target_angle_deg:.1f}°. Fark: {angle_diff:.1f}°, Adım: {num_steps}")
     _step_motor_4in(num_steps, physical_dir_positive)
 
     current_motor_angle_global_cumulative = current_motor_angle_global + (
-                num_steps * DEG_PER_STEP * (1 if logical_dir_positive else -1))
-
-    temp_normalized_current = current_motor_angle_global_cumulative % 360.0
-    if abs(temp_normalized_current - normalized_target_angle) < DEG_PER_STEP or \
-            abs(temp_normalized_current - (
-            normalized_target_angle if normalized_target_angle != 0 else 360)) < DEG_PER_STEP:
-        current_motor_angle_global = target_angle_deg
-    else:
-        current_motor_angle_global = current_motor_angle_global_cumulative
+            num_steps * DEG_PER_STEP * (1 if logical_dir_positive else -1))
+    current_motor_angle_global = current_motor_angle_global_cumulative
 
 
 def init_db_for_scan(logical_start_angle, logical_end_angle):
@@ -137,6 +158,7 @@ def init_db_for_scan(logical_start_angle, logical_end_angle):
         with sqlite3.connect(DB_PATH, timeout=10) as conn:
             conn.execute("PRAGMA journal_mode = WAL;")
             cursor = conn.cursor()
+            # ... (Bu fonksiyonun geri kalanı değişmedi)
             cursor.execute('''CREATE TABLE IF NOT EXISTS servo_scans
                               (
                                   id
@@ -203,7 +225,8 @@ def init_db_for_scan(logical_start_angle, logical_end_angle):
                  INVERT_MOTOR_DIRECTION))
             current_scan_id_global = cursor.lastrowid
     except Exception as e:
-        print(f"DB Hatası (init_db_for_scan): {e}"); current_scan_id_global = None
+        print(f"DB Hatası (init_db_for_scan): {e}");
+        current_scan_id_global = None
 
 
 def acquire_lock_and_pid():
@@ -212,7 +235,8 @@ def acquire_lock_and_pid():
         lock_file_handle = open(LOCK_FILE_PATH, 'w');
         fcntl.flock(lock_file_handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
         with open(PID_FILE_PATH, 'w') as pf:
-            pf.write(str(os.getpid())); return True
+            pf.write(str(os.getpid()));
+            return True
     except Exception:
         return False
 
@@ -228,7 +252,11 @@ def release_resources_on_exit():
                              (script_exit_status_global, current_scan_id_global))
         except Exception as e:
             print(f"DB çıkış HATA: {e}")
-    _set_step_pins(0, 0, 0, 0)
+
+    # DÜZENLEME: Motor pinleri sadece MOTOR_BAGLI ise sıfırlanacak.
+    if MOTOR_BAGLI:
+        _set_step_pins(0, 0, 0, 0)
+
     for dev in [sensor, yellow_led, buzzer, in1_dev, in2_dev, in3_dev, in4_dev]:
         if dev and hasattr(dev, 'close'):
             try:
@@ -237,19 +265,18 @@ def release_resources_on_exit():
                 pass
     if lcd:
         try:
-            # KAPANIŞ MESAJI EKLENDİ
             lcd.clear()
             lcd.cursor_pos = (0, 0)
             lcd.write_string("Mehmet Erdem".ljust(LCD_COLS))
             lcd.cursor_pos = (1, 0)
             lcd.write_string("OZER (PhD.)".ljust(LCD_COLS))
-            time.sleep(3)  # Mesajın görünmesi için 3 saniye bekle
-
+            time.sleep(3)
         except Exception:
             pass
     if lock_file_handle:
         try:
-            fcntl.flock(lock_file_handle.fileno(), fcntl.LOCK_UN); lock_file_handle.close()
+            fcntl.flock(lock_file_handle.fileno(), fcntl.LOCK_UN);
+            lock_file_handle.close()
         except Exception:
             pass
     for fp in [PID_FILE_PATH, LOCK_FILE_PATH]:
@@ -409,9 +436,14 @@ if __name__ == "__main__":
         db_conn_main_script_global.commit()
 
     except KeyboardInterrupt:
-        script_exit_status_global = 'interrupted_ctrl_c'; print(f"\n[{pid}] Ctrl+C ile kesildi.")
+        script_exit_status_global = 'interrupted_ctrl_c';
+        print(f"\n[{pid}] Ctrl+C ile kesildi.")
     except Exception as e:
-        script_exit_status_global = 'error_in_loop'; import traceback; traceback.print_exc(); print(
+        script_exit_status_global = 'error_in_loop';
+        import traceback;
+
+        traceback.print_exc();
+        print(
             f"[{pid}] KRİTİK HATA: Ana döngüde: {e}")
     finally:
         if script_exit_status_global not in ['error_in_loop']:
