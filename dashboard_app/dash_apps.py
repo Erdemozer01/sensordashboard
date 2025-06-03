@@ -364,16 +364,13 @@ def yorumla_tablo_verisi_gemini(df):
 
 
     if df is not None and not df.empty:
-        from google import genai
+
         client = genai.Client(api_key=google_api_key)
-
-
 
         # Veriyi Gemini'ye uygun bir formata dönüştürün (örneğin, string)
         prompt_text = "Aşağıdaki tablo robotik bir taramadan elde edilen açı (derece) ve mesafe (cm) verilerini içermektedir:\n"
         prompt_text += df.to_string(index=False)
         prompt_text += "\nBu verilere göre ortamı yorumlayın ve olası nesneler hakkında bilgi verin."
-
 
         try:
             try:
