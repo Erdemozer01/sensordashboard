@@ -365,8 +365,8 @@ def yorumla_tablo_verisi_gemini(df):
 
     if df is not None and not df.empty:
         # Yeni initialization yöntemi:
-        client = genai.Client(api_key=google_api_key, location="tr")
-        model="gemini-pro"
+        client = genai.Client(vertexai=True)
+        model="gemini-2.0-flash"
 
         # Veriyi Gemini'ye uygun bir formata dönüştürün (örneğin, string)
         prompt_text = "Aşağıdaki tablo robotik bir taramadan elde edilen açı (derece) ve mesafe (cm) verilerini içermektedir:\n"
