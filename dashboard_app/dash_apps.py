@@ -63,7 +63,7 @@ control_panel = dbc.Card([
                         dbc.Input(id="scan-duration-angle-input", type="number", value=DEFAULT_UI_SCAN_DURATION_ANGLE, min=10, max=720, step=1)], className="mb-2"),
         dbc.InputGroup([dbc.InputGroupText("Adım Açısı (°)", style={"width": "150px"}),
                         dbc.Input(id="step-angle-input", type="number", value=DEFAULT_UI_SCAN_STEP_ANGLE, min=0.1, max=45, step=0.1)], className="mb-2"),
-        dbc.InputGroup([dbc.InputGroupText("Buzzer Mes. (cm)", style={"width": "150px"}),
+        dbc.InputGroup([dbc.InputGroupText("Uyarı Mes. (cm)", style={"width": "150px"}),
                         dbc.Input(id="buzzer-distance-input", type="number", value=DEFAULT_UI_BUZZER_DISTANCE, min=0, max=200, step=1)], className="mb-2"),
         dbc.InputGroup([dbc.InputGroupText("Motor Adım/Tur", style={"width": "150px"}),
                         dbc.Input(id="steps-per-rev-input", type="number", value=DEFAULT_UI_STEPS_PER_REVOLUTION, min=500, max=10000, step=1)], className="mb-2"),
