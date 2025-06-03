@@ -32,7 +32,8 @@ SENSOR_SCRIPT_PATH = os.path.join(PROJECT_ROOT_DIR, SENSOR_SCRIPT_FILENAME)
 SENSOR_SCRIPT_LOCK_FILE = '/tmp/sensor_scan_script.lock'
 SENSOR_SCRIPT_PID_FILE = '/tmp/sensor_scan_script.pid'
 
-DEFAULT_UI_SCAN_DURATION_ANGLE = 270.0
+# Panel için varsayılan değerler
+DEFAULT_UI_SCAN_TOURS = 0.75 # Varsayılan tarama tur sayısı (0.75 tur = 270 derece)
 DEFAULT_UI_SCAN_STEP_ANGLE = 10.0
 DEFAULT_UI_BUZZER_DISTANCE = 10
 DEFAULT_UI_INVERT_MOTOR = False
@@ -59,8 +60,8 @@ control_panel = dbc.Card([
                  className="mb-3"),
         html.Hr(),
         html.H6("Tarama Parametreleri:", className="mt-2"),
-        dbc.InputGroup([dbc.InputGroupText("Tarama Açısı (°)", style={"width": "150px"}),
-                        dbc.Input(id="scan-duration-angle-input", type="number", value=DEFAULT_UI_SCAN_DURATION_ANGLE, min=10, max=720, step=1)], className="mb-2"),
+        dbc.InputGroup([dbc.InputGroupText("Tarama Tur Sayısı", style={"width": "150px"}), # ETİKET DEĞİŞTİ
+                        dbc.Input(id="scan-tours-input", type="number", value=DEFAULT_UI_SCAN_TOURS, min=0.25, max=5, step=0.05)], className="mb-2"), # ID VE AYARLAR DEĞİŞTİ
         dbc.InputGroup([dbc.InputGroupText("Adım Açısı (°)", style={"width": "150px"}),
                         dbc.Input(id="step-angle-input", type="number", value=DEFAULT_UI_SCAN_STEP_ANGLE, min=0.1, max=45, step=0.1)], className="mb-2"),
         dbc.InputGroup([dbc.InputGroupText("Buzzer Mes. (cm)", style={"width": "150px"}),
@@ -175,33 +176,17 @@ def update_time_series_graph(fig, df):
         try:
             df_s = df.sort_values(by='timestamp')
             datetime_x = pd.to_datetime(df_s['timestamp'], unit='s', errors='coerce')
-            
             valid_indices = datetime_x.notnull()
-            datetime_x_valid = datetime_x[valid_indices]
-            df_s_valid = df_s[valid_indices]
-
-            if df_s_valid.empty:
-                fig.add_trace(go.Scatter(x=[], y=[], mode='lines', name='Geçerli Zaman Verisi Yok'))
-            else:
-                fig.add_trace(go.Scatter(x=datetime_x_valid, y=df_s_valid['mesafe_cm'], mode='lines+markers', name='Mesafe'))
-        
-        except Exception as e:
-            print(f"Zaman serisi grafiği oluşturulurken HATA: {e}")
-            fig.add_trace(go.Scatter(x=[], y=[], mode='lines', name='Grafik Hatası'))
-
-    fig.update_layout(
-        xaxis_title="Zaman", 
-        yaxis_title="Mesafe (cm)",
-        xaxis=dict(
-            tickformat='%H:%M:%S',  # Saat:Dakika:Saniye formatı
-            # nticks=10 # İsteğe bağlı olarak tick sayısını belirleyebilirsiniz
-        )
-    )
+            datetime_x_valid, df_s_valid = datetime_x[valid_indices], df_s[valid_indices]
+            if df_s_valid.empty: fig.add_trace(go.Scatter(x=[], y=[], mode='lines', name='Geçerli Zaman Verisi Yok'))
+            else: fig.add_trace(go.Scatter(x=datetime_x_valid, y=df_s_valid['mesafe_cm'], mode='lines+markers', name='Mesafe'))
+        except Exception as e: print(f"Zaman serisi grafiği oluşturulurken HATA: {e}"); fig.add_trace(go.Scatter(x=[], y=[], mode='lines', name='Grafik Hatası'))
+    fig.update_layout(xaxis_title="Zaman", yaxis_title="Mesafe (cm)", xaxis=dict(tickformat='%H:%M:%S'))
 
 def find_clearest_path(df_valid):
     if df_valid.empty: return "En açık yol için veri yok."
     try:
-        df_filtered = df_valid[df_valid['mesafe_cm'] > 0]
+        df_filtered = df_valid[df_valid['mesafe_cm'] > 0];
         if df_filtered.empty: return "Geçerli pozitif mesafe bulunamadı."
         cp = df_filtered.loc[df_filtered['mesafe_cm'].idxmax()]
         return f"En Açık Yol: {cp['derece']:.1f}° yönünde, {cp['mesafe_cm']:.1f} cm."
@@ -241,20 +226,16 @@ def analyze_environment_shape(fig, df_valid):
 def estimate_geometric_shape(df):
     if len(df) < 15: return "Şekil tahmini için yetersiz nokta."
     try:
-        points = df[['x_cm', 'y_cm']].values
-        hull = ConvexHull(points)
-        hull_area = hull.volume
-        min_x, max_x = df['x_cm'].min(), df['x_cm'].max()
+        points = df[['x_cm', 'y_cm']].values; hull = ConvexHull(points)
+        hull_area = hull.volume; min_x, max_x = df['x_cm'].min(), df['x_cm'].max()
         min_y, max_y = df['y_cm'].min(), df['y_cm'].max()
         width, depth = max_y - min_y, max_x - min_x
         if width < 1 or depth < 1: return "Algılanan şekil çok küçük."
-        bbox_area = width * depth
-        fill_factor = hull_area / bbox_area if bbox_area > 0 else 0
+        bbox_area = width * depth; fill_factor = hull_area / bbox_area if bbox_area > 0 else 0
         aspect_ratio = width / depth
         if aspect_ratio > 5 and depth < 30: return "Tahmin: Geniş ve ince bir yüzey (Duvar)."
         if aspect_ratio < 0.25 and depth > 50: return "Tahmin: Dar ve derin bir boşluk (Koridor)."
-        if fill_factor > 0.80:
-            return "Tahmin: Dolgun, dikdörtgensel bir nesne." if 0.8 > aspect_ratio or aspect_ratio > 1.25 else "Tahmin: Kutu veya dairesel bir nesne."
+        if fill_factor > 0.80: return "Tahmin: Dolgun, dikdörtgensel bir nesne." if 0.8 > aspect_ratio or aspect_ratio > 1.25 else "Tahmin: Kutu veya dairesel bir nesne."
         if fill_factor < 0.4: return "Tahmin: İçbükey bir yapı (Köşe)."
         return "Tahmin: Düzensiz veya karmaşık bir yapı."
     except Exception: return "Geometrik analiz hatası."
@@ -265,31 +246,37 @@ def estimate_geometric_shape(df):
 @app.callback(
     Output('scan-status-message', 'children'),
     [Input('start-scan-button', 'n_clicks')],
-    [State('scan-duration-angle-input', 'value'),
+    [State('scan-tours-input', 'value'), # <-- ID DEĞİŞTİ
      State('step-angle-input', 'value'),
      State('buzzer-distance-input', 'value'),
      State('invert-motor-checkbox', 'value'),
      State('steps-per-rev-input', 'value')],
     prevent_initial_call=True)
-def handle_start_scan_script(n_clicks_start, scan_duration_angle_val,
+def handle_start_scan_script(n_clicks_start, scan_tours_val, # <-- ARGÜMAN İSMİ DEĞİŞTİ
                              step_angle_val, buzzer_distance_val,
                              invert_motor_val, steps_per_rev_val):
     if n_clicks_start == 0: return no_update
-    scan_duration_a = scan_duration_angle_val if scan_duration_angle_val is not None else DEFAULT_UI_SCAN_DURATION_ANGLE
+
+    scan_tours = scan_tours_val if scan_tours_val is not None else DEFAULT_UI_SCAN_TOURS
     step_a = step_angle_val if step_angle_val is not None else DEFAULT_UI_SCAN_STEP_ANGLE
     buzzer_d = buzzer_distance_val if buzzer_distance_val is not None else DEFAULT_UI_BUZZER_DISTANCE
     invert_dir = bool(invert_motor_val)
     steps_per_rev = steps_per_rev_val if steps_per_rev_val is not None else DEFAULT_UI_STEPS_PER_REVOLUTION
-    if not (10 <= scan_duration_a <= 720): return dbc.Alert("Tarama Açısı 10-720 derece arasında olmalı!", color="danger")
+
+    if not (0.25 <= scan_tours <= 5): return dbc.Alert("Tarama Tur Sayısı 0.25-5 arasında olmalı!", color="danger") # VALIDASYON DEĞİŞTİ
     if not (0.1 <= abs(step_a) <= 45): return dbc.Alert("Adım açısı 0.1-45 arasında olmalı!", color="danger")
     if not (0 <= buzzer_d <= 200): return dbc.Alert("Buzzer mesafesi 0-200cm arasında olmalı!", color="danger")
     if not (500 <= steps_per_rev <= 10000): return dbc.Alert("Motor Adım/Tur değeri 500-10000 arasında olmalı!", color="danger")
+
+    scan_duration_degrees = scan_tours * 360.0 # TUR SAYISINI DERECEYE ÇEVİR
+
     pid = None
     if os.path.exists(SENSOR_SCRIPT_PID_FILE):
         try:
             with open(SENSOR_SCRIPT_PID_FILE, 'r') as pf: pid_str = pf.read().strip(); pid = int(pid_str) if pid_str else None
         except: pid = None
     if pid and is_process_running(pid): return dbc.Alert(f"Sensör betiği çalışıyor (PID:{pid}). Önce durdurun.", color="warning")
+
     for fp in [SENSOR_SCRIPT_LOCK_FILE, SENSOR_SCRIPT_PID_FILE]:
         if os.path.exists(fp):
             try: os.remove(fp)
@@ -297,13 +284,20 @@ def handle_start_scan_script(n_clicks_start, scan_duration_angle_val,
     try:
         py_exec = sys.executable
         if not os.path.exists(SENSOR_SCRIPT_PATH): return dbc.Alert(f"Sensör betiği bulunamadı: {SENSOR_SCRIPT_PATH}", color="danger")
-        cmd = [py_exec, SENSOR_SCRIPT_PATH, "--scan_duration_angle", str(scan_duration_a), "--step_angle", str(step_a), "--buzzer_distance", str(buzzer_d), "--invert_motor_direction", str(invert_dir), "--steps_per_rev", str(steps_per_rev)]
+        
+        cmd = [py_exec, SENSOR_SCRIPT_PATH,
+               "--scan_duration_angle", str(scan_duration_degrees), # DERECE OLARAK GÖNDER
+               "--step_angle", str(step_a),
+               "--buzzer_distance", str(buzzer_d),
+               "--invert_motor_direction", str(invert_dir),
+               "--steps_per_rev", str(steps_per_rev)]
+        
         log_path = os.path.join(PROJECT_ROOT_DIR, 'sensor_script.log')
         with open(log_path, 'w') as log_f: subprocess.Popen(cmd, start_new_session=True, stdout=log_f, stderr=log_f)
         time.sleep(2.5)
         if os.path.exists(SENSOR_SCRIPT_PID_FILE):
             with open(SENSOR_SCRIPT_PID_FILE, 'r') as pf_new: new_pid = pf_new.read().strip()
-            return dbc.Alert(f"Tarama başlatıldı (PID:{new_pid}).", color="success")
+            return dbc.Alert(f"Tarama başlatıldı (PID:{new_pid}). {scan_tours} tur ({scan_duration_degrees}°).", color="success")
         else:
             log_disp = f"PID dosyası ({SENSOR_SCRIPT_PID_FILE}) oluşmadı. "
             if os.path.exists(log_path):

@@ -82,32 +82,36 @@ def move_motor_to_angle(target_angle_deg):
     if DEG_PER_STEP <= 0: print(f"HATA: DEG_PER_STEP ({DEG_PER_STEP}) geçersiz!"); return
     
     normalized_current_angle = current_motor_angle_global % 360.0
-    normalized_target_angle = target_angle_deg % 360.0
-    angle_diff = normalized_target_angle - normalized_current_angle
+    normalized_target_angle = target_angle_deg % 360.0 # Hedef de normalize edilebilir ama kümülatif hedef daha iyi
     
-    if abs(angle_diff) > 180.0:
-        if angle_diff > 0: angle_diff -= 360.0
-        else: angle_diff += 360.0
-            
-    if abs(angle_diff) < (DEG_PER_STEP / 2.0): return
+    angle_diff_from_cumulative = target_angle_deg - current_motor_angle_global # Kümülatif farkı al
+    angle_diff_shortest = angle_diff_from_cumulative
+    
+    # En kısa yolu bulmak için (eğer kümülatif fark 360'ı aşıyorsa veya çok negatifse)
+    # Bu mantık, motorun gereksiz yere tam turlar atmasını engeller.
+    # Ancak, mevcut senaryomuzda tarama hep ileri yönde olduğu için bu kısım daha basit tutulabilir.
+    # Eğer motor ileri-geri karışık hareketler yapsaydı daha kritik olurdu.
+    # Şimdilik, basit fark üzerinden gidelim. Hedef kümülatiftir.
+    # normalized_current_angle = current_motor_angle_global % 360.0 # Sadece debug için
+    # normalized_target_angle = target_angle_deg % 360.0 # Sadece debug için
+    
+    angle_diff = target_angle_deg - current_motor_angle_global # Doğrudan kümülatif hedefe olan fark
+
+    if abs(angle_diff) < (DEG_PER_STEP / 2.0): return # Çok küçük hareketse atla
     num_steps = round(abs(angle_diff) / DEG_PER_STEP)
     if num_steps == 0: return
     
     logical_dir_positive = (angle_diff > 0)
     physical_dir_positive = not logical_dir_positive if INVERT_MOTOR_DIRECTION else logical_dir_positive
     
-    print(f"Motor Hareketi: Fiziksel {current_motor_angle_global:.1f}° (Norm: {normalized_current_angle:.1f}°) -> Hedef Fiz. {target_angle_deg:.1f}° (Norm: {normalized_target_angle:.1f}°). Fark: {angle_diff:.1f}°, Adım: {num_steps}, Yön: {'CCW' if logical_dir_positive else 'CW'}")
+    print(f"Motor Hareketi: Fiziksel {current_motor_angle_global:.1f}° -> Hedeflenen Kümülatif Fiz. {target_angle_deg:.1f}°. Fark: {angle_diff:.1f}°, Adım: {num_steps}, Yön: {'CCW' if logical_dir_positive else 'CW'}")
     _step_motor_4in(num_steps, physical_dir_positive)
     
-    current_motor_angle_global_cumulative = current_motor_angle_global + (num_steps * DEG_PER_STEP * (1 if logical_dir_positive else -1))
+    current_motor_angle_global += (num_steps * DEG_PER_STEP * (1 if logical_dir_positive else -1))
     
-    # Hedefe ulaşıldıysa, kümülatif açıyı hedefin tam değerine ayarla
-    temp_normalized_current = current_motor_angle_global_cumulative % 360.0
-    if abs(temp_normalized_current - normalized_target_angle) < DEG_PER_STEP or \
-       abs(temp_normalized_current - (normalized_target_angle if normalized_target_angle != 0 else 360)) < DEG_PER_STEP :
-         current_motor_angle_global = target_angle_deg # Kümülatif hedefi al
-    else:
-         current_motor_angle_global = current_motor_angle_global_cumulative
+    # Hedefe çok yakınsa, kümülatif açıyı hedefin tam kümülatif değerine ayarla
+    if abs(current_motor_angle_global - target_angle_deg) < DEG_PER_STEP :
+         current_motor_angle_global = target_angle_deg
 
 
 def init_db_for_scan(logical_start_angle, logical_end_angle):
@@ -204,26 +208,35 @@ if __name__ == "__main__":
 
         print(f"[{pid}] ADIM 0: Motor fiziksel başlangıç ({PHYSICAL_HOME_POSITION}°) pozisyonuna getiriliyor...")
         move_motor_to_angle(PHYSICAL_HOME_POSITION)
+        current_motor_angle_global = PHYSICAL_HOME_POSITION # Kesin olarak ayarla
         time.sleep(0.5)
 
         print(f"[{pid}] ADIM 1: Tarama öncesi pozisyona ({PRE_SCAN_PHYSICAL_POSITION}°) dönülüyor...")
         move_motor_to_angle(PRE_SCAN_PHYSICAL_POSITION)
         time.sleep(1.0)
         
-        physical_scan_reference_angle = current_motor_angle_global
+        # Bu nokta artık mantıksal 0°'mız. Fiziksel açı PRE_SCAN_PHYSICAL_POSITION olmalı.
+        # current_motor_angle_global bu değere çok yakın olmalı. Bunu referans alalım.
+        physical_scan_reference_angle = current_motor_angle_global 
         print(f"[{pid}] ADIM 2: Tarama başlıyor. Mantıksal [{LOGICAL_SCAN_START_ANGLE}° -> {LOGICAL_SCAN_END_ANGLE}°]. Fiziksel referans: {physical_scan_reference_angle:.1f}°")
         
         collected_points, current_logical_angle = [], LOGICAL_SCAN_START_ANGLE
         
         while True:
+            # Hedef fiziksel açıyı hesapla: Mantıksal 0'ın başladığı yerden itibaren mantıksal açı kadar ilerle
+            # Motor her zaman aynı yöne (açı artarak) döneceği için kümülatif hedef veriyoruz.
             target_physical_angle_for_step = physical_scan_reference_angle + current_logical_angle
+            
             move_motor_to_angle(target_physical_angle_for_step)
             
             dist_cm = sensor.distance * 100
-            angle_rad_for_calc = math.radians(current_logical_angle)
+            angle_rad_for_calc = math.radians(current_logical_angle) # Kartezyen hesaplama için mantıksal açı
             x_cm, y_cm = dist_cm * math.cos(angle_rad_for_calc), dist_cm * math.sin(angle_rad_for_calc)
             
-            print(f"  Okuma: Mantıksal {current_logical_angle:.1f}° (Fiz: {current_motor_angle_global:.1f}°) -> {dist_cm:.1f} cm")
+            # Fiziksel açıyı loglayabiliriz, ama veritabanına ve LCD'ye mantıksal açıyı yazıyoruz.
+            # Gerçek fiziksel açı (current_motor_angle_global) kümülatif olabilir (360'ı aşabilir)
+            # Ama gösterim için normalize edilmiş halini kullanabiliriz: current_motor_angle_global % 360.0
+            print(f"  Okuma: Mantıksal {current_logical_angle:.1f}° (Anlık Fiz: {current_motor_angle_global % 360.0:.1f}°) -> {dist_cm:.1f} cm")
             
             if lcd:
                 try:
@@ -238,17 +251,19 @@ if __name__ == "__main__":
             if dist_cm < BUZZER_DISTANCE_CM and buzzer: buzzer.on()
             elif buzzer: buzzer.off()
 
+            # Mantıksal son açıya ulaşıldı mı kontrolü
             if abs(current_logical_angle - LOGICAL_SCAN_END_ANGLE) < (SCAN_STEP_ANGLE / 20.0) or current_logical_angle >= LOGICAL_SCAN_END_ANGLE:
                 print(f"[{pid}] Tarama bitti, mantıksal son açıya ({current_logical_angle:.1f}°) ulaşıldı."); break
             
             current_logical_angle += SCAN_STEP_ANGLE
-            current_logical_angle = min(current_logical_angle, LOGICAL_SCAN_END_ANGLE)
+            current_logical_angle = min(current_logical_angle, LOGICAL_SCAN_END_ANGLE) # Son açıyı geçme
             
             time.sleep(max(0, LOOP_TARGET_INTERVAL_S - STEP_MOTOR_SETTLE_TIME))
 
         if len(collected_points) >= 3:
-            polygon = [(0,0)] + collected_points
-            area, perimeter = shoelace_formula(polygon), calculate_perimeter(collected_points)
+            polygon = [(0,0)] + collected_points # Alan hesabı için (0,0) noktasını ekle
+            area = shoelace_formula(polygon)
+            perimeter = calculate_perimeter(collected_points) # Çevre için sadece taranan noktalar
             x_coords = [p[0] for p in collected_points if isinstance(p, (list, tuple)) and len(p) > 0 and isinstance(p[0], (int,float))]
             y_coords = [p[1] for p in collected_points if isinstance(p, (list, tuple)) and len(p) > 1 and isinstance(p[1], (int,float))]
             width = (max(y_coords) - min(y_coords)) if y_coords else 0.0
