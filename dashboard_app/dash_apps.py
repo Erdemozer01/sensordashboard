@@ -361,11 +361,11 @@ def yorumla_tablo_verisi_gemini(df):
     google_api_key = os.getenv("GOOGLE_API_KEY")
 
 
-
-
     if df is not None and not df.empty:
         # Yeni initialization yöntemi:
-        client = genai.Client(vertexai=True)
+        api_key = "651882342283-9bdemfhgg7dlit6ji3am9n2hsjohf6j4.apps.googleusercontent.com"
+        client = genai.Client(vertexai=True, api_key=api_key)
+
         model="gemini-2.0-flash"
 
         # Veriyi Gemini'ye uygun bir formata dönüştürün (örneğin, string)
