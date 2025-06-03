@@ -360,6 +360,10 @@ def get_latest_scan_data():
 def yorumla_tablo_verisi_gemini(df):
     from google.generativeai.types.content_types import ContentType, PartType
 
+    ContentType(
+
+    )
+
     google_api_key = os.getenv("GOOGLE_API_KEY")
 
 
@@ -379,7 +383,7 @@ def yorumla_tablo_verisi_gemini(df):
         try:
             try:
                 contents = [ContentType(parts=[PartType.from_text(prompt_text)], role="user")]
-                response = client.models.generate_content(contents=contents)
+                response = client.models.generate_content(contents=contents, model=model)
                 return response.text
             except Exception as e:
                 return f"Gemini'den yanıt alınırken hata oluştu: {e}"
