@@ -14,7 +14,7 @@ import argparse
 # Motor bağlı olmadığında test için bu değeri False yapın.
 # Motoru tekrar kullanmak istediğinizde True olarak değiştirin.
 # ==============================================================================
-MOTOR_BAGLI = False
+MOTOR_BAGLI = True
 # ==============================================================================
 
 # ==============================================================================
