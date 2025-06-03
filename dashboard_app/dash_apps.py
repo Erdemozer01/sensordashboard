@@ -149,8 +149,6 @@ estimation_card = dbc.Card(
     ]
 )
 
-
-
 visualization_tabs = dbc.Tabs(
     [dbc.Tab(dcc.Graph(id='scan-map-graph', style={'height': '75vh'}), label="2D Kartezyen Harita", tab_id="tab-map"),
      dbc.Tab(dcc.Graph(id='polar-regression-graph', style={'height': '75vh'}), label="Regresyon Analizi",
@@ -169,8 +167,9 @@ app.layout = dbc.Container(fluid=True, children=[
                  dbc.Row(html.Div(style={"height": "15px"})), system_card, dbc.Row(html.Div(style={"height": "15px"})),
                  export_card], md=4, className="mb-3"),
         dbc.Col([visualization_tabs, dbc.Row(html.Div(style={"height": "15px"})),
-                 dbc.Row([dbc.Col(analysis_card, md=8), dbc.Col([estimation_card], md=4)]), # Bu satırda md=12 yapabilirsiniz
-                 dbc.Row([ # Yeni row for AI yorumu
+                 dbc.Row([dbc.Col(analysis_card, md=8), dbc.Col([estimation_card], md=4)]),
+                 # Bu satırda md=12 yapabilirsiniz
+                 dbc.Row([  # Yeni row for AI yorumu
                      dbc.Col([
                          dbc.Card([
                              dbc.CardHeader("Akıllı Yorumlama (Yapay Zeka)", className="bg-info text-white"),
@@ -182,7 +181,7 @@ app.layout = dbc.Container(fluid=True, children=[
                                  html.Div(id='ai-yorum-sonucu', className="text-center mt-2")
                              ]))
                          ], className="mt-3")
-                     ], md=8) # analysis_card ile aynı sütun genişliğinde
+                     ], md=8)  # analysis_card ile aynı sütun genişliğinde
                  ], className="mt-3")], md=8)
     ]),
     dcc.Store(id='clustered-data-store'),
@@ -671,9 +670,9 @@ def render_and_update_data_table(active_tab, n):
 
 
 @app.callback(
-    Output('scan-map-graph', 'figure'), Output('polar-regression-graph', 'figure'), Output('polar-graph', 'figure'),
-     Output('time-series-graph', 'figure'), Output('environment-estimation-text', 'children'),
-    Input('interval-component-main', 'n_intervals')
+    [Output('scan-map-graph', 'figure'), Output('polar-regression-graph', 'figure'), Output('polar-graph', 'figure'),
+    Output('time-series-graph', 'figure'), Output('environment-estimation-text', 'children')],
+    [Input('interval-component-main', 'n_intervals')]
 )
 def update_all_graphs(n):
     figs = [go.Figure() for _ in range(4)]
@@ -774,7 +773,7 @@ def display_cluster_info(clickData, stored_data):
 @app.callback(
     Output('ai-yorum-sonucu', 'children'),
     [Input('ai-model-dropdown', 'value')],
-    [State('interval-component-main', 'n_intervals')], # Belki en son veriyi almak için kullanabiliriz
+    [State('interval-component-main', 'n_intervals')],  # Belki en son veriyi almak için kullanabiliriz
     prevent_initial_call=True
 )
 def yorumla_model_secimi(selected_model, n):
