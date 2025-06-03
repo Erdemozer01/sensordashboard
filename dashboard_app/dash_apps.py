@@ -362,7 +362,7 @@ def yorumla_tablo_verisi_gemini(df):
 
     # Yeni initialization yöntemi:
     client = genai.Client(api_key=google_api_key)
-    model = client.models.get("gemini-pro") # Model bu şekilde seçiliyor olabilir
+    model = client.models.generate_content(model="gemini-pro") # Model bu şekilde seçiliyor olabilir
     # Veya önceki gibi:
     # model = genai.GenerativeModel('gemini-pro')
 
