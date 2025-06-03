@@ -181,7 +181,7 @@ app.layout = dbc.Container(fluid=True, children=[
                                  html.Div(id='ai-yorum-sonucu', className="text-center mt-2")
                              ]))
                          ], className="mt-3")
-                     ], md=8)  # analysis_card ile aynı sütun genişliğinde
+                     ], md=12)  # analysis_card ile aynı sütun genişliğinde
                  ], className="mt-3")], md=8)
     ]),
     dcc.Store(id='clustered-data-store'),
