@@ -323,7 +323,7 @@ def handle_start_scan_script(n_clicks_start, start_angle_val, end_angle_val, ste
         bool(invert_motor_val), \
         (steps_per_rev_val if steps_per_rev_val is not None else DEFAULT_UI_STEPS_PER_REVOLUTION)
 
-    if not (0 <= start_a <= 359 and 0 <= end_a <= 359): return dbc.Alert("Açılar 0-359 arasında olmalı!", color="danger")
+    if not (0 <= start_a <= 360 and 0 <= end_a <= 360): return dbc.Alert("Açılar 0-360 arasında olmalı!", color="danger")
     if not (0.1 <= abs(step_a) <= 45): return dbc.Alert("Adım açısı 0.1-45 arasında olmalı!", color="danger")
     if not (0 <= buzzer_d <= 200): return dbc.Alert("Buzzer mesafesi 0-200cm arasında olmalı!", color="danger")
     if not (500 <= steps_per_rev <= 10000): return dbc.Alert("Motor Adım/Tur değeri 500-10000 arasında olmalı!", color="danger")
