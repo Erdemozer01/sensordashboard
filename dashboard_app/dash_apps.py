@@ -359,11 +359,10 @@ def get_latest_scan_data():
 
 def yorumla_tablo_verisi_gemini(df):
     google_api_key = os.getenv("GOOGLE_API_KEY")
-    genai.configure(api_key=google_api_key) # Bu satırı kaldırın
 
     # Yeni initialization yöntemi:
     client = genai.Client(api_key=google_api_key)
-    model = client.generative_model(model_name='gemini-pro') # Model bu şekilde seçiliyor olabilir
+    model = client.generative_model(model_name='gemini-flash') # Model bu şekilde seçiliyor olabilir
     # Veya önceki gibi:
     # model = genai.GenerativeModel('gemini-pro')
 
