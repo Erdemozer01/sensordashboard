@@ -18,12 +18,17 @@ from sklearn.linear_model import RANSACRegressor
 from sklearn.cluster import DBSCAN
 
 from google import genai
-import pandas as pd
+
 
 from dotenv import load_dotenv
 import os
 
 load_dotenv()
+
+
+google_api_key = os.getenv("GOOGLE_API_KEY")
+print(f"API Anahtarı Değeri: '{google_api_key}'")  # Bu satırı ekleyin
+
 
 # ==============================================================================
 # --- SABİTLER VE UYGULAMA BAŞLATMA ---
