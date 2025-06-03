@@ -43,7 +43,7 @@ DEFAULT_UI_SCAN_END_ANGLE = 180
 DEFAULT_UI_SCAN_STEP_ANGLE = 10
 DEFAULT_UI_BUZZER_DISTANCE = 10
 DEFAULT_UI_INVERT_MOTOR = False
-DEFAULT_UI_STEPS_PER_REVOLUTION = 6144 # Motor kalibrasyonu için varsayılan değer
+DEFAULT_UI_STEPS_PER_REVOLUTION = 4096 # Motor kalibrasyonu için varsayılan değer
 
 app = DjangoDash('RealtimeSensorDashboard', external_stylesheets=[dbc.themes.BOOTSTRAP])
 
