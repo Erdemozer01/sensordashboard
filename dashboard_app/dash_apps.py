@@ -379,7 +379,7 @@ def yorumla_tablo_verisi_gemini(df):
         try:
             try:
                 contents = [ContentType(parts=[PartType.from_text(prompt_text)], role="user")]
-                response = model.generate_content(contents=contents)
+                response = client.models.generate_content(contents=contents)
                 return response.text
             except Exception as e:
                 return f"Gemini'den yanıt alınırken hata oluştu: {e}"
