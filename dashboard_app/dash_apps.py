@@ -150,13 +150,6 @@ estimation_card = dbc.Card(
     ]
 )
 
-gemini = dbc.Card([
-    dbc.CardBody([
-        dbc.Button('Verileri Yorumla', id='yorumla-button', color="info", className="w-100"),
-        html.Div(id='gemini-yorum-sonucu', className="mt-3")
-    ])
-], className="mt-3")
-
 
 
 visualization_tabs = dbc.Tabs(
@@ -177,7 +170,7 @@ app.layout = dbc.Container(fluid=True, children=[
                  dbc.Row(html.Div(style={"height": "15px"})), system_card, dbc.Row(html.Div(style={"height": "15px"})),
                  export_card], md=4, className="mb-3"),
         dbc.Col([visualization_tabs, dbc.Row(html.Div(style={"height": "15px"})),
-                 dbc.Row([dbc.Col(analysis_card, md=8), dbc.Col([estimation_card, gemini], md=4)]), # Bu satırda md=12 yapabilirsiniz
+                 dbc.Row([dbc.Col(analysis_card, md=8), dbc.Col([estimation_card], md=4)]), # Bu satırda md=12 yapabilirsiniz
                  dbc.Row([ # Yeni row for AI yorumu
                      dbc.Col([
                          dbc.Card([
@@ -185,7 +178,7 @@ app.layout = dbc.Container(fluid=True, children=[
                              dbc.CardBody(html.Div("Yorum bekleniyor...", id='ai-yorum-sonucu', className="text-center"))
                          ], className="mt-3")
                      ], md=8) # analysis_card ile aynı sütun genişliğinde
-                 ], className="mt-3")], md=8)
+                 ], className="mt-3")], md=12)
     ]),
     dcc.Store(id='clustered-data-store'),
     dbc.Modal([dbc.ModalHeader(dbc.ModalTitle(id="modal-title")), dbc.ModalBody(id="modal-body")],
