@@ -157,15 +157,15 @@ gemini = dbc.Card([
     ])
 ], className="mt-3")
 
-
 yapay_zeka = dbc.Row([
-        dbc.Col([
+    dbc.Col(
+        [
             dbc.Card([
                 dbc.CardHeader("Akıllı Yorumlama (Yapay Zeka)", className="bg-info text-white"),
                 dbc.CardBody(html.Div("Yorum bekleniyor...", id='ai-yorum-sonucu', className="text-center"))
             ], className="mt-3")
-        ], md=8)  # analysis_card ile aynı sütun genişliğinde (md=8)
-    ], className="mt-3"),
+        ], md=8)
+], className="mt-3")
 
 visualization_tabs = dbc.Tabs(
     [dbc.Tab(dcc.Graph(id='scan-map-graph', style={'height': '75vh'}), label="2D Kartezyen Harita", tab_id="tab-map"),
@@ -187,8 +187,8 @@ app.layout = dbc.Container(fluid=True, children=[
         dbc.Col([
             visualization_tabs,
             dbc.Row(html.Div(style={"height": "15px"})),
-            dbc.Row([dbc.Col(analysis_card, md=8), dbc.Col([estimation_card], md=4)])], md=8),
-            yapay_zeka
+            dbc.Row([dbc.Col(analysis_card, md=8), dbc.Col([estimation_card, gemini], md=4)])], md=8),
+        yapay_zeka
     ]),
 
     dcc.Store(id='clustered-data-store'),
