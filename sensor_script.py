@@ -67,10 +67,11 @@ def init_hardware():
         try:
             lcd = CharLCD(i2c_expander=LCD_PORT_EXPANDER, address=LCD_I2C_ADDRESS, port=I2C_PORT, cols=LCD_COLS,
                           rows=LCD_ROWS, dotsize=8, charmap='A02', auto_linebreaks=True)
+            # AÇILIŞ MESAJI DEĞİŞTİRİLDİ
             lcd.clear();
             lcd.cursor_pos = (0, 0);
-            lcd.write_string("Tarama Hazir".ljust(LCD_COLS));
-            time.sleep(1.5)
+            lcd.write_string("Dream Pi Hazir".ljust(LCD_COLS));
+            time.sleep(2)
         except Exception as e_lcd:
             print(f"[{pid}] LCD Başlatma UYARI: {e_lcd}"); lcd = None
     return hardware_ok
@@ -236,7 +237,15 @@ def release_resources_on_exit():
                 pass
     if lcd:
         try:
-            lcd.clear(); lcd.close()
+            # KAPANIŞ MESAJI EKLENDİ
+            lcd.clear()
+            lcd.cursor_pos = (0, 0)
+            lcd.write_string("Mehmet Erdem".ljust(LCD_COLS))
+            lcd.cursor_pos = (1, 0)
+            lcd.write_string("OZER (PhD.)".ljust(LCD_COLS))
+            time.sleep(3)  # Mesajın görünmesi için 3 saniye bekle
+            lcd.clear()
+            lcd.close()
         except Exception:
             pass
     if lock_file_handle:
@@ -335,31 +344,28 @@ if __name__ == "__main__":
             print(
                 f"  Okuma: Mantıksal {current_logical_angle:.1f}° (Fiz: {current_motor_angle_global:.1f}°) -> {dist_cm:.1f} cm")
 
-            # =================== DEĞİŞTİRİLEN KOD BAŞLANGICI ===================
-            # Buzzer ve LCD kontrolü birleştirildi
-            if dist_cm < BUZZER_DISTANCE_CM:  # BUZZER_DISTANCE_CM varsayılan olarak 10'dur
+            if dist_cm < BUZZER_DISTANCE_CM:
                 if buzzer:
                     buzzer.on()
                 if lcd:
                     try:
                         lcd.cursor_pos = (0, 0)
-                        lcd.write_string("dokunma bana".ljust(LCD_COLS))  # 1. satıra uyarı metni
+                        lcd.write_string("dokunma bana".ljust(LCD_COLS))
                         lcd.cursor_pos = (1, 0)
-                        lcd.write_string(f"Mesafe: {dist_cm:<5.1f}cm".ljust(LCD_COLS))  # 2. satıra mesafe
+                        lcd.write_string(f"Mesafe: {dist_cm:<5.1f}cm".ljust(LCD_COLS))
                     except Exception:
                         pass
-            else:  # Mesafe tehlike sınırının dışındaysa
+            else:
                 if buzzer:
                     buzzer.off()
                 if lcd:
                     try:
                         lcd.cursor_pos = (0, 0)
-                        lcd.write_string(f"Aci(L):{current_logical_angle:<6.1f}".ljust(LCD_COLS))  # Normal Açı bilgisi
+                        lcd.write_string(f"Aci(L):{current_logical_angle:<6.1f}".ljust(LCD_COLS))
                         lcd.cursor_pos = (1, 0)
-                        lcd.write_string(f"Mesafe: {dist_cm:<5.1f}cm".ljust(LCD_COLS))  # Normal Mesafe bilgisi
+                        lcd.write_string(f"Mesafe: {dist_cm:<5.1f}cm".ljust(LCD_COLS))
                     except Exception:
                         pass
-            # ==================== DEĞİŞTİRİLEN KOD BİTİŞİ ====================
 
             if 0 < dist_cm < (sensor.max_distance * 100 - 1):
                 collected_points.append((x_cm, y_cm))
