@@ -741,7 +741,6 @@ def display_cluster_info(clickData, stored_data):
 @app.callback(
     Output('gemini-yorum-sonucu', 'children'),
     [Input('yorumla-button', 'n_clicks')],
-    prevent_initial_call=True
 )
 def gonder_ve_yorumla(n_clicks):
     if n_clicks is None:
