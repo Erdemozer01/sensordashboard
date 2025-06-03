@@ -157,6 +157,16 @@ gemini = dbc.Card([
     ])
 ], className="mt-3")
 
+
+yapay_zeka = dbc.Row([
+        dbc.Col([
+            dbc.Card([
+                dbc.CardHeader("Akıllı Yorumlama (Yapay Zeka)", className="bg-info text-white"),
+                dbc.CardBody(html.Div("Yorum bekleniyor...", id='ai-yorum-sonucu', className="text-center"))
+            ], className="mt-3")
+        ], md=8)  # analysis_card ile aynı sütun genişliğinde (md=8)
+    ], className="mt-3"),
+
 visualization_tabs = dbc.Tabs(
     [dbc.Tab(dcc.Graph(id='scan-map-graph', style={'height': '75vh'}), label="2D Kartezyen Harita", tab_id="tab-map"),
      dbc.Tab(dcc.Graph(id='polar-regression-graph', style={'height': '75vh'}), label="Regresyon Analizi",
@@ -174,17 +184,13 @@ app.layout = dbc.Container(fluid=True, children=[
         dbc.Col([control_panel, dbc.Row(html.Div(style={"height": "15px"})), stats_panel,
                  dbc.Row(html.Div(style={"height": "15px"})), system_card, dbc.Row(html.Div(style={"height": "15px"})),
                  export_card], md=4, className="mb-3"),
-        dbc.Col([visualization_tabs, dbc.Row(html.Div(style={"height": "15px"})),
-                 dbc.Row([dbc.Col(analysis_card, md=8), dbc.Col([estimation_card], md=4)])], md=8)
-    ]),
-    dbc.Row([
         dbc.Col([
-            dbc.Card([
-                dbc.CardHeader("Akıllı Yorumlama (Yapay Zeka)", className="bg-info text-white"),
-                dbc.CardBody(html.Div("Yorum bekleniyor...", id='ai-yorum-sonucu', className="text-center"))
-            ], className="mt-3")
-        ], md=8)  # analysis_card ile aynı sütun genişliğinde (md=8)
-    ], className="mt-3"),
+            visualization_tabs,
+            dbc.Row(html.Div(style={"height": "15px"})),
+            dbc.Row([dbc.Col(analysis_card, md=8), dbc.Col([estimation_card], md=4)])], md=8),
+            yapay_zeka
+    ]),
+
     dcc.Store(id='clustered-data-store'),
     dbc.Modal([dbc.ModalHeader(dbc.ModalTitle(id="modal-title")), dbc.ModalBody(id="modal-body")],
               id="cluster-info-modal", is_open=False, centered=True),
