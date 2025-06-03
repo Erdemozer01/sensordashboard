@@ -2,7 +2,7 @@ from django_plotly_dash import DjangoDash
 from dash import html, dcc, Output, Input, State, no_update, dash_table
 import dash_bootstrap_components as dbc
 import plotly.graph_objects as go
-import matplotlib.pyplot as plt # analyze_environment_shape için gerekli
+import matplotlib.pyplot as plt
 import sqlite3
 import pandas as pd
 import os
@@ -32,7 +32,6 @@ SENSOR_SCRIPT_PATH = os.path.join(PROJECT_ROOT_DIR, SENSOR_SCRIPT_FILENAME)
 SENSOR_SCRIPT_LOCK_FILE = '/tmp/sensor_scan_script.lock'
 SENSOR_SCRIPT_PID_FILE = '/tmp/sensor_scan_script.pid'
 
-# Panel için varsayılan değerler
 DEFAULT_UI_SCAN_DURATION_ANGLE = 270.0
 DEFAULT_UI_SCAN_STEP_ANGLE = 10.0
 DEFAULT_UI_BUZZER_DISTANCE = 10
@@ -53,7 +52,7 @@ control_panel = dbc.Card([
         dbc.Row([
             dbc.Col(html.Button('Başlat', id='start-scan-button', n_clicks=0,
                                 className="btn btn-success btn-lg w-100 mb-2"), width=6),
-            dbc.Col(html.Button('Durdur', id='stop-scan-button', n_clicks=0,
+            dbc.Col(html.Button('Taramayı Durdur', id='stop-scan-button', n_clicks=0,
                                 className="btn btn-danger btn-lg w-100 mb-2"), width=6)
         ]),
         html.Div(id='scan-status-message', style={'marginTop': '10px', 'minHeight': '40px', 'textAlign': 'center'},
@@ -139,7 +138,7 @@ def get_latest_scan_id_from_db(conn_param=None):
     internal_conn, conn_to_use, latest_id = False, conn_param, None
     if not conn_to_use:
         conn_to_use, error = get_db_connection()
-        if error: return None
+        if error: print(f"DB Bağlantı Hatası (get_latest_scan_id): {error}"); return None
         internal_conn = True
     if conn_to_use:
         try:
@@ -148,7 +147,7 @@ def get_latest_scan_id_from_db(conn_param=None):
             else:
                 df_l = pd.read_sql_query("SELECT id FROM servo_scans ORDER BY start_time DESC LIMIT 1", conn_to_use)
                 if not df_l.empty: latest_id = int(df_l['id'].iloc[0])
-        except Exception: latest_id = None
+        except Exception as e: print(f"Son tarama ID alınırken hata: {e}"); latest_id = None
         finally:
             if internal_conn and conn_to_use: conn_to_use.close()
     return latest_id
@@ -167,12 +166,37 @@ def add_sensor_position(fig):
 
 def update_polar_graph(fig, df):
     fig.add_trace(go.Scatterpolar(r=df['mesafe_cm'], theta=df['derece'], mode='lines+markers', name='Mesafe'))
-    fig.update_layout(polar=dict(radialaxis=dict(visible=True, range=[0, 250]), angularaxis=dict(direction="clockwise", period=360)))
+    fig.update_layout(polar=dict(radialaxis=dict(visible=True, range=[0, 250]), angularaxis=dict(direction="clockwise", period=360, thetaunit = "degrees")))
 
 def update_time_series_graph(fig, df):
-    df_s = df.sort_values(by='timestamp')
-    fig.add_trace(go.Scatter(x=pd.to_datetime(df_s['timestamp'], unit='s'), y=df_s['mesafe_cm'], mode='lines+markers', name='Mesafe'))
-    fig.update_layout(xaxis_title="Zaman", yaxis_title="Mesafe (cm)")
+    if df.empty:
+        fig.add_trace(go.Scatter(x=[], y=[], mode='lines', name='Veri Yok'))
+    else:
+        try:
+            df_s = df.sort_values(by='timestamp')
+            datetime_x = pd.to_datetime(df_s['timestamp'], unit='s', errors='coerce')
+            
+            valid_indices = datetime_x.notnull()
+            datetime_x_valid = datetime_x[valid_indices]
+            df_s_valid = df_s[valid_indices]
+
+            if df_s_valid.empty:
+                fig.add_trace(go.Scatter(x=[], y=[], mode='lines', name='Geçerli Zaman Verisi Yok'))
+            else:
+                fig.add_trace(go.Scatter(x=datetime_x_valid, y=df_s_valid['mesafe_cm'], mode='lines+markers', name='Mesafe'))
+        
+        except Exception as e:
+            print(f"Zaman serisi grafiği oluşturulurken HATA: {e}")
+            fig.add_trace(go.Scatter(x=[], y=[], mode='lines', name='Grafik Hatası'))
+
+    fig.update_layout(
+        xaxis_title="Zaman", 
+        yaxis_title="Mesafe (cm)",
+        xaxis=dict(
+            tickformat='%H:%M:%S',  # Saat:Dakika:Saniye formatı
+            # nticks=10 # İsteğe bağlı olarak tick sayısını belirleyebilirsiniz
+        )
+    )
 
 def find_clearest_path(df_valid):
     if df_valid.empty: return "En açık yol için veri yok."
@@ -251,25 +275,21 @@ def handle_start_scan_script(n_clicks_start, scan_duration_angle_val,
                              step_angle_val, buzzer_distance_val,
                              invert_motor_val, steps_per_rev_val):
     if n_clicks_start == 0: return no_update
-
     scan_duration_a = scan_duration_angle_val if scan_duration_angle_val is not None else DEFAULT_UI_SCAN_DURATION_ANGLE
     step_a = step_angle_val if step_angle_val is not None else DEFAULT_UI_SCAN_STEP_ANGLE
     buzzer_d = buzzer_distance_val if buzzer_distance_val is not None else DEFAULT_UI_BUZZER_DISTANCE
     invert_dir = bool(invert_motor_val)
     steps_per_rev = steps_per_rev_val if steps_per_rev_val is not None else DEFAULT_UI_STEPS_PER_REVOLUTION
-
     if not (10 <= scan_duration_a <= 720): return dbc.Alert("Tarama Açısı 10-720 derece arasında olmalı!", color="danger")
     if not (0.1 <= abs(step_a) <= 45): return dbc.Alert("Adım açısı 0.1-45 arasında olmalı!", color="danger")
     if not (0 <= buzzer_d <= 200): return dbc.Alert("Buzzer mesafesi 0-200cm arasında olmalı!", color="danger")
     if not (500 <= steps_per_rev <= 10000): return dbc.Alert("Motor Adım/Tur değeri 500-10000 arasında olmalı!", color="danger")
-
     pid = None
     if os.path.exists(SENSOR_SCRIPT_PID_FILE):
         try:
             with open(SENSOR_SCRIPT_PID_FILE, 'r') as pf: pid_str = pf.read().strip(); pid = int(pid_str) if pid_str else None
         except: pid = None
     if pid and is_process_running(pid): return dbc.Alert(f"Sensör betiği çalışıyor (PID:{pid}). Önce durdurun.", color="warning")
-
     for fp in [SENSOR_SCRIPT_LOCK_FILE, SENSOR_SCRIPT_PID_FILE]:
         if os.path.exists(fp):
             try: os.remove(fp)
@@ -277,14 +297,7 @@ def handle_start_scan_script(n_clicks_start, scan_duration_angle_val,
     try:
         py_exec = sys.executable
         if not os.path.exists(SENSOR_SCRIPT_PATH): return dbc.Alert(f"Sensör betiği bulunamadı: {SENSOR_SCRIPT_PATH}", color="danger")
-        
-        cmd = [py_exec, SENSOR_SCRIPT_PATH,
-               "--scan_duration_angle", str(scan_duration_a),
-               "--step_angle", str(step_a),
-               "--buzzer_distance", str(buzzer_d),
-               "--invert_motor_direction", str(invert_dir),
-               "--steps_per_rev", str(steps_per_rev)]
-        
+        cmd = [py_exec, SENSOR_SCRIPT_PATH, "--scan_duration_angle", str(scan_duration_a), "--step_angle", str(step_a), "--buzzer_distance", str(buzzer_d), "--invert_motor_direction", str(invert_dir), "--steps_per_rev", str(steps_per_rev)]
         log_path = os.path.join(PROJECT_ROOT_DIR, 'sensor_script.log')
         with open(log_path, 'w') as log_f: subprocess.Popen(cmd, start_new_session=True, stdout=log_f, stderr=log_f)
         time.sleep(2.5)
@@ -458,35 +471,32 @@ def update_all_graphs(n):
             if id_plot:
                 df_pts = pd.read_sql_query(f"SELECT x_cm,y_cm,derece,mesafe_cm,timestamp FROM scan_points WHERE scan_id={id_plot} ORDER BY derece ASC", conn)
                 if not df_pts.empty:
-                    df_val = df_pts[(df_pts['mesafe_cm'] > 1.0) & (df_pts['mesafe_cm'] < 250.0)].copy() # Mantıksal açılarla çalışıyoruz
+                    df_val = df_pts[(df_pts['mesafe_cm'] > 0.1) & (df_pts['mesafe_cm'] < 300.0)].copy()
                     if len(df_val) >= 2:
-                        # Kartezyen harita için x_cm, y_cm zaten mantıksal 0'a göre hesaplanmış olmalı
                         add_scan_rays(figs[0], df_val); add_sector_area(figs[0], df_val)
                         est_cart, df_clus = analyze_environment_shape(figs[0], df_val)
                         store_data = df_clus.to_json(orient='split')
-                        
-                        # Regresyon ve Polar grafikler de mantıksal 'derece'yi kullanır
                         line_data, est_polar = analyze_polar_regression(df_val)
                         figs[1].add_trace(go.Scatter(x=df_val['derece'], y=df_val['mesafe_cm'], mode='markers', name='Noktalar'))
                         if line_data: figs[1].add_trace(go.Scatter(x=line_data['x'], y=line_data['y'], mode='lines', name='Regresyon', line=dict(color='red', width=3)))
-                        
                         clear_path, shape_estimation = find_clearest_path(df_val), estimate_geometric_shape(df_val)
                         update_polar_graph(figs[2], df_val); update_time_series_graph(figs[3], df_val)
                     else: est_cart = "Analiz için yetersiz geçerli nokta."
                 else: est_cart = f"Tarama ID {id_plot} için nokta yok."
             else: est_cart = "Tarama başlatın."
-        except Exception as e: est_cart = f"Grafikleme Hatası: {e}"
+        except Exception as e: import traceback; est_cart = f"Grafikleme Hatası: {e}\n{traceback.format_exc()}"
         finally:
             if conn: conn.close()
-    for fig in figs: add_sensor_position(fig) # Sensör her zaman (0,0)'da (mantıksal haritada)
+    for fig_idx, fig in enumerate(figs):
+        if not fig.data: add_sensor_position(fig)
+        elif fig_idx == 0 and not any(trace.name == 'Sensör' for trace in fig.data): add_sensor_position(fig)
     titles = ['Ortamın 2D Haritası (Mantıksal)', 'Açıya Göre Mesafe Regresyonu (Mantıksal)', 'Polar Grafik (Mantıksal)', 'Zaman Serisi - Mesafe']
     common_legend = dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1, bgcolor="rgba(255,255,255,0.7)", bordercolor="Black", borderwidth=1)
     for i, fig in enumerate(figs):
-        fig.update_layout(title_text=titles[i], uirevision=id_plot or 'initial_load', legend=common_legend)
+        fig.update_layout(title_text=titles[i], uirevision=str(id_plot) or 'initial_load', legend=common_legend)
         if i == 0: fig.update_layout(xaxis_title="Yatay Mesafe (cm) [Mantıksal 0'a göre]", yaxis_title="Dikey Mesafe (cm) [Mantıksal 0'a göre]", yaxis_scaleanchor="x", yaxis_scaleratio=1)
         elif i == 1: fig.update_layout(xaxis_title="Mantıksal Açı (Derece)", yaxis_title="Mesafe (cm)")
-        elif i == 2: fig.update_layout(polar=dict(angularaxis=dict(thetaunit="degrees", rotation=90, direction="counterclockwise"))) # Mantıksal açılar için ayar
-            
+        elif i == 2: fig.update_layout(polar=dict(angularaxis=dict(thetaunit="degrees", rotation=90, direction="counterclockwise")))
     final_est_text = html.Div([html.P(shape_estimation, className="fw-bold", style={'fontSize': '1.2em', 'color': 'darkgreen'}), html.Hr(),
                                html.P(clear_path, className="fw-bold text-primary", style={'fontSize': '1.1em'}), html.Hr(),
                                html.P(est_cart), html.Hr(), html.P(est_polar)])
@@ -506,9 +516,8 @@ def display_cluster_info(clickData, stored_data):
         elif cl_label == -2: title, body = "Analiz Yapılamadı", "Bu bölge için analiz yapılamadı."
         else:
             cl_df = df_clus[df_clus['cluster'] == cl_label]
-            n_pts = len(cl_df)
-            w = (cl_df['y_cm'].max() - cl_df['y_cm'].min()) if n_pts > 0 else 0
-            d = (cl_df['x_cm'].max() - cl_df['x_cm'].min()) if n_pts > 0 else 0
+            n_pts, w, d = len(cl_df), 0, 0
+            if n_pts > 0 : w,d = (cl_df['y_cm'].max() - cl_df['y_cm'].min()),(cl_df['x_cm'].max() - cl_df['x_cm'].min())
             title = f"Küme #{int(cl_label)} Detayları"
             body = html.Div([html.P(f"Nokta Sayısı: {n_pts}"), html.P(f"Yaklaşık Genişlik: {w:.1f} cm"), html.P(f"Yaklaşık Derinlik: {d:.1f} cm")])
         return True, title, body
