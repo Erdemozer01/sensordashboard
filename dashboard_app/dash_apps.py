@@ -360,20 +360,22 @@ def get_latest_scan_data():
 def yorumla_tablo_verisi_gemini(df):
     google_api_key = os.getenv("GOOGLE_API_KEY")
 
-    # Yeni initialization yöntemi:
-    client = genai.Client(api_key=google_api_key)
-    model = client.models.generate_content(model="gemini-pro") # Model bu şekilde seçiliyor olabilir
-    # Veya önceki gibi:
-    # model = genai.GenerativeModel('gemini-pro')
+
+
 
     if df is not None and not df.empty:
+        # Yeni initialization yöntemi:
+        client = genai.Client(api_key=google_api_key, location="tr")
+        model="gemini-pro"
+
         # Veriyi Gemini'ye uygun bir formata dönüştürün (örneğin, string)
         prompt_text = "Aşağıdaki tablo robotik bir taramadan elde edilen açı (derece) ve mesafe (cm) verilerini içermektedir:\n"
         prompt_text += df.to_string(index=False)
         prompt_text += "\nBu verilere göre ortamı yorumlayın ve olası nesneler hakkında bilgi verin."
 
+
         try:
-            response = model.generate_content(prompt_text)
+            response = client.models.generate_content(contents=prompt_text, model=model)
             return response.text
         except Exception as e:
             return f"Gemini'den yanıt alınırken hata oluştu: {e}"
