@@ -675,7 +675,8 @@ def render_and_update_data_table(active_tab, n):
         Output('polar-regression-graph', 'figure'),
         Output('polar-graph', 'figure'),
         Output('time-series-graph', 'figure'),
-        Output('environment-estimation-text', 'children')
+        Output('environment-estimation-text', 'children'),
+        Output('clustered-data-store', 'data')
     ],
     [Input('interval-component-main', 'n_intervals')]
 )
@@ -699,7 +700,11 @@ def update_all_graphs(n):
                         add_scan_rays(figs[0], df_val);
                         add_sector_area(figs[0], df_val)
                         est_cart, df_clus = analyze_environment_shape(figs[0], df_val)
-                        store_data = df_clus.to_json(orient='split')
+                        store_data = {
+                            'scan_id': id_plot,
+                            'clustered_data': df_clus.to_json(orient='split'),
+                            'ai_comment': None  # Başlangıçta AI yorumu yok
+                        }
                         line_data, est_polar = analyze_polar_regression(df_val)
                         figs[1].add_trace(
                             go.Scatter(x=df_val['derece'], y=df_val['mesafe_cm'], mode='markers', name='Noktalar'))
@@ -709,6 +714,8 @@ def update_all_graphs(n):
                         clear_path, shape_estimation = find_clearest_path(df_val), estimate_geometric_shape(df_val)
                         update_polar_graph(figs[2], df_val);
                         update_time_series_graph(figs[3], df_val)
+
+
 
                     else:
                         est_cart = "Analiz için yetersiz geçerli nokta."
@@ -745,7 +752,7 @@ def update_all_graphs(n):
         [html.P(shape_estimation, className="fw-bold", style={'fontSize': '1.2em', 'color': 'darkgreen'}), html.Hr(),
          html.P(clear_path, className="fw-bold text-primary", style={'fontSize': '1.1em'}), html.Hr(),
          html.P(est_cart), html.Hr(), html.P(est_polar)])
-    return figs[0], figs[1], figs[2], figs[3], final_est_text
+    return figs[0], figs[1], figs[2], figs[3], final_est_text, store_data
 
 
 @app.callback(
@@ -778,14 +785,28 @@ def display_cluster_info(clickData, stored_data):
 @app.callback(
     Output('ai-yorum-sonucu', 'children'),
     [Input('ai-model-dropdown', 'value')],
-    [State('interval-component-main', 'n_intervals')],  # Belki en son veriyi almak için kullanabiliriz
+    [State('clustered-data-store', 'data')],
     prevent_initial_call=True
 )
-def yorumla_model_secimi(selected_model, n):
-    if selected_model == 'gemini':
+def yorumla_model_secimi(selected_model, stored_data):
+    if selected_model == 'gemini-2.0-flash':
+        if stored_data:
+            try:
+                scan_id = stored_data.get('scan_id')
+                ai_comment = stored_data.get('ai_comment')
+                latest_scan_id = get_latest_scan_id_from_db()  # En son scan ID'yi al
+                if scan_id == latest_scan_id and ai_comment:
+                    return dbc.Alert(ai_comment, color="success")
+            except Exception as e:
+                print(f"Store'dan yorum alırken hata: {e}")
+
         df_veri = get_latest_scan_data()
         if df_veri is not None and not df_veri.empty:
             yorum = yorumla_tablo_verisi_gemini(df_veri)
+            # Yorumu store'a kaydet
+            stored_data = stored_data if stored_data else {}
+            stored_data['scan_id'] = get_latest_scan_id_from_db()
+            stored_data['ai_comment'] = yorum
             return dbc.Alert(yorum, color="success")
         else:
             return dbc.Alert("Yorumlanacak geçerli veri bulunamadı.", color="warning")
