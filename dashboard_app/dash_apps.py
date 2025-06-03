@@ -149,7 +149,7 @@ visualization_tabs = dbc.Tabs(
              tab_id="tab-time"),
      dbc.Tab(dcc.Loading(id="loading-datatable", children=[html.Div(id='tab-content-datatable')]), label="Veri Tablosu",
              tab_id="tab-datatable")],
-    id="visualization-tabs-main", active_tab="tab-map"),
+    id="visualization-tabs-main", active_tab="tab-map")
 
 app.layout = dbc.Container(fluid=True, children=[
     title_card,
