@@ -676,7 +676,7 @@ def render_and_update_data_table(active_tab, n):
         Output('polar-graph', 'figure'),
         Output('time-series-graph', 'figure'),
         Output('environment-estimation-text', 'children'),
-        Output('clustered-data-store', 'data') # store_data'yı tekrar ekledik
+        Output('clustered-data-store', 'data')
     ],
     [Input('interval-component-main', 'n_intervals')]
 )
