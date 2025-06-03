@@ -53,20 +53,20 @@ control_panel = dbc.Card([
         dbc.Row([
             dbc.Col(html.Button('Başlat', id='start-scan-button', n_clicks=0,
                                 className="btn btn-success btn-lg w-100 mb-2"), width=6),
-            dbc.Col(html.Button('Taramayı Durdur', id='stop-scan-button', n_clicks=0,
+            dbc.Col(html.Button('Durdur', id='stop-scan-button', n_clicks=0, # BUTON METNİ DEĞİŞTİ
                                 className="btn btn-danger btn-lg w-100 mb-2"), width=6)
         ]),
         html.Div(id='scan-status-message', style={'marginTop': '10px', 'minHeight': '40px', 'textAlign': 'center'},
                  className="mb-3"),
         html.Hr(),
         html.H6("Tarama Parametreleri:", className="mt-2"),
-        dbc.InputGroup([dbc.InputGroupText("Tarama Tur Sayısı", style={"width": "150px"}), # ETİKET DEĞİŞTİ
-                        dbc.Input(id="scan-tours-input", type="number", value=DEFAULT_UI_SCAN_TOURS, min=0.25, max=5, step=0.05)], className="mb-2"), # ID VE AYARLAR DEĞİŞTİ
+        dbc.InputGroup([dbc.InputGroupText("Tarama Tur Sayısı", style={"width": "150px"}), # GİRİŞ ALANI GÜNCELLENDİ
+                        dbc.Input(id="scan-tours-input", type="number", value=DEFAULT_UI_SCAN_TOURS, min=0.1, max=5, step=0.05)], className="mb-2"),
         dbc.InputGroup([dbc.InputGroupText("Adım Açısı (°)", style={"width": "150px"}),
                         dbc.Input(id="step-angle-input", type="number", value=DEFAULT_UI_SCAN_STEP_ANGLE, min=0.1, max=45, step=0.1)], className="mb-2"),
         dbc.InputGroup([dbc.InputGroupText("Buzzer Mes. (cm)", style={"width": "150px"}),
                         dbc.Input(id="buzzer-distance-input", type="number", value=DEFAULT_UI_BUZZER_DISTANCE, min=0, max=200, step=1)], className="mb-2"),
-        dbc.InputGroup([dbc.InputGroupText("Motor Adım/Tur", style={"width": "150px"}),
+        dbc.InputGroup([dbc.InputGroupText("Motor Adım/Tur", style={"width": "150px"}), # Bu kalibrasyon ayarıdır
                         dbc.Input(id="steps-per-rev-input", type="number", value=DEFAULT_UI_STEPS_PER_REVOLUTION, min=500, max=10000, step=1)], className="mb-2"),
         dbc.Checkbox(id="invert-motor-checkbox", label="Motor Yönünü Ters Çevir", value=DEFAULT_UI_INVERT_MOTOR, className="mt-2 mb-2"),
     ])
@@ -121,6 +121,7 @@ app.layout = dbc.Container(fluid=True, children=[
 
 # ==============================================================================
 # --- YARDIMCI FONKSİYONLAR ---
+# (Tüm yardımcı fonksiyonlar bir önceki tam yanıttaki gibi EKSİKSİZ olarak kalacak)
 # ==============================================================================
 def is_process_running(pid):
     if pid is None: return False
@@ -246,13 +247,13 @@ def estimate_geometric_shape(df):
 @app.callback(
     Output('scan-status-message', 'children'),
     [Input('start-scan-button', 'n_clicks')],
-    [State('scan-tours-input', 'value'), # <-- ID DEĞİŞTİ
+    [State('scan-tours-input', 'value'),      # ID GÜNCELLENDİ
      State('step-angle-input', 'value'),
      State('buzzer-distance-input', 'value'),
      State('invert-motor-checkbox', 'value'),
      State('steps-per-rev-input', 'value')],
     prevent_initial_call=True)
-def handle_start_scan_script(n_clicks_start, scan_tours_val, # <-- ARGÜMAN İSMİ DEĞİŞTİ
+def handle_start_scan_script(n_clicks_start, scan_tours_val, # ARGÜMAN İSMİ GÜNCELLENDİ
                              step_angle_val, buzzer_distance_val,
                              invert_motor_val, steps_per_rev_val):
     if n_clicks_start == 0: return no_update
@@ -263,7 +264,7 @@ def handle_start_scan_script(n_clicks_start, scan_tours_val, # <-- ARGÜMAN İSM
     invert_dir = bool(invert_motor_val)
     steps_per_rev = steps_per_rev_val if steps_per_rev_val is not None else DEFAULT_UI_STEPS_PER_REVOLUTION
 
-    if not (0.25 <= scan_tours <= 5): return dbc.Alert("Tarama Tur Sayısı 0.25-5 arasında olmalı!", color="danger") # VALIDASYON DEĞİŞTİ
+    if not (0.1 <= scan_tours <= 5): return dbc.Alert("Tarama Tur Sayısı 0.1-5 arasında olmalı!", color="danger") # VALIDASYON GÜNCELLENDİ
     if not (0.1 <= abs(step_a) <= 45): return dbc.Alert("Adım açısı 0.1-45 arasında olmalı!", color="danger")
     if not (0 <= buzzer_d <= 200): return dbc.Alert("Buzzer mesafesi 0-200cm arasında olmalı!", color="danger")
     if not (500 <= steps_per_rev <= 10000): return dbc.Alert("Motor Adım/Tur değeri 500-10000 arasında olmalı!", color="danger")
@@ -297,7 +298,7 @@ def handle_start_scan_script(n_clicks_start, scan_tours_val, # <-- ARGÜMAN İSM
         time.sleep(2.5)
         if os.path.exists(SENSOR_SCRIPT_PID_FILE):
             with open(SENSOR_SCRIPT_PID_FILE, 'r') as pf_new: new_pid = pf_new.read().strip()
-            return dbc.Alert(f"Tarama başlatıldı (PID:{new_pid}). {scan_tours} tur ({scan_duration_degrees}°).", color="success")
+            return dbc.Alert(f"Tarama başlatıldı (PID:{new_pid}). {scan_tours:.2f} tur ({scan_duration_degrees:.1f}°).", color="success")
         else:
             log_disp = f"PID dosyası ({SENSOR_SCRIPT_PID_FILE}) oluşmadı. "
             if os.path.exists(log_path):
