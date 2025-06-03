@@ -358,7 +358,7 @@ def get_latest_scan_data():
 
 
 def yorumla_tablo_verisi_gemini(df):
-    ffrom google.generativeai import Content, Part
+    from google.generativeai import Content, Part
 
     google_api_key = os.getenv("GOOGLE_API_KEY")
 
