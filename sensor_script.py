@@ -350,7 +350,7 @@ if __name__ == "__main__":
                 if lcd:
                     try:
                         lcd.cursor_pos = (0, 0)
-                        lcd.write_string("dokunma bana".ljust(LCD_COLS))
+                        lcd.write_string("Dokunma Bana".ljust(LCD_COLS))
                         lcd.cursor_pos = (1, 0)
                         lcd.write_string(f"Mesafe: {dist_cm:<5.1f}cm".ljust(LCD_COLS))
                     except Exception:
