@@ -115,18 +115,18 @@ analysis_card = dbc.Card([dbc.CardHeader("Tarama Analizi (En Son Tarama)", class
                               [dbc.Col([html.H6("Hesaplanan Alan:"), html.H4(id='calculated-area', children="-- cm²")]),
                                dbc.Col(
                                    [html.H6("Çevre Uzunluğu:"), html.H4(id='perimeter-length', children="-- cm")])]),
-                                        dbc.Row([dbc.Col(
-                                            [html.H6("Max Genişlik:"), html.H4(id='max-width', children="-- cm")]),
-                                                 dbc.Col([html.H6("Max Derinlik:"),
-                                                          html.H4(id='max-depth', children="-- cm")])],
-                                                className="mt-2")])])
+                              dbc.Row([dbc.Col(
+                                  [html.H6("Max Genişlik:"), html.H4(id='max-width', children="-- cm")]),
+                                  dbc.Col([html.H6("Max Derinlik:"),
+                                           html.H4(id='max-depth', children="-- cm")])],
+                                  className="mt-2")])])
 
 estimation_card = dbc.Card(
     [
         dbc.CardHeader("Akıllı Ortam Analizi", className="bg-success text-white"),
         dbc.CardBody(html.Div("Tahmin: Bekleniyor...", id='environment-estimation-text', className="text-center"))
 
-     ]
+    ]
 )
 
 gemini = dbc.Card([
@@ -135,10 +135,6 @@ gemini = dbc.Card([
         html.Div(id='gemini-yorum-sonucu', className="mt-3")
     ])
 ], className="mt-3")
-
-
-
-
 
 visualization_tabs = dbc.Tabs(
     [dbc.Tab(dcc.Graph(id='scan-map-graph', style={'height': '75vh'}), label="2D Kartezyen Harita", tab_id="tab-map"),
@@ -151,8 +147,6 @@ visualization_tabs = dbc.Tabs(
              tab_id="tab-datatable")],
     id="visualization-tabs-main", active_tab="tab-map"),
 
-
-
 app.layout = dbc.Container(fluid=True, children=[
     title_card,
     dbc.Row([
@@ -163,10 +157,12 @@ app.layout = dbc.Container(fluid=True, children=[
                  dbc.Row([dbc.Col(analysis_card, md=8), dbc.Col([estimation_card, gemini], md=4)])], md=8)
     ]),
     dcc.Store(id='clustered-data-store'),
-    dbc.Modal([dbc.ModalHeader(dbc.ModalTitle(id="modal-title")), dbc.ModalBody(id="modal-body")], id="cluster-info-modal", is_open=False, centered=True),
+    dbc.Modal([dbc.ModalHeader(dbc.ModalTitle(id="modal-title")), dbc.ModalBody(id="modal-body")],
+              id="cluster-info-modal", is_open=False, centered=True),
     dcc.Interval(id='interval-component-main', interval=2500, n_intervals=0),
     dcc.Interval(id='interval-component-system', interval=3000, n_intervals=0),
 ])
+
 
 # ==============================================================================
 # --- YARDIMCI FONKSİYONLAR ---
@@ -205,7 +201,8 @@ def get_latest_scan_id_from_db(conn_param=None):
                 df_l = pd.read_sql_query("SELECT id FROM servo_scans ORDER BY start_time DESC LIMIT 1", conn_to_use)
                 if not df_l.empty: latest_id = int(df_l['id'].iloc[0])
         except Exception as e:
-            print(f"Son tarama ID alınırken hata: {e}"); latest_id = None
+            print(f"Son tarama ID alınırken hata: {e}");
+            latest_id = None
         finally:
             if internal_conn and conn_to_use: conn_to_use.close()
     return latest_id
@@ -358,6 +355,7 @@ def get_latest_scan_data():
 
 def yorumla_tablo_verisi_gemini(df):
     google_api_key = os.getenv("GOOGLE_API_KEY")
+    print(f"API Anahtarı Değeri: '{google_api_key}'")  # Bu satırı ekleyin
     genai.configure(api_key=google_api_key)
     model = genai.GenerativeModel('gemini-pro')  # Veya ihtiyacınıza uygun başka bir model
 
@@ -407,7 +405,8 @@ def handle_start_scan_script(n_clicks_start, scan_duration_angle_val,
     if os.path.exists(SENSOR_SCRIPT_PID_FILE):
         try:
             with open(SENSOR_SCRIPT_PID_FILE, 'r') as pf:
-                pid_str = pf.read().strip(); pid = int(pid_str) if pid_str else None
+                pid_str = pf.read().strip();
+                pid = int(pid_str) if pid_str else None
         except:
             pid = None
     if pid and is_process_running(pid): return dbc.Alert(f"Sensör betiği çalışıyor (PID:{pid}). Önce durdurun.",
@@ -438,7 +437,8 @@ def handle_start_scan_script(n_clicks_start, scan_duration_angle_val,
             if os.path.exists(log_path):
                 try:
                     with open(log_path, 'r') as f_log:
-                        lines = "".join(f_log.readlines()[-10:]);log_disp_detail = (lines[:500] + '...') if len(
+                        lines = "".join(f_log.readlines()[-10:]);
+                        log_disp_detail = (lines[:500] + '...') if len(
                             lines) > 500 else lines
                     log_disp += "Logdan son satırlar:" if log_disp_detail.strip() else f"'{os.path.basename(log_path)}' boş."
                     return dbc.Alert([html.Span(log_disp), html.Br(), html.Pre(log_disp_detail,
@@ -467,7 +467,8 @@ def handle_stop_scan_script(n):
     if os.path.exists(SENSOR_SCRIPT_PID_FILE):
         try:
             with open(SENSOR_SCRIPT_PID_FILE, 'r') as pf:
-                pid_s = pf.read().strip(); pid_kill = int(pid_s) if pid_s else None
+                pid_s = pf.read().strip();
+                pid_kill = int(pid_s) if pid_s else None
         except (IOError, ValueError):
             pid_kill = None
     if pid_kill and is_process_running(pid_kill):
@@ -524,7 +525,7 @@ def update_realtime_values(n):
                 f"SELECT MAX(mesafe_cm) as max_dist FROM scan_points WHERE scan_id={lid} AND mesafe_cm<250 AND mesafe_cm>0",
                 conn)
             if not df_max.empty and pd.notnull(
-                df_max['max_dist'].iloc[0]): max_dist_s = f"{df_max['max_dist'].iloc[0]:.1f} cm"
+                    df_max['max_dist'].iloc[0]): max_dist_s = f"{df_max['max_dist'].iloc[0]:.1f} cm"
     finally:
         if conn: conn.close()
     return angle_s, dist_s, speed_s, dist_style, max_dist_s
@@ -675,7 +676,8 @@ def update_all_graphs(n):
             else:
                 est_cart = "Tarama başlatın."
         except Exception as e:
-            import traceback; est_cart = f"Grafikleme Hatası: {e}\n{traceback.format_exc()}"
+            import traceback;
+            est_cart = f"Grafikleme Hatası: {e}\n{traceback.format_exc()}"
         finally:
             if conn: conn.close()
     for fig_idx, fig in enumerate(figs):
@@ -723,7 +725,7 @@ def display_cluster_info(clickData, stored_data):
             cl_df = df_clus[df_clus['cluster'] == cl_label]
             n_pts, w, d = len(cl_df), 0, 0
             if n_pts > 0: w, d = (cl_df['y_cm'].max() - cl_df['y_cm'].min()), (
-                        cl_df['x_cm'].max() - cl_df['x_cm'].min())
+                    cl_df['x_cm'].max() - cl_df['x_cm'].min())
             title = f"Küme #{int(cl_label)} Detayları"
             body = html.Div([html.P(f"Nokta Sayısı: {n_pts}"), html.P(f"Yaklaşık Genişlik: {w:.1f} cm"),
                              html.P(f"Yaklaşık Derinlik: {d:.1f} cm")])
