@@ -70,7 +70,7 @@ control_panel = dbc.Card([
                         dbc.Input(id="start-angle-input", type="number", value=DEFAULT_UI_SCAN_START_ANGLE, min=0,
                                   max=359, step=1)], className="mb-2"),
         dbc.InputGroup([dbc.InputGroupText("Bitiş Açısı (°)", style={"width": "150px"}),
-                        dbc.Input(id="end-angle-input", type="number", value=DEFAULT_UI_SCAN_END_ANGLE, min=0, max=359,
+                        dbc.Input(id="end-angle-input", type="number", value=DEFAULT_UI_SCAN_END_ANGLE, min=0, max=360,
                                   step=1)], className="mb-2"),
         dbc.InputGroup([dbc.InputGroupText("Adım Açısı (°)", style={"width": "150px"}),
                         dbc.Input(id="step-angle-input", type="number", value=DEFAULT_UI_SCAN_STEP_ANGLE, min=0.1,
