@@ -26,6 +26,15 @@ load_dotenv()
 google_api_key = os.getenv("GOOGLE_API_KEY")
 
 # ==============================================================================
+# --- VERİTABANI NOTU ---
+# ==============================================================================
+# LÜTFEN DİKKAT: Bu kod, yapay zeka yorumlarını veritabanına kaydeder.
+# Bunun çalışması için 'servo_scans' tablonuza yeni bir sütun eklemeniz gerekir.
+# Lütfen veritabanınızda aşağıdaki SQL komutunu çalıştırın:
+#
+# ALTER TABLE servo_scans ADD COLUMN ai_commentary TEXT;
+#
+# ==============================================================================
 # --- SABİTLER VE UYGULAMA BAŞLATMA ---
 # ==============================================================================
 try:
@@ -70,10 +79,9 @@ control_panel = dbc.Card([
         dcc.Dropdown(
             id='ai-model-dropdown',
             options=[
-                {'label': 'Gemini', 'value': 'gemini-2.0-flash'},
-                # Gelecekte eklenebilecek diğer modeller buraya
+                {'label': 'Gemini Flash (Hızlı)', 'value': 'gemini-2.0-flash'},
             ],
-
+            placeholder="Yorumlama için bir model seçin...",
             className="mb-3"
         ),
         html.Hr(),
@@ -168,24 +176,30 @@ app.layout = dbc.Container(fluid=True, children=[
                  export_card], md=4, className="mb-3"),
         dbc.Col([visualization_tabs, dbc.Row(html.Div(style={"height": "15px"})),
                  dbc.Row([dbc.Col(analysis_card, md=8), dbc.Col([estimation_card], md=4)]),
-                 # Bu satırda md=12 yapabilirsiniz
-                 dbc.Row([  # Yeni row for AI yorumu
+                 dbc.Row([
                      dbc.Col([
                          dbc.Card([
                              dbc.CardHeader("Akıllı Yorumlama (Yapay Zeka)", className="bg-info text-white"),
-                             dbc.CardBody(html.Div([
-                                 html.P("Yorum için bir model seçtikten sonra analiz başlayacaktır."),
-                                 html.P(
-                                     "Yoğun kullanımda, Gemini API'sinin ücretsiz kotası nedeniyle yorumların alınması birkaç saniye sürebilir veya geçici olarak yanıt vermeyebilir. Lütfen kullanımınızı kontrol edin."
-                                 ),
-                                 html.Div(id='ai-yorum-sonucu', className="text-center mt-2")
-                             ]))
+                             dbc.CardBody(
+                                 dcc.Loading(
+                                     id="loading-ai-comment",
+                                     type="default",
+                                     children=[
+                                         html.Div(id='ai-yorum-sonucu', children=[
+                                             html.P("Yorum almak için yukarıdan bir yapay zeka modeli seçin."),
+                                             html.P(
+                                                 "Yoğun kullanımda, Gemini API'sinin ücretsiz kotası nedeniyle yorumların alınması birkaç saniye sürebilir veya geçici olarak yanıt vermeyebilir.",
+                                                 className="small text-muted"
+                                             ),
+                                         ], className="text-center mt-2")
+                                     ]
+                                 )
+                             )
                          ], className="mt-3")
-                     ], md=12)  # analysis_card ile aynı sütun genişliğinde
+                     ], md=12)
                  ], className="mt-3")], md=8)
     ]),
     dcc.Store(id='clustered-data-store'),
-    dcc.Store(id='ai-data-store'),
     dbc.Modal([dbc.ModalHeader(dbc.ModalTitle(id="modal-title")), dbc.ModalBody(id="modal-body")],
               id="cluster-info-modal", is_open=False, centered=True),
     dcc.Interval(id='interval-component-main', interval=2500, n_intervals=0),
@@ -205,13 +219,28 @@ def is_process_running(pid):
 
 
 def get_db_connection():
+    """Gets a read-only connection to the SQLite database."""
     try:
         if not os.path.exists(DB_PATH): return None, f"Veritabanı dosyası ({DB_PATH}) bulunamadı."
+        # Read-only connection for safety in callbacks that only read data.
         conn = sqlite3.connect(f'file:{DB_PATH}?mode=ro', uri=True, timeout=10)
         conn.execute("PRAGMA journal_mode=WAL;")
         return conn, None
     except Exception as e:
         return None, f"DB Bağlantı Hatası: {e}"
+
+
+def get_db_connection_writable():
+    """Gets a writable connection to the SQLite database."""
+    try:
+        if not os.path.exists(DB_PATH):
+            return None, f"Veritabanı dosyası ({DB_PATH}) bulunamadı."
+        # Connect in default read-write mode.
+        conn = sqlite3.connect(DB_PATH, timeout=10)
+        conn.execute("PRAGMA journal_mode=WAL;")  # WAL is good for concurrent read/write.
+        return conn, None
+    except Exception as e:
+        return None, f"DB Yazma Bağlantı Hatası: {e}"
 
 
 def get_latest_scan_id_from_db(conn_param=None):
@@ -222,11 +251,13 @@ def get_latest_scan_id_from_db(conn_param=None):
         internal_conn = True
     if conn_to_use:
         try:
+            # First, try to find a 'running' scan
             df_r = pd.read_sql_query(
                 "SELECT id FROM servo_scans WHERE status = 'running' ORDER BY start_time DESC LIMIT 1", conn_to_use)
             if not df_r.empty:
                 latest_id = int(df_r['id'].iloc[0])
             else:
+                # If no running scan, get the latest completed one
                 df_l = pd.read_sql_query("SELECT id FROM servo_scans ORDER BY start_time DESC LIMIT 1", conn_to_use)
                 if not df_l.empty: latest_id = int(df_l['id'].iloc[0])
         except Exception as e:
@@ -289,8 +320,7 @@ def update_time_series_graph(fig, df):
         xaxis_title="Zaman",
         yaxis_title="Mesafe (cm)",
         xaxis=dict(
-            tickformat='%H:%M:%S',  # Saat:Dakika:Saniye formatı
-            # nticks=10 # İsteğe bağlı olarak tick sayısını belirleyebilirsiniz
+            tickformat='%H:%M:%S',
         )
     )
 
@@ -370,41 +400,46 @@ def estimate_geometric_shape(df):
 
 
 def get_latest_scan_data():
-    conn, _ = get_db_connection()
-    if conn:
+    conn, err = get_db_connection()
+    if err or not conn:
+        print(f"Veri alınırken DB Hatası: {err}")
+        return None
+    try:
         latest_id = get_latest_scan_id_from_db(conn)
         if latest_id:
             df = pd.read_sql_query(
                 f"SELECT derece, mesafe_cm FROM scan_points WHERE scan_id={latest_id} ORDER BY derece ASC", conn)
-            conn.close()
             return df
-        conn.close()
-    return None
+        return None
+    finally:
+        if conn: conn.close()
 
 
 def yorumla_tablo_verisi_gemini(df):
     google_api_key = os.getenv("GOOGLE_API_KEY")
+    if not google_api_key:
+        return "Hata: `GOOGLE_API_KEY` ortam değişkeni ayarlanmamış."
 
     if df is not None and not df.empty:
-
-        client = genai.Client(api_key=google_api_key)
-
-        # Veriyi Gemini'ye uygun bir formata dönüştürün (örneğin, string)
-        prompt_text = "Aşağıdaki tablo robotik bir taramadan elde edilen açı (derece) ve mesafe (cm) verilerini içermektedir:\n"
-        prompt_text += df.to_string(index=False)
-        prompt_text += "\nBu verilere göre ortamı yorumlayın ve olası nesneler hakkında bilgi verin."
-
         try:
-            try:
-                response = client.models.generate_content(
-                    model='gemini-2.0-flash',
-                    contents=prompt_text,
-                )
-                return response.text
-            except Exception as e:
-                return f"Gemini'den yanıt alınırken hata oluştu: {e}"
+            client = genai.Client(api_key=google_api_key)
+            prompt_text = (
+                "Aşağıdaki tablo, bir hc-sr04 sensörünün yaptığı taramadan elde edilen "
+                "açı (derece) ve mesafe (cm) verilerini içermektedir. "
+                "Bu verilere dayanarak, sensörün çevresindeki ortamı bir uzman gibi analiz et. "
+                "Olası nesneleri (duvar, köşe, sandalye bacağı, kutu vb.), "
+                "boş alanları ve genel yerleşim düzenini kısa ve anlaşılır bir dille yorumla. "
+                "Yorumunu maddeleme veya kısa paragraflar halinde yap.\n\n"
+            )
+            prompt_text += df.to_string(index=False)
+
+            response = client.models.generate_content(
+                model='gemini-2.0-flash',
+                contents=prompt_text,
+            )
+            return response.text
         except Exception as e:
-            return f"Gemini'den yanıt alınırken hata oluştu: {e}"
+            return f"Gemini'den yanıt alınırken bir hata oluştu: {e}"
     else:
         return "Yorumlanacak tablo verisi bulunamadı."
 
@@ -598,7 +633,8 @@ def update_system_card(n):
     if os.path.exists(SENSOR_SCRIPT_PID_FILE):
         try:
             with open(SENSOR_SCRIPT_PID_FILE, 'r') as pf:
-                pid_v = int(pf.read().strip()) if pf.read().strip() else None
+                pid_s = pf.read().strip();
+                pid_v = int(pid_s) if pid_s else None
         except:
             pass
     if pid_v and is_process_running(pid_v):
@@ -676,13 +712,13 @@ def render_and_update_data_table(active_tab, n):
      Output('polar-graph', 'figure'),
      Output('time-series-graph', 'figure'),
      Output('environment-estimation-text', 'children'),
-     Output('clustered-data-store', 'data'), Output('ai-data-store', 'data')],
+     Output('clustered-data-store', 'data')],
     [Input('interval-component-main', 'n_intervals')]
 )
 def update_all_graphs(n):
     figs = [go.Figure() for _ in range(4)]
     est_cart, est_polar, clear_path, shape_estimation = "Veri bekleniyor...", "Veri bekleniyor...", "", "Veri bekleniyor..."
-    id_plot, store_data , ai_data_store = None, None, None
+    id_plot, store_data = None, None
     conn, err_conn = get_db_connection()
     if err_conn or not conn:
         est_cart = f"DB Bağlantı Hatası: {err_conn}"
@@ -699,12 +735,7 @@ def update_all_graphs(n):
                         add_scan_rays(figs[0], df_val);
                         add_sector_area(figs[0], df_val)
                         est_cart, df_clus = analyze_environment_shape(figs[0], df_val)
-                        store_data = df_clus.to_json(orient='split')
-                        ai_data_store = {
-                            'scan_id': id_plot,
-                            'clustered_data': df_clus.to_json(orient='split'),
-                            'ai_comment': None  # Başlangıçta AI yorumu yok
-                        }
+                        store_data = df_clus.to_json(orient='split')  # for cluster click interaction
                         line_data, est_polar = analyze_polar_regression(df_val)
                         figs[1].add_trace(
                             go.Scatter(x=df_val['derece'], y=df_val['mesafe_cm'], mode='markers', name='Noktalar'))
@@ -738,11 +769,11 @@ def update_all_graphs(n):
     for i, fig in enumerate(figs):
         fig.update_layout(title_text=titles[i], uirevision=str(id_plot) or 'initial_load', legend=common_legend)
         if i == 0:
-            fig.update_layout(xaxis_title="Yatay Mesafe (cm) [Mantıksal 0'a göre]",
-                              yaxis_title="Dikey Mesafe (cm) [Mantıksal 0'a göre]", yaxis_scaleanchor="x",
+            fig.update_layout(xaxis_title="Yatay Mesafe (cm) [Sensör merkezli]",
+                              yaxis_title="Dikey Mesafe (cm) [Sensör merkezli]", yaxis_scaleanchor="x",
                               yaxis_scaleratio=1)
         elif i == 1:
-            fig.update_layout(xaxis_title="Mantıksal Açı (Derece)", yaxis_title="Mesafe (cm)")
+            fig.update_layout(xaxis_title="Tarama Açısı (Derece)", yaxis_title="Mesafe (cm)")
         elif i == 2:
             fig.update_layout(
                 polar=dict(angularaxis=dict(thetaunit="degrees", rotation=90, direction="counterclockwise")))
@@ -750,7 +781,7 @@ def update_all_graphs(n):
         [html.P(shape_estimation, className="fw-bold", style={'fontSize': '1.2em', 'color': 'darkgreen'}), html.Hr(),
          html.P(clear_path, className="fw-bold text-primary", style={'fontSize': '1.1em'}), html.Hr(),
          html.P(est_cart), html.Hr(), html.P(est_polar)])
-    return figs[0], figs[1], figs[2], figs[3], final_est_text, store_data, ai_data_store
+    return figs[0], figs[1], figs[2], figs[3], final_est_text, store_data
 
 
 @app.callback(
@@ -783,32 +814,78 @@ def display_cluster_info(clickData, stored_data):
 @app.callback(
     Output('ai-yorum-sonucu', 'children'),
     [Input('ai-model-dropdown', 'value')],
-    [State('ai-data-store', 'data')],
     prevent_initial_call=True
 )
-def yorumla_model_secimi(selected_model, stored_data):
-    if selected_model == 'gemini-2.0-flash':
-        if stored_data:
-            try:
-                scan_id = stored_data.get('scan_id')
-                ai_comment = stored_data.get('ai_comment')
-                latest_scan_id = get_latest_scan_id_from_db()  # En son scan ID'yi al
-                if scan_id == latest_scan_id and ai_comment:
-                    return dbc.Alert(ai_comment, color="success")
-            except Exception as e:
-                print(f"Store'dan yorum alırken hata: {e}")
+def yorumla_model_secimi(selected_model):
+    if not selected_model:
+        return html.Div("Yorum için bir model seçin.", className="text-center")
 
-        df_veri = get_latest_scan_data()
-        if df_veri is not None and not df_veri.empty:
-            yorum = yorumla_tablo_verisi_gemini(df_veri)
-            # Yorumu store'a kaydet
-            stored_data = stored_data if stored_data else {}
-            stored_data['scan_id'] = get_latest_scan_id_from_db()
-            stored_data['ai_comment'] = yorum
-            return dbc.Alert(yorum, color="success")
-        else:
-            return dbc.Alert("Yorumlanacak geçerli veri bulunamadı.", color="warning")
-    elif selected_model:
-        return dbc.Alert(f"Seçilen model ({selected_model}) henüz desteklenmiyor.", color="info")
+    latest_scan_id = get_latest_scan_id_from_db()
+    if not latest_scan_id:
+        return dbc.Alert("Analiz edilecek bir tarama bulunamadı.", color="warning")
 
-    return html.Div("Yorum için bir model seçin.", className="text-center")
+    # 1. Check for an existing comment in the database
+    conn_read, err_read = get_db_connection()
+    if err_read:
+        return dbc.Alert(f"Veritabanı okuma hatası: {err_read}", color="danger")
+
+    try:
+        df_comment = pd.read_sql_query(
+            f"SELECT ai_commentary FROM servo_scans WHERE id = {latest_scan_id}", conn_read)
+
+        if not df_comment.empty and df_comment['ai_commentary'].iloc[0]:
+            comment = df_comment['ai_commentary'].iloc[0]
+            # Found existing comment, display it and finish
+            return dbc.Alert(dcc.Markdown(comment, dangerously_allow_html=True), color="info")
+
+    except Exception as e:
+        if "no such column" in str(e).lower():
+            return dbc.Alert([
+                html.H5("Veritabanı Hatası!"),
+                html.P("Yorumları kaydetmek için 'servo_scans' tablosunda 'ai_commentary' sütunu bulunamadı."),
+                html.P("Lütfen veritabanı şemanızı şu komutla güncelleyin:"),
+                html.Code("ALTER TABLE servo_scans ADD COLUMN ai_commentary TEXT;")
+            ], color="danger")
+        # For other read errors, we can try generating a new comment
+        print(f"Mevcut yorum okunurken bir hata oluştu (yeni yorum oluşturulacak): {e}")
+    finally:
+        if conn_read:
+            conn_read.close()
+
+    # 2. If no comment exists, generate a new one
+    df_data = get_latest_scan_data()
+    if df_data is None or df_data.empty:
+        return dbc.Alert("Yorumlanacak geçerli tarama verisi bulunamadı.", color="warning")
+
+    yorum_text = yorumla_tablo_verisi_gemini(df_data)
+
+    if "Hata:" in yorum_text or "hata oluştu" in yorum_text:
+        return dbc.Alert(yorum_text, color="danger")
+
+    # 3. Save the new comment to the database
+    conn_write, err_write = get_db_connection_writable()
+    if err_write:
+        return dbc.Alert([
+            html.H6("Yorum oluşturuldu ancak veritabanına KAYDEDİLEMEDİ:"),
+            html.P(f"Hata: {err_write}"),
+            html.Hr(),
+            dcc.Markdown(yorum_text, dangerously_allow_html=True)
+        ], color="warning")
+
+    try:
+        cursor = conn_write.cursor()
+        cursor.execute("UPDATE servo_scans SET ai_commentary = ? WHERE id = ?", (yorum_text, latest_scan_id))
+        conn_write.commit()
+    except Exception as e:
+        return dbc.Alert([
+            html.H6("Yorum oluşturuldu ancak veritabanına KAYDEDİLEMEDİ:"),
+            html.P(f"Veritabanı yazma hatası: {e}"),
+            html.Hr(),
+            dcc.Markdown(yorum_text, dangerously_allow_html=True)
+        ], color="danger")
+    finally:
+        if conn_write:
+            conn_write.close()
+
+    # 4. Display the newly created and saved comment
+    return dbc.Alert(dcc.Markdown(yorum_text, dangerously_allow_html=True), color="success")
