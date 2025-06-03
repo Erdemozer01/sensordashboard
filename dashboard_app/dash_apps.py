@@ -358,6 +358,8 @@ def get_latest_scan_data():
 
 
 def yorumla_tablo_verisi_gemini(df):
+    from google.generativeai import types
+
     google_api_key = os.getenv("GOOGLE_API_KEY")
 
 
@@ -375,8 +377,12 @@ def yorumla_tablo_verisi_gemini(df):
 
 
         try:
-            response = client.models.generate_content(contents=prompt_text, model=model)
-            return response.text
+            try:
+                contents = [types.Content(parts=[types.Part.from_text(prompt_text)], role="user")]
+                response = model.generate_content(contents=contents)
+                return response.text
+            except Exception as e:
+                return f"Gemini'den yanıt alınırken hata oluştu: {e}"
         except Exception as e:
             return f"Gemini'den yanıt alınırken hata oluştu: {e}"
     else:
