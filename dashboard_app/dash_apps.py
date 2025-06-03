@@ -73,7 +73,7 @@ control_panel = dbc.Card([
                 {'label': 'Gemini', 'value': 'gemini-2.0-flash'},
                 # Gelecekte eklenebilecek diğer modeller buraya
             ],
-            value='gemini-2.0-flash',
+
             className="mb-3"
         ),
         html.Hr(),
@@ -174,7 +174,13 @@ app.layout = dbc.Container(fluid=True, children=[
                      dbc.Col([
                          dbc.Card([
                              dbc.CardHeader("Akıllı Yorumlama (Yapay Zeka)", className="bg-info text-white"),
-                             dbc.CardBody(html.Div("Yorum bekleniyor...", id='ai-yorum-sonucu', className="text-center"))
+                             dbc.CardBody(html.Div([
+                                 html.P("Yorum için bir model seçtikten sonra analiz başlayacaktır."),
+                                 html.P(
+                                     "Yoğun kullanımda, Gemini API'sinin ücretsiz kotası nedeniyle yorumların alınması birkaç saniye sürebilir veya geçici olarak yanıt vermeyebilir. Lütfen kullanımınızı kontrol edin."
+                                 ),
+                                 html.Div(id='ai-yorum-sonucu', className="text-center mt-2")
+                             ]))
                          ], className="mt-3")
                      ], md=8) # analysis_card ile aynı sütun genişliğinde
                  ], className="mt-3")], md=8)
@@ -666,14 +672,13 @@ def render_and_update_data_table(active_tab, n):
 
 @app.callback(
     [Output('scan-map-graph', 'figure'), Output('polar-regression-graph', 'figure'), Output('polar-graph', 'figure'),
-     Output('time-series-graph', 'figure'), Output('environment-estimation-text', 'children'),
-     Output('clustered-data-store', 'data'), Output('ai-yorum-sonucu', 'children')], # Yeni çıktı eklendi
+     Output('time-series-graph', 'figure'), Output('environment-estimation-text', 'children'),]
     [Input('interval-component-main', 'n_intervals')]
 )
 def update_all_graphs(n):
     figs = [go.Figure() for _ in range(4)]
     est_cart, est_polar, clear_path, shape_estimation = "Veri bekleniyor...", "Veri bekleniyor...", "", "Veri bekleniyor..."
-    id_plot, store_data, ai_yorumu = None, None, "Yorum bekleniyor..." # ai_yorumu için başlangıç değeri
+    id_plot, store_data = None, None
     conn, err_conn = get_db_connection()
     if err_conn or not conn:
         est_cart = f"DB Bağlantı Hatası: {err_conn}"
@@ -700,13 +705,6 @@ def update_all_graphs(n):
                         clear_path, shape_estimation = find_clearest_path(df_val), estimate_geometric_shape(df_val)
                         update_polar_graph(figs[2], df_val);
                         update_time_series_graph(figs[3], df_val)
-
-                        # Yapay zeka yorumunu al ve güncelle
-                        df_yorum = df_val[['derece', 'mesafe_cm']]
-                        if not df_yorum.empty:
-                            ai_yorumu = yorumla_tablo_verisi_gemini(df_yorum)
-                        else:
-                            ai_yorumu = "Yorumlanacak geçerli veri bulunamadı."
 
                     else:
                         est_cart = "Analiz için yetersiz geçerli nokta."
@@ -743,7 +741,7 @@ def update_all_graphs(n):
         [html.P(shape_estimation, className="fw-bold", style={'fontSize': '1.2em', 'color': 'darkgreen'}), html.Hr(),
          html.P(clear_path, className="fw-bold text-primary", style={'fontSize': '1.1em'}), html.Hr(),
          html.P(est_cart), html.Hr(), html.P(est_polar)])
-    return figs[0], figs[1], figs[2], figs[3], final_est_text, store_data, ai_yorumu # Yeni çıktı döndürüldü
+    return figs[0], figs[1], figs[2], figs[3], final_est_text, store_data
 
 
 @app.callback(
@@ -774,16 +772,19 @@ def display_cluster_info(clickData, stored_data):
 
 
 @app.callback(
-    Output('gemini-yorum-sonucu', 'children'),
-    [Input('yorumla-button', 'n_clicks')],
+    Output('ai-yorum-sonucu', 'children'),
+    [Input('ai-model-dropdown', 'value')],
+    [State('interval-component-main', 'n_intervals')], # Belki en son veriyi almak için kullanabiliriz
+    prevent_initial_call=True
 )
-def gonder_ve_yorumla(n_clicks):
-    if n_clicks is None:
-        return no_update
-
-    df_veri = get_latest_scan_data()
-    if df_veri is not None and not df_veri.empty:
-        yorum = yorumla_tablo_verisi_gemini(df_veri)
-        return dbc.Alert(yorum, color="success")
-    else:
-        return dbc.Alert("Yorumlanacak veri bulunamadı.", color="warning")
+def yorumla_model_secimi(selected_model, n):
+    if selected_model == 'gemini':
+        df_veri = get_latest_scan_data()
+        if df_veri is not None and not df_veri.empty:
+            yorum = yorumla_tablo_verisi_gemini(df_veri)
+            return dbc.Alert(yorum, color="success")
+        else:
+            return dbc.Alert("Yorumlanacak geçerli veri bulunamadı.", color="warning")
+    elif selected_model:
+        return dbc.Alert(f"Seçilen model ({selected_model}) henüz desteklenmiyor.", color="info")
+    return html.Div("Yorum için bir model seçin.", className="text-center")
