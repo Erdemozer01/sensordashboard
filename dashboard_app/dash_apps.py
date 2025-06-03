@@ -358,21 +358,16 @@ def get_latest_scan_data():
 
 
 def yorumla_tablo_verisi_gemini(df):
-    from google.generativeai.types.content_types import ContentType, PartType
 
-    ContentType(
-
-    )
 
     google_api_key = os.getenv("GOOGLE_API_KEY")
 
 
     if df is not None and not df.empty:
-        # Yeni initialization yöntemi:
-        api_key = "651882342283-9bdemfhgg7dlit6ji3am9n2hsjohf6j4.apps.googleusercontent.com"
-        client = genai.Client(vertexai=True, api_key=api_key)
+        from google import genai
+        client = genai.Client(api_key=google_api_key)
 
-        model="gemini-2.0-flash"
+
 
         # Veriyi Gemini'ye uygun bir formata dönüştürün (örneğin, string)
         prompt_text = "Aşağıdaki tablo robotik bir taramadan elde edilen açı (derece) ve mesafe (cm) verilerini içermektedir:\n"
@@ -382,8 +377,10 @@ def yorumla_tablo_verisi_gemini(df):
 
         try:
             try:
-                contents = [ContentType(parts=[PartType.from_text(prompt_text)], role="user")]
-                response = client.models.generate_content(contents=contents, model=model)
+                response = client.models.generate_content(
+                    model='gemini-2.0-flash',
+                    contents=prompt_text,
+                )
                 return response.text
             except Exception as e:
                 return f"Gemini'den yanıt alınırken hata oluştu: {e}"
