@@ -336,12 +336,19 @@ if __name__ == "__main__":
             target_physical_angle_for_step = physical_scan_reference_angle + current_logical_angle
             move_motor_to_angle(target_physical_angle_for_step)
 
+            if yellow_led:
+                yellow_led.on()
+                time.sleep(0.05)
+
             dist_cm = sensor.distance * 100
             angle_rad_for_calc = math.radians(current_logical_angle)
             x_cm, y_cm = dist_cm * math.cos(angle_rad_for_calc), dist_cm * math.sin(angle_rad_for_calc)
 
             print(
                 f"  Okuma: Mantıksal {current_logical_angle:.1f}° (Fiz: {current_motor_angle_global:.1f}°) -> {dist_cm:.1f} cm")
+
+            if yellow_led:
+                yellow_led.off()
 
             if dist_cm < BUZZER_DISTANCE_CM:
                 if buzzer:
