@@ -670,8 +670,13 @@ def render_and_update_data_table(active_tab, n):
 
 
 @app.callback(
-    [Output('scan-map-graph', 'figure'), Output('polar-regression-graph', 'figure'), Output('polar-graph', 'figure'),
-    Output('time-series-graph', 'figure'), Output('environment-estimation-text', 'children')],
+    [
+        Output('scan-map-graph', 'figure'),
+        Output('polar-regression-graph', 'figure'),
+        Output('polar-graph', 'figure'),
+        Output('time-series-graph', 'figure'),
+        Output('environment-estimation-text', 'children')
+    ],
     [Input('interval-component-main', 'n_intervals')]
 )
 def update_all_graphs(n):
@@ -740,7 +745,7 @@ def update_all_graphs(n):
         [html.P(shape_estimation, className="fw-bold", style={'fontSize': '1.2em', 'color': 'darkgreen'}), html.Hr(),
          html.P(clear_path, className="fw-bold text-primary", style={'fontSize': '1.1em'}), html.Hr(),
          html.P(est_cart), html.Hr(), html.P(est_polar)])
-    return figs[0], figs[1], figs[2], figs[3], final_est_text, store_data
+    return figs[0], figs[1], figs[2], figs[3], final_est_text
 
 
 @app.callback(
