@@ -32,7 +32,7 @@ SENSOR_SCRIPT_PATH = os.path.join(PROJECT_ROOT_DIR, SENSOR_SCRIPT_FILENAME)
 SENSOR_SCRIPT_LOCK_FILE = '/tmp/sensor_scan_script.lock'
 SENSOR_SCRIPT_PID_FILE = '/tmp/sensor_scan_script.pid'
 
-DEFAULT_UI_SCAN_TOURS = 1.0 # Varsayılan 1 tur
+DEFAULT_UI_SCAN_DURATION_ANGLE = 270.0
 DEFAULT_UI_SCAN_STEP_ANGLE = 10.0
 DEFAULT_UI_BUZZER_DISTANCE = 10
 DEFAULT_UI_INVERT_MOTOR = False
@@ -52,20 +52,20 @@ control_panel = dbc.Card([
         dbc.Row([
             dbc.Col(html.Button('Başlat', id='start-scan-button', n_clicks=0,
                                 className="btn btn-success btn-lg w-100 mb-2"), width=6),
-            dbc.Col(html.Button('Durdur', id='stop-scan-button', n_clicks=0, # Buton metni
+            dbc.Col(html.Button('Taramayı Durdur', id='stop-scan-button', n_clicks=0,
                                 className="btn btn-danger btn-lg w-100 mb-2"), width=6)
         ]),
         html.Div(id='scan-status-message', style={'marginTop': '10px', 'minHeight': '40px', 'textAlign': 'center'},
                  className="mb-3"),
         html.Hr(),
         html.H6("Tarama Parametreleri:", className="mt-2"),
-        dbc.InputGroup([dbc.InputGroupText("Tarama Tur Sayısı", style={"width": "150px"}),
-                        dbc.Input(id="scan-tours-input", type="number", value=DEFAULT_UI_SCAN_TOURS, min=0.1, max=5, step=0.1)], className="mb-2"), # Adım 0.1 olabilir
+        dbc.InputGroup([dbc.InputGroupText("Tarama Açısı (°)", style={"width": "150px"}),
+                        dbc.Input(id="scan-duration-angle-input", type="number", value=DEFAULT_UI_SCAN_DURATION_ANGLE, min=10, max=720, step=1)], className="mb-2"),
         dbc.InputGroup([dbc.InputGroupText("Adım Açısı (°)", style={"width": "150px"}),
                         dbc.Input(id="step-angle-input", type="number", value=DEFAULT_UI_SCAN_STEP_ANGLE, min=0.1, max=45, step=0.1)], className="mb-2"),
         dbc.InputGroup([dbc.InputGroupText("Buzzer Mes. (cm)", style={"width": "150px"}),
                         dbc.Input(id="buzzer-distance-input", type="number", value=DEFAULT_UI_BUZZER_DISTANCE, min=0, max=200, step=1)], className="mb-2"),
-        dbc.InputGroup([dbc.InputGroupText("Motor Adım/Tur", style={"width": "150px"}), # Bu kalibrasyon ayarıdır
+        dbc.InputGroup([dbc.InputGroupText("Motor Adım/Tur", style={"width": "150px"}),
                         dbc.Input(id="steps-per-rev-input", type="number", value=DEFAULT_UI_STEPS_PER_REVOLUTION, min=500, max=10000, step=1)], className="mb-2"),
         dbc.Checkbox(id="invert-motor-checkbox", label="Motor Yönünü Ters Çevir", value=DEFAULT_UI_INVERT_MOTOR, className="mt-2 mb-2"),
     ])
@@ -119,18 +119,22 @@ app.layout = dbc.Container(fluid=True, children=[
 ])
 
 # ==============================================================================
-# --- YARDIMCI FONKSİYONLAR (Değişiklik yok, tam haliyle kalacak) ---
+# --- YARDIMCI FONKSİYONLAR ---
 # ==============================================================================
-def is_process_running(pid): # ... (içerik aynı)
+def is_process_running(pid):
     if pid is None: return False
     try: return psutil.pid_exists(pid)
     except Exception: return False
-def get_db_connection(): # ... (içerik aynı)
+
+def get_db_connection():
     try:
         if not os.path.exists(DB_PATH): return None, f"Veritabanı dosyası ({DB_PATH}) bulunamadı."
-        conn = sqlite3.connect(f'file:{DB_PATH}?mode=ro', uri=True, timeout=10); conn.execute("PRAGMA journal_mode=WAL;"); return conn, None
+        conn = sqlite3.connect(f'file:{DB_PATH}?mode=ro', uri=True, timeout=10)
+        conn.execute("PRAGMA journal_mode=WAL;")
+        return conn, None
     except Exception as e: return None, f"DB Bağlantı Hatası: {e}"
-def get_latest_scan_id_from_db(conn_param=None): # ... (içerik aynı)
+
+def get_latest_scan_id_from_db(conn_param=None):
     internal_conn, conn_to_use, latest_id = False, conn_param, None
     if not conn_to_use:
         conn_to_use, error = get_db_connection()
@@ -147,50 +151,80 @@ def get_latest_scan_id_from_db(conn_param=None): # ... (içerik aynı)
         finally:
             if internal_conn and conn_to_use: conn_to_use.close()
     return latest_id
-def add_scan_rays(fig, df): # ... (içerik aynı)
+
+def add_scan_rays(fig, df):
     x_lines, y_lines = [], []
     for _, row in df.iterrows(): x_lines.extend([0, row['y_cm'], None]); y_lines.extend([0, row['x_cm'], None])
     fig.add_trace(go.Scatter(x=x_lines, y=y_lines, mode='lines', line=dict(color='rgba(255,100,100,0.4)', dash='dash', width=1), showlegend=False))
-def add_sector_area(fig, df): # ... (içerik aynı)
+
+def add_sector_area(fig, df):
     poly_x, poly_y = df['y_cm'].tolist(), df['x_cm'].tolist()
     fig.add_trace(go.Scatter(x=[0] + poly_x, y=[0] + poly_y, mode='lines', fill='toself', fillcolor='rgba(255,0,0,0.15)', line=dict(color='rgba(255,0,0,0.4)'), name='Taranan Sektör'))
-def add_sensor_position(fig): # ... (içerik aynı)
+
+def add_sensor_position(fig):
     fig.add_trace(go.Scatter(x=[0], y=[0], mode='markers', marker=dict(size=12, symbol='circle', color='red'), name='Sensör'))
-def update_polar_graph(fig, df): # ... (içerik aynı)
+
+def update_polar_graph(fig, df):
     fig.add_trace(go.Scatterpolar(r=df['mesafe_cm'], theta=df['derece'], mode='lines+markers', name='Mesafe'))
     fig.update_layout(polar=dict(radialaxis=dict(visible=True, range=[0, 250]), angularaxis=dict(direction="clockwise", period=360, thetaunit = "degrees")))
-def update_time_series_graph(fig, df): # ... (içerik aynı)
-    if df.empty: fig.add_trace(go.Scatter(x=[], y=[], mode='lines', name='Veri Yok'))
+
+def update_time_series_graph(fig, df):
+    if df.empty:
+        fig.add_trace(go.Scatter(x=[], y=[], mode='lines', name='Veri Yok'))
     else:
         try:
-            df_s = df.sort_values(by='timestamp'); datetime_x = pd.to_datetime(df_s['timestamp'], unit='s', errors='coerce')
-            valid_indices = datetime_x.notnull(); datetime_x_valid, df_s_valid = datetime_x[valid_indices], df_s[valid_indices]
-            if df_s_valid.empty: fig.add_trace(go.Scatter(x=[], y=[], mode='lines', name='Geçerli Zaman Verisi Yok'))
-            else: fig.add_trace(go.Scatter(x=datetime_x_valid, y=df_s_valid['mesafe_cm'], mode='lines+markers', name='Mesafe'))
-        except Exception as e: print(f"Zaman serisi grafiği oluşturulurken HATA: {e}"); fig.add_trace(go.Scatter(x=[], y=[], mode='lines', name='Grafik Hatası'))
-    fig.update_layout(xaxis_title="Zaman", yaxis_title="Mesafe (cm)", xaxis=dict(tickformat='%H:%M:%S'))
-def find_clearest_path(df_valid): # ... (içerik aynı)
+            df_s = df.sort_values(by='timestamp')
+            datetime_x = pd.to_datetime(df_s['timestamp'], unit='s', errors='coerce')
+            
+            valid_indices = datetime_x.notnull()
+            datetime_x_valid = datetime_x[valid_indices]
+            df_s_valid = df_s[valid_indices]
+
+            if df_s_valid.empty:
+                fig.add_trace(go.Scatter(x=[], y=[], mode='lines', name='Geçerli Zaman Verisi Yok'))
+            else:
+                fig.add_trace(go.Scatter(x=datetime_x_valid, y=df_s_valid['mesafe_cm'], mode='lines+markers', name='Mesafe'))
+        
+        except Exception as e:
+            print(f"Zaman serisi grafiği oluşturulurken HATA: {e}")
+            fig.add_trace(go.Scatter(x=[], y=[], mode='lines', name='Grafik Hatası'))
+
+    fig.update_layout(
+        xaxis_title="Zaman", 
+        yaxis_title="Mesafe (cm)",
+        xaxis=dict(
+            tickformat='%H:%M:%S',  # Saat:Dakika:Saniye formatı
+            # nticks=10 # İsteğe bağlı olarak tick sayısını belirleyebilirsiniz
+        )
+    )
+
+def find_clearest_path(df_valid):
     if df_valid.empty: return "En açık yol için veri yok."
     try:
-        df_filtered = df_valid[df_valid['mesafe_cm'] > 0];
+        df_filtered = df_valid[df_valid['mesafe_cm'] > 0]
         if df_filtered.empty: return "Geçerli pozitif mesafe bulunamadı."
         cp = df_filtered.loc[df_filtered['mesafe_cm'].idxmax()]
         return f"En Açık Yol: {cp['derece']:.1f}° yönünde, {cp['mesafe_cm']:.1f} cm."
     except Exception: return "En açık yol hesaplanamadı."
-def analyze_polar_regression(df_valid): # ... (içerik aynı)
+
+def analyze_polar_regression(df_valid):
     if len(df_valid) < 5: return None, "Polar regresyon için yetersiz veri."
     X, y = df_valid[['derece']].values, df_valid['mesafe_cm'].values
     try:
-        ransac = RANSACRegressor(random_state=42); ransac.fit(X, y); slope = ransac.estimator_.coef_[0]
+        ransac = RANSACRegressor(random_state=42); ransac.fit(X, y)
+        slope = ransac.estimator_.coef_[0]
         inf = f"Yüzey dairesel/paralel (Eğim:{slope:.3f})" if abs(slope) < 0.1 else (f"Yüzey açı arttıkça uzaklaşıyor (Eğim:{slope:.3f})" if slope > 0 else f"Yüzey açı arttıkça yaklaşıyor (Eğim:{slope:.3f})")
         xr = np.array([df_valid['derece'].min(), df_valid['derece'].max()]).reshape(-1, 1)
         return {'x': xr.flatten(), 'y': ransac.predict(xr)}, "Polar Regresyon: " + inf
     except Exception: return None, "Polar regresyon hatası."
-def analyze_environment_shape(fig, df_valid): # ... (içerik aynı)
+
+def analyze_environment_shape(fig, df_valid):
     points_all = df_valid[['y_cm', 'x_cm']].to_numpy()
     if len(points_all) < 10: df_valid['cluster'] = -2; return "Analiz için yetersiz veri.", df_valid
-    db = DBSCAN(eps=15, min_samples=3).fit(points_all); df_valid['cluster'] = db.labels_
-    desc, unique_clusters = [], set(db.labels_); num_actual_clusters = len(unique_clusters - {-1})
+    db = DBSCAN(eps=15, min_samples=3).fit(points_all)
+    df_valid['cluster'] = db.labels_
+    desc, unique_clusters = [], set(db.labels_)
+    num_actual_clusters = len(unique_clusters - {-1})
     desc.append(f"{num_actual_clusters} potansiyel nesne kümesi bulundu." if num_actual_clusters > 0 else "Belirgin bir nesne kümesi bulunamadı (DBSCAN).")
     colors = plt.cm.get_cmap('viridis', len(unique_clusters) if len(unique_clusters) > 0 else 1)
     for k_label in unique_clusters:
@@ -198,22 +232,29 @@ def analyze_environment_shape(fig, df_valid): # ... (içerik aynı)
         if k_label == -1: color_val, point_size, name_val = 'rgba(128,128,128,0.3)', 5, 'Gürültü/Diğer'
         else:
             norm_k = (k_label / (len(unique_clusters - {-1}) - 1)) if len(unique_clusters - {-1}) > 1 else 0.0
-            raw_col = colors(np.clip(norm_k, 0.0, 1.0)); color_val = f'rgba({raw_col[0]*255:.0f},{raw_col[1]*255:.0f},{raw_col[2]*255:.0f},0.9)'
+            raw_col = colors(np.clip(norm_k, 0.0, 1.0))
+            color_val = f'rgba({raw_col[0]*255:.0f},{raw_col[1]*255:.0f},{raw_col[2]*255:.0f},0.9)'
             point_size, name_val = 8, f'Küme {k_label}'
         fig.add_trace(go.Scatter(x=cluster_points[:, 0], y=cluster_points[:, 1], mode='markers', marker=dict(color=color_val, size=point_size), name=name_val, customdata=[k_label] * len(cluster_points)))
     return " ".join(desc), df_valid
-def estimate_geometric_shape(df): # ... (içerik aynı)
+
+def estimate_geometric_shape(df):
     if len(df) < 15: return "Şekil tahmini için yetersiz nokta."
     try:
-        points = df[['x_cm', 'y_cm']].values; hull = ConvexHull(points); hull_area = hull.volume
-        min_x, max_x = df['x_cm'].min(), df['x_cm'].max(); min_y, max_y = df['y_cm'].min(), df['y_cm'].max()
+        points = df[['x_cm', 'y_cm']].values
+        hull = ConvexHull(points)
+        hull_area = hull.volume
+        min_x, max_x = df['x_cm'].min(), df['x_cm'].max()
+        min_y, max_y = df['y_cm'].min(), df['y_cm'].max()
         width, depth = max_y - min_y, max_x - min_x
         if width < 1 or depth < 1: return "Algılanan şekil çok küçük."
-        bbox_area = width * depth; fill_factor = hull_area / bbox_area if bbox_area > 0 else 0
+        bbox_area = width * depth
+        fill_factor = hull_area / bbox_area if bbox_area > 0 else 0
         aspect_ratio = width / depth
         if aspect_ratio > 5 and depth < 30: return "Tahmin: Geniş ve ince bir yüzey (Duvar)."
         if aspect_ratio < 0.25 and depth > 50: return "Tahmin: Dar ve derin bir boşluk (Koridor)."
-        if fill_factor > 0.80: return "Tahmin: Dolgun, dikdörtgensel bir nesne." if 0.8 > aspect_ratio or aspect_ratio > 1.25 else "Tahmin: Kutu veya dairesel bir nesne."
+        if fill_factor > 0.80:
+            return "Tahmin: Dolgun, dikdörtgensel bir nesne." if 0.8 > aspect_ratio or aspect_ratio > 1.25 else "Tahmin: Kutu veya dairesel bir nesne."
         if fill_factor < 0.4: return "Tahmin: İçbükey bir yapı (Köşe)."
         return "Tahmin: Düzensiz veya karmaşık bir yapı."
     except Exception: return "Geometrik analiz hatası."
@@ -224,39 +265,31 @@ def estimate_geometric_shape(df): # ... (içerik aynı)
 @app.callback(
     Output('scan-status-message', 'children'),
     [Input('start-scan-button', 'n_clicks')],
-    [State('scan-tours-input', 'value'), # ID GÜNCELLENDİ
+    [State('scan-duration-angle-input', 'value'),
      State('step-angle-input', 'value'),
      State('buzzer-distance-input', 'value'),
      State('invert-motor-checkbox', 'value'),
      State('steps-per-rev-input', 'value')],
     prevent_initial_call=True)
-def handle_start_scan_script(n_clicks_start, scan_tours_val, # ARGÜMAN İSMİ GÜNCELLENDİ
+def handle_start_scan_script(n_clicks_start, scan_duration_angle_val,
                              step_angle_val, buzzer_distance_val,
                              invert_motor_val, steps_per_rev_val):
     if n_clicks_start == 0: return no_update
-
-    scan_tours = scan_tours_val if scan_tours_val is not None else DEFAULT_UI_SCAN_TOURS
+    scan_duration_a = scan_duration_angle_val if scan_duration_angle_val is not None else DEFAULT_UI_SCAN_DURATION_ANGLE
     step_a = step_angle_val if step_angle_val is not None else DEFAULT_UI_SCAN_STEP_ANGLE
     buzzer_d = buzzer_distance_val if buzzer_distance_val is not None else DEFAULT_UI_BUZZER_DISTANCE
     invert_dir = bool(invert_motor_val)
     steps_per_rev = steps_per_rev_val if steps_per_rev_val is not None else DEFAULT_UI_STEPS_PER_REVOLUTION
-
-    if not (0.1 <= scan_tours <= 5.0):
-        return dbc.Alert("Tarama Tur Sayısı 0.1-5 arasında olmalı!", color="danger")
+    if not (10 <= scan_duration_a <= 720): return dbc.Alert("Tarama Açısı 10-720 derece arasında olmalı!", color="danger")
     if not (0.1 <= abs(step_a) <= 45): return dbc.Alert("Adım açısı 0.1-45 arasında olmalı!", color="danger")
     if not (0 <= buzzer_d <= 200): return dbc.Alert("Buzzer mesafesi 0-200cm arasında olmalı!", color="danger")
     if not (500 <= steps_per_rev <= 10000): return dbc.Alert("Motor Adım/Tur değeri 500-10000 arasında olmalı!", color="danger")
-
-    # scan_duration_degrees = scan_tours * 360.0 # Bu satır artık sensör betiğine gönderilecek olan tur sayısı ile değiştirildi.
-                                                # Sensör betiği bu tur sayısını yorumlayacak.
-
     pid = None
     if os.path.exists(SENSOR_SCRIPT_PID_FILE):
         try:
             with open(SENSOR_SCRIPT_PID_FILE, 'r') as pf: pid_str = pf.read().strip(); pid = int(pid_str) if pid_str else None
         except: pid = None
     if pid and is_process_running(pid): return dbc.Alert(f"Sensör betiği çalışıyor (PID:{pid}). Önce durdurun.", color="warning")
-
     for fp in [SENSOR_SCRIPT_LOCK_FILE, SENSOR_SCRIPT_PID_FILE]:
         if os.path.exists(fp):
             try: os.remove(fp)
@@ -264,22 +297,14 @@ def handle_start_scan_script(n_clicks_start, scan_tours_val, # ARGÜMAN İSMİ G
     try:
         py_exec = sys.executable
         if not os.path.exists(SENSOR_SCRIPT_PATH): return dbc.Alert(f"Sensör betiği bulunamadı: {SENSOR_SCRIPT_PATH}", color="danger")
-        
-        cmd = [py_exec, SENSOR_SCRIPT_PATH,
-               "--scan_tours", str(scan_tours), # <-- ARGÜMAN DEĞİŞTİ: scan_tours gönderiliyor
-               "--step_angle", str(step_a),
-               "--buzzer_distance", str(buzzer_d),
-               "--invert_motor_direction", str(invert_dir),
-               "--steps_per_rev", str(steps_per_rev)]
-        
+        cmd = [py_exec, SENSOR_SCRIPT_PATH, "--scan_duration_angle", str(scan_duration_a), "--step_angle", str(step_a), "--buzzer_distance", str(buzzer_d), "--invert_motor_direction", str(invert_dir), "--steps_per_rev", str(steps_per_rev)]
         log_path = os.path.join(PROJECT_ROOT_DIR, 'sensor_script.log')
         with open(log_path, 'w') as log_f: subprocess.Popen(cmd, start_new_session=True, stdout=log_f, stderr=log_f)
         time.sleep(2.5)
         if os.path.exists(SENSOR_SCRIPT_PID_FILE):
             with open(SENSOR_SCRIPT_PID_FILE, 'r') as pf_new: new_pid = pf_new.read().strip()
-            return dbc.Alert(f"Tarama başlatıldı (PID:{new_pid}). {scan_tours:.2f} tur.", color="success")
+            return dbc.Alert(f"Tarama başlatıldı (PID:{new_pid}).", color="success")
         else:
-            # (Hata logu gösterme mantığı önceki gibi)
             log_disp = f"PID dosyası ({SENSOR_SCRIPT_PID_FILE}) oluşmadı. "
             if os.path.exists(log_path):
                 try:
@@ -292,7 +317,7 @@ def handle_start_scan_script(n_clicks_start, scan_tours_val, # ARGÜMAN İSMİ G
     except Exception as e: return dbc.Alert(f"Sensör betiği başlatma hatası: {e}", color="danger")
 
 @app.callback(Output('scan-status-message', 'children', allow_duplicate=True), [Input('stop-scan-button', 'n_clicks')], prevent_initial_call=True)
-def handle_stop_scan_script(n): # ... (içerik aynı)
+def handle_stop_scan_script(n):
     if n == 0: return no_update
     pid_kill = None
     if os.path.exists(SENSOR_SCRIPT_PID_FILE):
@@ -324,7 +349,7 @@ def handle_stop_scan_script(n): # ... (içerik aynı)
     [Output('current-angle', 'children'), Output('current-distance', 'children'), Output('current-speed', 'children'),
      Output('current-distance-col', 'style'), Output('max-detected-distance', 'children')],
     [Input('interval-component-main', 'n_intervals')])
-def update_realtime_values(n): # ... (içerik aynı)
+def update_realtime_values(n):
     conn, err = get_db_connection()
     angle_s, dist_s, speed_s, max_dist_s = "--°", "-- cm", "-- cm/s", "-- cm"
     dist_style = {'padding': '10px', 'transition': 'background-color 0.5s ease', 'borderRadius': '5px'}
@@ -348,7 +373,7 @@ def update_realtime_values(n): # ... (içerik aynı)
 @app.callback(
     [Output('calculated-area', 'children'), Output('perimeter-length', 'children'), Output('max-width', 'children'),
      Output('max-depth', 'children')], [Input('interval-component-main', 'n_intervals')])
-def update_analysis_panel(n): # ... (içerik aynı)
+def update_analysis_panel(n):
     conn, err = get_db_connection()
     area, perim, width, depth = "-- cm²", "-- cm", "-- cm", "-- cm"
     if err or not conn: return area, perim, width, depth
@@ -369,7 +394,7 @@ def update_analysis_panel(n): # ... (içerik aynı)
 @app.callback([Output('script-status', 'children'), Output('script-status', 'className'), Output('cpu-usage', 'value'),
                Output('cpu-usage', 'label'), Output('ram-usage', 'value'), Output('ram-usage', 'label')],
               [Input('interval-component-system', 'n_intervals')])
-def update_system_card(n): # ... (içerik aynı)
+def update_system_card(n):
     stat_txt, stat_cls, pid_v = "Beklemede", "text-secondary", None
     if os.path.exists(SENSOR_SCRIPT_PID_FILE):
         try:
@@ -381,9 +406,9 @@ def update_system_card(n): # ... (içerik aynı)
     return stat_txt, stat_cls, cpu, f"{cpu:.1f}%", ram, f"{ram:.1f}%"
 
 @app.callback(Output('download-csv', 'data'), [Input('export-csv-button', 'n_clicks')], prevent_initial_call=True)
-def export_csv_callback(n): # ... (içerik aynı)
+def export_csv_callback(n):
     if n == 0: return no_update
-    conn, _ = get_db_connection();
+    conn, _ = get_db_connection()
     if not conn: return no_update
     try:
         lid = get_latest_scan_id_from_db(conn)
@@ -395,7 +420,7 @@ def export_csv_callback(n): # ... (içerik aynı)
     return no_update
 
 @app.callback(Output('download-excel', 'data'), [Input('export-excel-button', 'n_clicks')], prevent_initial_call=True)
-def export_excel_callback(n): # ... (içerik aynı)
+def export_excel_callback(n):
     if n == 0: return no_update
     conn, _ = get_db_connection()
     if not conn: return no_update
@@ -415,7 +440,7 @@ def export_excel_callback(n): # ... (içerik aynı)
 
 @app.callback(Output('tab-content-datatable', 'children'),
               [Input('visualization-tabs-main', 'active_tab'), Input('interval-component-main', 'n_intervals')])
-def render_and_update_data_table(active_tab, n): # ... (içerik aynı)
+def render_and_update_data_table(active_tab, n):
     if active_tab != "tab-datatable": return None
     conn, err = get_db_connection()
     if err or not conn: return dbc.Alert(f"DB bağlantı hatası:{err}", color="danger")
@@ -434,38 +459,34 @@ def render_and_update_data_table(active_tab, n): # ... (içerik aynı)
     [Output('scan-map-graph', 'figure'), Output('polar-regression-graph', 'figure'), Output('polar-graph', 'figure'),
      Output('time-series-graph', 'figure'), Output('environment-estimation-text', 'children'),
      Output('clustered-data-store', 'data')], [Input('interval-component-main', 'n_intervals')])
-def update_all_graphs(n): # ... (içerik aynı, debug printleri dahil)
+def update_all_graphs(n):
     figs = [go.Figure() for _ in range(4)]
     est_cart, est_polar, clear_path, shape_estimation = "Veri bekleniyor...", "Veri bekleniyor...", "", "Veri bekleniyor..."
     id_plot, store_data = None, None
     conn, err_conn = get_db_connection()
-    if err_conn or not conn: est_cart = f"DB Bağlantı Hatası: {err_conn}"; print(f"DB Bağlantı Hatası (update_all_graphs): {err_conn}")
+    if err_conn or not conn: est_cart = f"DB Bağlantı Hatası: {err_conn}"
     else:
         try:
-            id_plot = get_latest_scan_id_from_db(conn); print(f"--- DEBUG: update_all_graphs --- \nTarama ID: {id_plot}")
+            id_plot = get_latest_scan_id_from_db(conn)
             if id_plot:
                 df_pts = pd.read_sql_query(f"SELECT x_cm,y_cm,derece,mesafe_cm,timestamp FROM scan_points WHERE scan_id={id_plot} ORDER BY derece ASC", conn)
-                print(f"Veritabanından {len(df_pts)} nokta okundu.")
                 if not df_pts.empty:
-                    df_val = df_pts[(df_pts['mesafe_cm'] > 0.1) & (df_pts['mesafe_cm'] < 300.0)].copy(); print(f"Filtreleme sonrası {len(df_val)} geçerli nokta kaldı.")
+                    df_val = df_pts[(df_pts['mesafe_cm'] > 0.1) & (df_pts['mesafe_cm'] < 300.0)].copy()
                     if len(df_val) >= 2:
-                        print(f"df_val (ilk 5 satır) zaman serisi için:\n{df_val.head()}");
-                        if 'timestamp' not in df_val.columns: print("HATA: df_val içinde 'timestamp' sütunu bulunamadı!")
-                        else: print(f"df_val['timestamp'] veri tipi: {df_val['timestamp'].dtype}")
                         add_scan_rays(figs[0], df_val); add_sector_area(figs[0], df_val)
-                        est_cart, df_clus = analyze_environment_shape(figs[0], df_val); store_data = df_clus.to_json(orient='split')
+                        est_cart, df_clus = analyze_environment_shape(figs[0], df_val)
+                        store_data = df_clus.to_json(orient='split')
                         line_data, est_polar = analyze_polar_regression(df_val)
                         figs[1].add_trace(go.Scatter(x=df_val['derece'], y=df_val['mesafe_cm'], mode='markers', name='Noktalar'))
                         if line_data: figs[1].add_trace(go.Scatter(x=line_data['x'], y=line_data['y'], mode='lines', name='Regresyon', line=dict(color='red', width=3)))
                         clear_path, shape_estimation = find_clearest_path(df_val), estimate_geometric_shape(df_val)
                         update_polar_graph(figs[2], df_val); update_time_series_graph(figs[3], df_val)
-                    else: est_cart = "Analiz için yetersiz geçerli nokta bulunamadı."
-                else: est_cart = f"Tarama ID {id_plot} için veritabanında nokta bulunamadı."
-            else: est_cart = "Aktif veya tamamlanmış tarama bulunamadı. Lütfen yeni bir tarama başlatın."
-        except Exception as e: import traceback; print(f"KRİTİK HATA: Grafikleme sırasında beklenmedik bir hata oluştu: {e}\n{traceback.format_exc()}"); est_cart = f"Grafikleme Hatası: {e}"
+                    else: est_cart = "Analiz için yetersiz geçerli nokta."
+                else: est_cart = f"Tarama ID {id_plot} için nokta yok."
+            else: est_cart = "Tarama başlatın."
+        except Exception as e: import traceback; est_cart = f"Grafikleme Hatası: {e}\n{traceback.format_exc()}"
         finally:
             if conn: conn.close()
-            print("--- END DEBUG: update_all_graphs ---")
     for fig_idx, fig in enumerate(figs):
         if not fig.data: add_sensor_position(fig)
         elif fig_idx == 0 and not any(trace.name == 'Sensör' for trace in fig.data): add_sensor_position(fig)
@@ -484,7 +505,7 @@ def update_all_graphs(n): # ... (içerik aynı, debug printleri dahil)
 @app.callback(
     [Output("cluster-info-modal", "is_open"), Output("modal-title", "children"), Output("modal-body", "children")],
     [Input("scan-map-graph", "clickData")], [State("clustered-data-store", "data")], prevent_initial_call=True)
-def display_cluster_info(clickData, stored_data): # ... (içerik aynı)
+def display_cluster_info(clickData, stored_data):
     if not clickData or not stored_data: return False, no_update, no_update
     try:
         df_clus = pd.read_json(stored_data, orient='split')
