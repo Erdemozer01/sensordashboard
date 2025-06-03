@@ -698,11 +698,7 @@ def update_all_graphs(n):
                         add_scan_rays(figs[0], df_val);
                         add_sector_area(figs[0], df_val)
                         est_cart, df_clus = analyze_environment_shape(figs[0], df_val)
-                        store_data = {
-                            'scan_id': id_plot,
-                            'clustered_data': df_clus.to_json(orient='split'),
-                            'ai_comment': None
-                        }
+                        store_data = df_clus.to_json(orient='split')
                         line_data, est_polar = analyze_polar_regression(df_val)
                         figs[1].add_trace(
                             go.Scatter(x=df_val['derece'], y=df_val['mesafe_cm'], mode='markers', name='Noktalar'))
