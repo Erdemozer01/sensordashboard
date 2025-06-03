@@ -671,9 +671,9 @@ def render_and_update_data_table(active_tab, n):
 
 
 @app.callback(
-    [Output('scan-map-graph', 'figure'), Output('polar-regression-graph', 'figure'), Output('polar-graph', 'figure'),
-     Output('time-series-graph', 'figure'), Output('environment-estimation-text', 'children'),]
-    [Input('interval-component-main', 'n_intervals')]
+    Output('scan-map-graph', 'figure'), Output('polar-regression-graph', 'figure'), Output('polar-graph', 'figure'),
+     Output('time-series-graph', 'figure'), Output('environment-estimation-text', 'children'),
+    Input('interval-component-main', 'n_intervals')
 )
 def update_all_graphs(n):
     figs = [go.Figure() for _ in range(4)]
