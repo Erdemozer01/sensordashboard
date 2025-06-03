@@ -59,7 +59,7 @@ def init_hardware():
     if hardware_ok:
         try:
             lcd = CharLCD(i2c_expander=LCD_PORT_EXPANDER, address=LCD_I2C_ADDRESS, port=I2C_PORT, cols=LCD_COLS, rows=LCD_ROWS, dotsize=8, charmap='A02', auto_linebreaks=True)
-            lcd.clear(); lcd.cursor_pos = (0,0); lcd.write_string("Tarama Hazir".ljust(LCD_COLS)); time.sleep(1.5)
+            lcd.clear(); lcd.cursor_pos = (0,0); lcd.write_string("Merhaba".ljust(LCD_COLS)); time.sleep(1.5); lcd.cursor_pos(1,0); lcd.write_string("Ben Dream Pi".ljust(LCD_COLS)); time.sleep(2.0)
         except Exception as e_lcd: print(f"[{pid}] LCD Başlatma UYARI: {e_lcd}"); lcd = None
     return hardware_ok
 
@@ -224,6 +224,32 @@ if __name__ == "__main__":
             x_cm, y_cm = dist_cm * math.cos(angle_rad_for_calc), dist_cm * math.sin(angle_rad_for_calc)
 
             print(f"  Okuma: Mantıksal {current_logical_angle:.1f}° (Fiz: {current_motor_angle_global:.1f}°) -> {dist_cm:.1f} cm")
+
+
+            # Buzzer ve LCD kontrolü birleştirildi
+            if dist_cm < BUZZER_DISTANCE_CM:  # BUZZER_DISTANCE_CM varsayılan olarak 10'dur
+                if buzzer:
+                    buzzer.on()
+                if lcd:
+                    try:
+                        lcd.cursor_pos = (0, 0)
+                        lcd.write_string("dokunma bana".ljust(LCD_COLS))  # 1. satıra uyarı metni
+                        lcd.cursor_pos = (1, 0)
+                        lcd.write_string(f"Mesafe: {dist_cm:<5.1f}cm".ljust(LCD_COLS))  # 2. satıra mesafe
+                    except Exception:
+                        pass
+            else:  # Mesafe tehlike sınırının dışındaysa
+                if buzzer:
+                    buzzer.off()
+                if lcd:
+                    try:
+                        lcd.cursor_pos = (0, 0)
+                        lcd.write_string(f"Aci(L):{current_logical_angle:<6.1f}".ljust(LCD_COLS))  # Normal Açı bilgisi
+                        lcd.cursor_pos = (1, 0)
+                        lcd.write_string(f"Mesafe: {dist_cm:<5.1f}cm".ljust(LCD_COLS))  # Normal Mesafe bilgisi
+                    except Exception:
+                        pass
+
 
             if lcd:
                 try:
