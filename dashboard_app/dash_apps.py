@@ -255,10 +255,8 @@ visualization_tabs = dbc.Tabs(
 
         # === 2. VERİ TABLOSU SEKMESİ ===
         dbc.Tab(
-            dbc.Loading(
-                id="loading-datatable",
-                children=[html.Div(id='tab-content-datatable', style={'marginTop': '20px'})]
-            ),
+            dcc.Loading(id="loading-datatable", children=[html.Div(id='tab-content-datatable')]),
+
             label="Veri Tablosu",  # Ana sekme başlığı
             tab_id="tab-datatable"
         )
