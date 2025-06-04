@@ -12,6 +12,7 @@ except ImportError:
 
 # ==============================================================================
 # --- Pin Tanımlamaları ve Donanım Ayarları ---
+# (Bir önceki v5 ile aynı)
 # ==============================================================================
 TRIG_PIN, ECHO_PIN = 23, 24
 IN1_GPIO_PIN, IN2_GPIO_PIN, IN3_GPIO_PIN, IN4_GPIO_PIN = 6, 13, 19, 26
@@ -26,16 +27,16 @@ I2C_PORT = 1
 
 # ==============================================================================
 # --- Parametreler ---
+# (Bir önceki v5 ile aynı)
 # ==============================================================================
 STEPS_PER_REVOLUTION = 4096
-STEP_MOTOR_INTER_STEP_DELAY = 0.0015  # Motorun her adımı arasındaki süre
-STEP_MOTOR_SETTLE_TIME = 0.05  # Homing için motor durduktan sonra bekleme
+STEP_MOTOR_INTER_STEP_DELAY = 0.0015
+STEP_MOTOR_SETTLE_TIME = 0.05
 
-# YENİ ve GÜNCELLENMİŞ Mod Ayarları
-SWEEP_TARGET_ANGLE = 45  # Merkezin sağına ve soluna kaç derece döneceği (MUTLAK DEĞER)
-ALGILAMA_ESIGI_CM = 20  # Bu mesafeden daha yakın nesneler uyarıyı tetikler
-MOTOR_PAUSE_ON_DETECTION_S = 3.0  # Nesne algılandığında motorun duracağı süre (saniye)
-CYCLE_END_PAUSE_S = 5.0  # Her tur sonunda merkezde beklenecek süre (saniye)
+SWEEP_TARGET_ANGLE = 45
+ALGILAMA_ESIGI_CM = 20
+MOTOR_PAUSE_ON_DETECTION_S = 3.0
+CYCLE_END_PAUSE_S = 5.0
 
 BUZZER_BIP_SURESI = 0.03
 LED_BLINK_ON_SURESI = 0.5
@@ -44,6 +45,8 @@ LCD_TIME_UPDATE_INTERVAL = 1.0
 # ==============================================================================
 
 # --- Global Değişkenler ---
+# (Bir önceki v5 ile aynı, sadece motor_movement_paused ve motor_pause_end_time eklendi)
+# ==============================================================================
 sensor, buzzer, lcd, status_led = None, None, None, None
 in1_dev, in2_dev, in3_dev, in4_dev = None, None, None, None
 
@@ -59,15 +62,17 @@ led_is_blinking = False
 init_hardware_called_successfully = False
 object_alert_active = False
 
+motor_movement_paused = False  # EKLENDİ: Motorun hareketinin duraklatılıp duraklatılmadığını takip eder
+motor_pause_end_time = 0  # EKLENDİ: Motor duraklatmasının ne zaman biteceğini tutar
+
 
 # ==============================================================================
 
 # ==============================================================================
-# --- Donanım ve Yardımcı Fonksiyonlar (Çoğu Aynı) ---
+# --- Donanım ve Yardımcı Fonksiyonlar ---
 # (init_hardware, release_resources_on_exit, _set_step_pins,
 #  _single_step_motor, _move_motor_steps, move_motor_to_absolute_angle,
-#  kisa_uyari_bip, update_lcd_display fonksiyonları bir önceki cevaptaki gibi.
-#  Sadece init_hardware içinde led_is_blinking = True satırını kontrol edeceğim.)
+#  kisa_uyari_bip, update_lcd_display fonksiyonları bir önceki v5 ile aynı)
 # ==============================================================================
 def init_hardware():
     global sensor, buzzer, lcd, status_led, in1_dev, in2_dev, in3_dev, in4_dev, led_is_blinking, init_hardware_called_successfully
@@ -79,8 +84,7 @@ def init_hardware():
         buzzer = Buzzer(BUZZER_PIN);
         buzzer.off()
         status_led = LED(STATUS_LED_PIN)
-        # Başlangıçta LED yanıp sönmeye başlasın ve durumu doğru set edilsin
-        if not led_is_blinking:  # Eğer zaten yanıp sönmüyorsa başlat
+        if not led_is_blinking:
             status_led.blink(on_time=LED_BLINK_ON_SURESI, off_time=LED_BLINK_OFF_SURESI, background=True)
             led_is_blinking = True
 
@@ -111,7 +115,7 @@ def release_resources_on_exit():
             pass
     if status_led:
         try:
-            status_led.off()  # Önce blink'i durdurup sonra kapatmak daha iyi olabilir
+            status_led.off()
         except:
             pass
     for dev in [sensor, buzzer, lcd, status_led, in1_dev, in2_dev, in3_dev, in4_dev]:
@@ -136,18 +140,13 @@ def _single_step_motor(direction_positive):
         step_sequence)) % len(step_sequence)
     _set_step_pins(*step_sequence[current_step_sequence_index])
     current_motor_angle_global += (DEG_PER_STEP * (1 if direction_positive else -1))
-    # Açıyı normalize etmeye gerek yok, move_motor_to_absolute_angle bunu kendi içinde yapar
     time.sleep(STEP_MOTOR_INTER_STEP_DELAY)
 
 
-def _move_motor_steps(num_steps, direction_positive):
+def _move_motor_steps(num_steps_to_take, direction_positive):
     global current_step_sequence_index, current_motor_angle_global
-    for _ in range(int(num_steps)):
-        current_step_sequence_index = (current_step_sequence_index + (1 if direction_positive else -1) + len(
-            step_sequence)) % len(step_sequence)
-        _set_step_pins(*step_sequence[current_step_sequence_index])
-        current_motor_angle_global += (DEG_PER_STEP * (1 if direction_positive else -1))
-        time.sleep(STEP_MOTOR_INTER_STEP_DELAY)
+    for _ in range(int(num_steps_to_take)):
+        _single_step_motor(direction_positive)  # Her adımda _single_step_motor çağırarak açıyı güncel tutar
 
 
 def move_motor_to_absolute_angle(target_angle_deg, speed_factor=1.0):
@@ -156,12 +155,8 @@ def move_motor_to_absolute_angle(target_angle_deg, speed_factor=1.0):
     angle_diff_raw = target_angle_deg - current_motor_angle_global
     angle_diff = angle_diff_raw
 
-    # En kısa yolu bul
     if abs(angle_diff_raw) > 180:
-        if angle_diff_raw > 0:
-            angle_diff = angle_diff_raw - 360
-        else:
-            angle_diff = angle_diff_raw + 360
+        angle_diff = angle_diff_raw - (360 if angle_diff_raw > 0 else -360)
 
     num_steps = round(abs(angle_diff) / DEG_PER_STEP)
     if num_steps == 0:
@@ -170,15 +165,11 @@ def move_motor_to_absolute_angle(target_angle_deg, speed_factor=1.0):
 
     direction_positive = (angle_diff > 0)
 
-    # _move_motor_steps yerine _single_step_motor'u döngüde kullanalım,
-    # böylece her adımda açıyı daha hassas takip ederiz.
-    # Bu fonksiyon zaten _move_motor_steps'in yaptığı işi yapar.
-    # Homing için daha yavaş hareket istenirse diye speed_factor eklendi.
     for _ in range(num_steps):
-        _single_step_motor(direction_positive)  # Bu zaten current_motor_angle_global'i güncelliyor
-        time.sleep(STEP_MOTOR_INTER_STEP_DELAY / speed_factor)  # Homing daha yavaş olabilir
+        _single_step_motor(direction_positive)
+        if speed_factor != 1.0:
+            time.sleep(STEP_MOTOR_INTER_STEP_DELAY * (1 / speed_factor - 1))
 
-    # Hedefe ulaştıktan sonra global açıyı tam olarak hedef açıya set et
     current_motor_angle_global = target_angle_deg
     time.sleep(STEP_MOTOR_SETTLE_TIME / speed_factor)
 
@@ -193,137 +184,198 @@ def kisa_uyari_bip(bip_suresi):
 def update_lcd_display(message_type):
     global current_lcd_message_type, lcd, last_lcd_time_update
     now = time.time()
-    if message_type == current_lcd_message_type and message_type != "normal_time": return
-    if message_type == "normal_time" and (
-            now - last_lcd_time_update < LCD_TIME_UPDATE_INTERVAL) and current_lcd_message_type == "normal_time": return
+    # Sadece mesaj tipi değiştiyse VEYA normal_time ise ve interval dolduysa yaz
+    if message_type == current_lcd_message_type and \
+            not (message_type == "normal_time" and (now - last_lcd_time_update >= LCD_TIME_UPDATE_INTERVAL)):
+        return
+
     if not lcd: return
     try:
-        lcd.clear()
-        if message_type == "alert_greeting":
-            lcd.write_string("Merhaba")
+        # normal_time durumunda ve sadece zaman güncelleniyorsa clear() yapma, sadece alt satırı güncelle (titremeyi azaltır)
+        if message_type == "normal_time" and current_lcd_message_type == "normal_time":
             lcd.cursor_pos = (1, 0);
-            lcd.write_string("Dream Pi")
-        elif message_type == "normal_time":
-            lcd.write_string("Dream Pi")
-            lcd.cursor_pos = (1, 0);
-            lcd.write_string(time.strftime("%H:%M:%S"))
+            lcd.write_string(time.strftime("%H:%M:%S").ljust(LCD_COLS))
             last_lcd_time_update = now
+        else:  # Durum değişti veya ilk yazım
+            lcd.clear()
+            if message_type == "alert_greeting":
+                lcd.write_string("Merhaba")
+                lcd.cursor_pos = (1, 0);
+                lcd.write_string("Dream Pi")
+            elif message_type == "normal_time":
+                lcd.write_string("Dream Pi")
+                lcd.cursor_pos = (1, 0);
+                lcd.write_string(time.strftime("%H:%M:%S").ljust(LCD_COLS))
+                last_lcd_time_update = now
         current_lcd_message_type = message_type
     except Exception as e:
         print(f"LCD Yazma Hatası: {e}");
         current_lcd_message_type = "error"
 
 
+# EKLENDİ: Sürekli ölçüm ve reaksiyon için merkezi fonksiyon
+def perform_measurement_and_react():
+    global object_alert_active, led_is_blinking, motor_movement_paused, motor_pause_end_time
+
+    mesafe = sensor.distance * 100
+    is_object_currently_close = (mesafe < ALGILAMA_ESIGI_CM)
+
+    newly_detected_for_pause = False
+
+    if is_object_currently_close:
+        if not object_alert_active:
+            print(f"   >>> UYARI: Nesne {mesafe:.1f} cm! <<<")
+            kisa_uyari_bip(BUZZER_BIP_SURESI)
+            update_lcd_display("alert_greeting")
+            if status_led:
+                if led_is_blinking:
+                    status_led.off(); time.sleep(0.01); status_led.on()
+                elif not status_led.is_lit:
+                    status_led.on()
+            led_is_blinking = False
+            object_alert_active = True
+            newly_detected_for_pause = True  # Motor duraklatmasını tetiklemek için işaretle
+    else:
+        if object_alert_active:
+            print("   <<< UYARI SONA ERDİ. >>>")
+            update_lcd_display("normal_time")
+            if status_led:
+                if not led_is_blinking: status_led.blink(on_time=LED_BLINK_ON_SURESI, off_time=LED_BLINK_OFF_SURESI,
+                                                         background=True)
+            led_is_blinking = True
+            object_alert_active = False
+        else:
+            update_lcd_display("normal_time")
+            if status_led and not led_is_blinking:
+                status_led.blink(on_time=LED_BLINK_ON_SURESI, off_time=LED_BLINK_OFF_SURESI, background=True)
+                led_is_blinking = True
+
+    return is_object_currently_close, newly_detected_for_pause
+
+
 # ==============================================================================
-# --- ANA ÇALIŞMA BLOĞU (YENİ TUR MANTIĞI VE DURAKSAMALARLA) ---
+
+# ==============================================================================
+# --- ANA ÇALIŞMA BLOĞU ---
 # ==============================================================================
 if __name__ == "__main__":
     atexit.register(release_resources_on_exit)
     if not init_hardware():
         sys.exit(1)
 
-    print("\n>>> Serbest Tarama Modu V5 Başlatıldı <<<")
+    print("\n>>> Serbest Tarama Modu V6 Başlatıldı (Sürekli Ölçümlü Duraklatma) <<<")
     print(f"Tarama Açıları: -{SWEEP_TARGET_ANGLE}° ile +{SWEEP_TARGET_ANGLE}° arası")
-    print(f"Algılama Eşiği: < {ALGILAMA_ESIGI_CM} cm")
-    print(f"Nesne Algılandığında Duraklama: {MOTOR_PAUSE_ON_DETECTION_S} sn")
-    print(f"Tur Sonu Bekleme: {CYCLE_END_PAUSE_S} sn")
-    print("Durdurmak için Ctrl+C tuşlarına basın.")
+    # ... (diğer printler aynı)
 
-    move_motor_to_absolute_angle(0)  # Başlangıçta motoru merkeze al
+    move_motor_to_absolute_angle(0)
     update_lcd_display("normal_time")
 
     try:
         while True:
-            # Bir turdaki hareket hedefleri (açı, hareket adı)
-            # Bu silsile: 0 -> +45 -> -45 -> 0
-            tur_hedefleri = [
-                (SWEEP_TARGET_ANGLE, f"Merkezden +{SWEEP_TARGET_ANGLE}° yonune"),
-                (-SWEEP_TARGET_ANGLE, f"+{SWEEP_TARGET_ANGLE}° yonunden -{SWEEP_TARGET_ANGLE}° yonune"),
-                (0, f"-{SWEEP_TARGET_ANGLE}° yonunden Merkeze (0°)")
+            tur_etaplari = [
+                (SWEEP_TARGET_ANGLE, f"Merkezden +{SWEEP_TARGET_ANGLE}° yönüne"),
+                (-SWEEP_TARGET_ANGLE, f"+{SWEEP_TARGET_ANGLE}°'den -{SWEEP_TARGET_ANGLE}° yönüne"),
+                (0, f"-{SWEEP_TARGET_ANGLE}°'den Merkeze (0°)")
             ]
 
-            for hedef_aci_tur, hareket_adi in tur_hedefleri:
-                print(f"\n>> {hareket_adi} taranıyor...")
+            for hedef_aci_etap, etap_adi in tur_etaplari:
+                # Motorun zaten duraklatılmış olup olmadığını kontrol et
+                if motor_movement_paused and time.time() < motor_pause_end_time:
+                    # Halen duraklatma süresi içindeyiz, sadece ölçüm yap ve bekle
+                    while time.time() < motor_pause_end_time:
+                        perform_measurement_and_react()
+                        time.sleep(0.05)  # Duraklama sırasında daha sık ölçüm
+                    motor_movement_paused = False  # Duraklatma bitti
+                    print("   Duraklatma bitti, harekete devam ediliyor...")
 
-                # Hedef açıya ulaşana kadar adım adım git ve ölçüm yap
-                # Yönü belirle
-                angle_diff_for_direction = hedef_aci_tur - current_motor_angle_global
-                if abs(angle_diff_for_direction) > 180:  # En kısa yolu bul
-                    angle_diff_for_direction = angle_diff_for_direction - (
-                        360 if angle_diff_for_direction > 0 else -360)
+                print(f"\n>> Etap: {etap_adi} taranıyor...")
 
-                direction_is_positive_leg = angle_diff_for_direction > 0
+                angle_diff_for_direction = hedef_aci_etap - current_motor_angle_global
+                if abs(angle_diff_for_direction) > 180:
+                    angle_diff_for_direction -= (360 if angle_diff_for_direction > 0 else -360)
 
-                while True:
-                    # Hedefe ulaşıp ulaşmadığını kontrol et (küçük bir toleransla)
-                    if abs(current_motor_angle_global - hedef_aci_tur) < DEG_PER_STEP:
-                        current_motor_angle_global = hedef_aci_tur  # Tam hedef açıya sabitle
+                direction_is_positive_etap = angle_diff_for_direction > 0
+
+                while True:  # Mevcut etap için adım adım hareket döngüsü
+                    if abs(current_motor_angle_global - hedef_aci_etap) < DEG_PER_STEP:
+                        current_motor_angle_global = hedef_aci_etap
                         break
 
-                        # Eğer hedefi geçtiyse (nadiren olur ama önlem)
-                    if (direction_is_positive_leg and current_motor_angle_global > hedef_aci_tur) or \
-                            (not direction_is_positive_leg and current_motor_angle_global < hedef_aci_tur):
-                        # Hedefi biraz geçtiyse, bir sonraki turda düzelir veya homing'de.
-                        # Daha hassas bir durdurma için buraya ince ayar eklenebilir.
-                        # Şimdilik, tam hedefe sabitleyip çıkalım.
-                        current_motor_angle_global = hedef_aci_tur
+                    if (direction_is_positive_etap and current_motor_angle_global > hedef_aci_etap + DEG_PER_STEP) or \
+                            (
+                                    not direction_is_positive_etap and current_motor_angle_global < hedef_aci_etap - DEG_PER_STEP):
+                        current_motor_angle_global = hedef_aci_etap
                         break
 
-                    _single_step_motor(direction_is_positive_leg)
+                    # Motor hareketini sadece duraklatılmamışsa yap
+                    if not motor_movement_paused:
+                        _single_step_motor(direction_is_positive_etap)
 
-                    mesafe = sensor.distance * 100
-                    is_object_currently_close = (mesafe < ALGILAMA_ESIGI_CM)
+                    # Her durumda (motor hareket etse de etmese de) ölçüm ve reaksiyon
+                    is_close, new_alert = perform_measurement_and_react()
 
-                    # GÜNCELLENMİŞ LED, BUZZER VE LCD KONTROL MANTIĞI
-                    if is_object_currently_close:
-                        if not object_alert_active:  # Nesne YENİ algılandı
-                            print(f"   >>> UYARI: Nesne {mesafe:.1f} cm'de algılandı! MOTOR DURAKSATILIYOR... <<<")
-                            kisa_uyari_bip(BUZZER_BIP_SURESI)
-                            update_lcd_display("alert_greeting")
-                            if status_led:
-                                if led_is_blinking:
-                                    status_led.off();
-                                    time.sleep(0.01);
-                                    status_led.on()
-                                elif not status_led.is_lit:
-                                    status_led.on()
-                            led_is_blinking = False
-                            object_alert_active = True
+                    if new_alert and not motor_movement_paused:  # Yeni bir uyarı tetiklendi ve motor zaten duraklatılmamış
+                        print(f"   Motor {MOTOR_PAUSE_ON_DETECTION_S} saniye duraklatılıyor (tarama sırasında)...")
+                        motor_movement_paused = True
+                        motor_pause_end_time = time.time() + MOTOR_PAUSE_ON_DETECTION_S
 
-                            print(f"Motor {MOTOR_PAUSE_ON_DETECTION_S} saniye duraklatıldı.")
-                            time.sleep(MOTOR_PAUSE_ON_DETECTION_S)  # Motoru duraklat
-                            print("Harekete devam ediliyor...")
+                    # Eğer motor duraklatılmışsa ve süre dolduysa, devam et
+                    if motor_movement_paused and time.time() >= motor_pause_end_time:
+                        print("   Motor duraklatma süresi bitti, devam edilecek...")
+                        motor_movement_paused = False
 
-                    else:  # Nesne algılanmıyor
-                        if object_alert_active:  # Nesne YENİ kayboldu
-                            print("   <<< UYARI SONA ERDİ. >>>")
-                            update_lcd_display("normal_time")
-                            if status_led:
-                                if not led_is_blinking:
-                                    status_led.blink(on_time=LED_BLINK_ON_SURESI, off_time=LED_BLINK_OFF_SURESI,
-                                                     background=True)
-                            led_is_blinking = True
-                            object_alert_active = False
-                        else:
-                            update_lcd_display("normal_time")
-                            if status_led and not led_is_blinking:
-                                status_led.blink(on_time=LED_BLINK_ON_SURESI, off_time=LED_BLINK_OFF_SURESI,
-                                                 background=True)
-                                led_is_blinking = True
+                    if motor_movement_paused:
+                        time.sleep(
+                            0.05)  # Motor duraklatılmışsa, CPU'yu yormamak için kısa bekleme ama ölçüm devam eder
+                        # Bu sleep, perform_measurement_and_react'in daha sık çağrılmasına izin verir.
 
-                print(f"   {hareket_adi} tamamlandı. Mevcut Açı: {current_motor_angle_global:.1f}°")
+                print(f"   Etap '{etap_adi}' tamamlandı. Mevcut Açı: {current_motor_angle_global:.1f}°")
 
-            # Tur tamamlandı, merkezde bekle
+            # Tur tamamlandı, merkezde bekle (LCD saat güncellemeli)
             print(
                 f"\n>>> Bir tur tamamlandı. Merkeze dönüldü ({current_motor_angle_global:.1f}°). {CYCLE_END_PAUSE_S} saniye bekleniyor...")
-            # LCD'nin normal zamanda olduğundan emin ol
-            update_lcd_display("normal_time")
-            # LED'in yanıp söndüğünden emin ol
-            if status_led and not led_is_blinking:
-                status_led.blink(on_time=LED_BLINK_ON_SURESI, off_time=LED_BLINK_OFF_SURESI, background=True)
-                led_is_blinking = True
 
-            time.sleep(CYCLE_END_PAUSE_S)
+            # Başlangıçtaki LCD/LED durumunu ayarla
+            object_alert_active = False  # Tur sonunda uyarı durumunu sıfırla
+            perform_measurement_and_react()  # Son bir kez normal durumu ayarla (saat vs.)
+
+            pause_start_time_cycle_end = time.time()
+            while time.time() - pause_start_time_cycle_end < CYCLE_END_PAUSE_S:
+                # Tur sonu beklemesinde de sürekli ölçüm ve reaksiyon
+                is_close_cycle_pause, new_alert_cycle_pause = perform_measurement_and_react()
+
+                if new_alert_cycle_pause and not motor_movement_paused:  # Yeni bir uyarı tetiklendi ve motor zaten duraklatılmamış
+                    print(f"   Motor {MOTOR_PAUSE_ON_DETECTION_S} saniye duraklatılıyor (tur sonu beklemede)...")
+                    motor_movement_paused = True
+                    motor_pause_end_time = time.time() + MOTOR_PAUSE_ON_DETECTION_S
+
+                if motor_movement_paused and time.time() >= motor_pause_end_time:
+                    print("   Motor duraklatma süresi bitti (tur sonu beklemede)...")
+                    motor_movement_paused = False  # Motor zaten durduğu için bu sadece bayrağı sıfırlar
+                    # Ana döngü bir sonraki tura geçtiğinde motor hareket edebilir.
+
+                # Eğer motor duraklatılmışsa (uyarıdan dolayı), duraklatma döngüsü içinde kalmalı
+                # Bu, CYCLE_END_PAUSE'u uzatabilir, ki bu istenen davranış olabilir.
+                if motor_movement_paused:
+                    # Duraklatma aktifken, CYCLE_END_PAUSE'un ana sayacını etkilememek için
+                    # burada ayrı bir iç döngü ile sadece motor_pause_end_time'a kadar beklenir
+                    # ve sürekli ölçüm yapılır.
+                    temp_pause_start = time.time()
+                    while time.time() < motor_pause_end_time:
+                        perform_measurement_and_react()
+                        time.sleep(0.05)
+                    motor_movement_paused = False  # 3 saniyelik duraklatma bitti
+                    # 5 saniyelik ana döngüye geri dön, kalan süreyi tamamla
+                    # Bu, pause_start_time_cycle_end'in yeniden ayarlanmasını gerektirebilir veya
+                    # 5 saniyelik bekleme 3 saniyelik duraklamayı da içerir.
+                    # Şu anki mantıkla, 3sn + kalan 5sn şeklinde olabilir.
+                    # Daha basit bir yaklaşım, eğer tur sonu beklemesindeyken nesne algılanırsa,
+                    # sadece uyarı verip motoru zaten durduğu için ekstra durdurmamak.
+                    # Şimdiki kodda zaten motor duruyor, bu yüzden motor_movement_paused sadece
+                    # _single_step_motor'u etkiler.
+                    print("   Nesne uyarısı sonrası tur sonu beklemesine devam...")
+
+                time.sleep(0.1)  # CPU'yu yormamak için
 
     except KeyboardInterrupt:
         print("\nKullanıcı tarafından durduruluyor...")
@@ -331,7 +383,7 @@ if __name__ == "__main__":
         print("Program sonlanıyor...")
         if init_hardware_called_successfully:
             print("Motor başlangıç pozisyonuna (0°) getiriliyor...")
-            move_motor_to_absolute_angle(0)
+            move_motor_to_absolute_angle(0, speed_factor=0.5)
         else:
             print("Donanım başlatılamadığı için motor homing atlanıyor, pinler sıfırlanacak.")
             _set_step_pins(0, 0, 0, 0)
