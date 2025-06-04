@@ -12,7 +12,7 @@ from sklearn.linear_model import RANSACRegressor
 from sklearn.cluster import DBSCAN
 from google import genai
 from dotenv import load_dotenv
-from scanner.models import Scan, ScanPoint
+
 from django.db.models import Max
 
 
@@ -251,6 +251,7 @@ def is_process_running(pid):
 
 def get_latest_scan():
     """Veritabanından en son Scan nesnesini çeker."""
+    from scanner.models import Scan
     running_scan = Scan.objects.filter(status=Scan.Status.RUNNING).first()
     if running_scan:
         return running_scan
@@ -582,7 +583,7 @@ def export_csv_callback(n):
 def export_excel_callback(n):
     scan = get_latest_scan()
     if not scan: return no_update
-
+    from scanner.models import Scan
     scan_info_df = pd.DataFrame([Scan.objects.filter(id=scan.id).values().first()])
     points_df = pd.DataFrame(list(scan.points.all().values()))
 
@@ -730,6 +731,7 @@ def display_cluster_info(clickData, stored_data):
     prevent_initial_call=True
 )
 def yorumla_model_secimi(selected_model):
+    from scanner.models import Scan
     if not selected_model:
         return html.Div("Yorum için bir model seçin.", className="text-center")
 
