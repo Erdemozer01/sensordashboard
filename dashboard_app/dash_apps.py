@@ -14,7 +14,7 @@ from sklearn.linear_model import RANSACRegressor
 
 try:
     from django.db.models import Max
-    from scanner.models import Scan, ScanPoint  # 'scanner' yerine kendi Django uygulama adınızı yazın
+    from scanner.models import Scan, ScanPoint
 
     DJANGO_MODELS_AVAILABLE = True
     print("Dashboard: Django modelleri başarıyla import edildi.")
@@ -25,7 +25,7 @@ except ModuleNotFoundError:
 except Exception as e:
     print(f"Django modelleri import edilirken bir hata oluştu: {e}")
     DJANGO_MODELS_AVAILABLE = False
-    Scan, ScanPoint = None, None  # Modelleri None olarak ayarla
+    Scan, ScanPoint = None, None
 
 # Dash ve Plotly Kütüphaneleri
 from django_plotly_dash import DjangoDash
@@ -33,7 +33,7 @@ from dash import html, dcc, Output, Input, State, no_update, dash_table
 import dash_bootstrap_components as dbc
 import plotly.graph_objects as go
 import matplotlib.pyplot as plt
-import plotly, matplotlib
+
 
 # Diğer importlar
 try:
