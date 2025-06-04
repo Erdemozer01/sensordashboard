@@ -207,20 +207,64 @@ estimation_card = dbc.Card(
     ]
 )
 
+# Yeni sekmeli yapı
 visualization_tabs = dbc.Tabs(
     [
-        dbc.Tab(dcc.Graph(id='scan-map-graph', style={'height': '75vh'}), label="2D Kartezyen Harita",
-                tab_id="tab-map"),
-        dbc.Tab(dcc.Graph(id='polar-regression-graph', style={'height': '75vh'}), label="Regresyon Analizi",
-                tab_id="tab-regression"),
-        dbc.Tab(dcc.Graph(id='polar-graph', style={'height': '75vh'}), label="Polar Grafik", tab_id="tab-polar"),
-        dbc.Tab(dcc.Graph(id='time-series-graph', style={'height': '75vh'}), label="Zaman Serisi (Mesafe)",
-                tab_id="tab-time"),
-        dbc.Tab(dcc.Loading(id="loading-datatable", children=[html.Div(id='tab-content-datatable')]),
-                label="Veri Tablosu", tab_id="tab-datatable")
+        # === 1. GRAFİKLER SEKMESİ ===
+        dbc.Tab(
+            [
+                # Grafik seçimi için Dropdown menüsü
+                dbc.Row(
+                    [
+                        dbc.Col(
+                            dcc.Dropdown(
+                                id='graph-selector-dropdown',
+                                options=[
+                                    {'label': '2D Kartezyen Harita', 'value': 'map'},
+                                    {'label': 'Regresyon Analizi', 'value': 'regression'},
+                                    {'label': 'Polar Grafik', 'value': 'polar'},
+                                    {'label': 'Zaman Serisi (Mesafe)', 'value': 'time'},
+                                ],
+                                value='map',  # Başlangıçta seçili olan grafik
+                                clearable=False,
+                                style={'marginTop': '10px'}
+                            ),
+                            width=6,  # Dropdown genişliği
+                        )
+                    ],
+                    justify="center",
+                    className="mb-3"
+                ),
+
+                # Grafiklerin gösterileceği alan
+                html.Div(
+                    [
+                        # Her grafik kendi Div'i içinde, böylece görünürlüğünü kontrol edebiliriz
+                        html.Div(dcc.Graph(id='scan-map-graph', style={'height': '75vh'}), id='container-map-graph'),
+                        html.Div(dcc.Graph(id='polar-regression-graph', style={'height': '75vh'}),
+                                 id='container-regression-graph'),
+                        html.Div(dcc.Graph(id='polar-graph', style={'height': '75vh'}), id='container-polar-graph'),
+                        html.Div(dcc.Graph(id='time-series-graph', style={'height': '75vh'}),
+                                 id='container-time-series-graph'),
+                    ]
+                )
+            ],
+            label="Grafikler",  # Ana sekme başlığı
+            tab_id="tab-graphics"
+        ),
+
+        # === 2. VERİ TABLOSU SEKMESİ ===
+        dbc.Tab(
+            dbc.Loading(
+                id="loading-datatable",
+                children=[html.Div(id='tab-content-datatable', style={'marginTop': '20px'})]
+            ),
+            label="Veri Tablosu",  # Ana sekme başlığı
+            tab_id="tab-datatable"
+        )
     ],
     id="visualization-tabs-main",
-    active_tab="tab-map"
+    active_tab="tab-graphics"  # Başlangıçta aktif olan sekme
 )
 
 app.layout = html.Div(
@@ -803,6 +847,32 @@ def update_all_graphs(n):
                                html.H6("Polar Regresyon:", className="mt-2"), html.P(est_polar)],
                               style={'fontSize': '0.9em'})
     return figs[0], figs[1], figs[2], figs[3], final_est_text, store_data
+
+@app.callback(
+    Output('container-map-graph', 'style'),
+    Output('container-regression-graph', 'style'),
+    Output('container-polar-graph', 'style'),
+    Output('container-time-series-graph', 'style'),
+    Input('graph-selector-dropdown', 'value')
+)
+def update_graph_visibility(selected_graph):
+    # Başlangıçta tüm grafikleri gizle
+    style_map = {'display': 'none'}
+    style_regression = {'display': 'none'}
+    style_polar = {'display': 'none'}
+    style_time = {'display': 'none'}
+
+    # Seçilen grafiği görünür yap
+    if selected_graph == 'map':
+        style_map = {'display': 'block'}
+    elif selected_graph == 'regression':
+        style_regression = {'display': 'block'}
+    elif selected_graph == 'polar':
+        style_polar = {'display': 'block'}
+    elif selected_graph == 'time':
+        style_time = {'display': 'block'}
+
+    return style_map, style_regression, style_polar, style_time
 
 
 @app.callback(
