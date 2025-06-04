@@ -12,6 +12,8 @@ from sklearn.linear_model import RANSACRegressor
 from sklearn.cluster import DBSCAN
 from google import genai
 from dotenv import load_dotenv
+from scanner.models import Scan, ScanPoint
+from django.db.models import Max
 
 
 
