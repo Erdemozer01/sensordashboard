@@ -74,10 +74,11 @@ navbar = dbc.NavbarSimple(
         dbc.NavItem(dbc.NavLink("Admin Paneli", href="/admin/", external_link=True, target="_blank")),
     ],
     brand="Dream Pi",
-    brand_href="#",
+    brand_href="/",
     color="primary",
     dark=True,
     sticky="top",
+    fluid=True,
     # className="mb-4" # Genel padding olduğu için bu kaldırıldı
 )
 # ==============================================================================
@@ -211,7 +212,6 @@ app.layout = html.Div(  # EN DIŞ SARMALAYICI dbc.Container yerine html.Div OLAR
     },
     children=[
         navbar,
-        title_card,
         dbc.Row([
             dbc.Col(
                 [
