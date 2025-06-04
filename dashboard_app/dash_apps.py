@@ -464,7 +464,8 @@ def yorumla_tablo_verisi_gemini(df, model_name='gemini-2.5-flash-preview-05-20')
             f"Aşağıdaki tablo, bir hc-sr04 sensörünün yaptığı taramadan elde edilen {df.to_string(index=False)} verileri yorumla"
             "Olası nesneleri (duvar, köşe, sandalye bacağı, kutu, insan.) tahmin etmeye çalış "
             "boş alanları ve genel yerleşim düzenini kısa ve anlaşılır bir dille yorumla. ortamın alanını tahin etmeye çalış."
-            f"import plotly, matplotlib kütüphaneleri kullanarak 3 boyutlu grafiksel tahminde bulun "
+            f"{df.to_string(index=False)} verileriyle import plotly, matplotlib kütüphaneleri kullanarak 3 boyutlu grafiksel tahminde bulun "
+            f"{df.to_string(index=False)} verileriyle imagen kullanarak ortamın görselini tahminde bulun "
             "Yorumunu maddeleme veya kısa paragraflar halinde yap. \n\n"
         )
 
