@@ -39,6 +39,7 @@ INSTALLED_APPS = [
     'scanner.apps.ScannerConfig',
     'django_plotly_dash.apps.DjangoPlotlyDashConfig',
     'django_bootstrap5',
+
 ]
 
 MIDDLEWARE = [
