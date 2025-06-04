@@ -2,7 +2,6 @@ import time
 import atexit
 import sys
 
-# Gerekli GPIO kütüphanelerini import et
 try:
     from gpiozero import DistanceSensor, Buzzer, OutputDevice, LED
     from RPLCD.i2c import CharLCD
@@ -31,10 +30,9 @@ STEPS_PER_REVOLUTION = 4096
 STEP_MOTOR_INTER_STEP_DELAY = 0.0015
 STEP_MOTOR_SETTLE_TIME = 0.05
 
-SWEEP_ANGLE_MAX = 60
+SWEEP_ANGLE_MAX = 90
 ALGILAMA_ESIGI_CM = 20
 BUZZER_BIP_SURESI = 0.03
-
 LED_BLINK_ON_SURESI = 0.5
 LED_BLINK_OFF_SURESI = 0.5
 LCD_TIME_UPDATE_INTERVAL = 1.0
@@ -54,14 +52,17 @@ current_lcd_message_type = None
 last_lcd_time_update = 0
 led_is_blinking = False
 init_hardware_called_successfully = False
+object_alert_active = False  # EKLENDİ: Mevcut uyarı durumunu takip eder
 
 
 # ==============================================================================
 
 # ==============================================================================
 # --- Donanım ve Yardımcı Fonksiyonlar ---
+# (init_hardware, release_resources_on_exit, _set_step_pins, _single_step_motor,
+#  _move_motor_steps, move_motor_to_absolute_angle, kisa_uyari_bip, update_lcd_display
+#  fonksiyonları bir önceki cevaptaki gibi aynı kalacak. Değişiklik yok.)
 # ==============================================================================
-
 def init_hardware():
     global sensor, buzzer, lcd, status_led, in1_dev, in2_dev, in3_dev, in4_dev, led_is_blinking, init_hardware_called_successfully
     print("Donanımlar başlatılıyor...")
@@ -161,12 +162,10 @@ def move_motor_to_absolute_angle(target_angle_deg):
     time.sleep(STEP_MOTOR_SETTLE_TIME)
 
 
-# GÜNCELLENDİ: Fonksiyon adı ve içeriği tek bip için değiştirildi
 def kisa_uyari_bip(bip_suresi):
-    """Buzzer'ı bir defa kısa bir süre öttürür."""
     if buzzer:
-        buzzer.on()
-        time.sleep(bip_suresi)
+        buzzer.on();
+        time.sleep(bip_suresi);
         buzzer.off()
 
 
@@ -197,14 +196,14 @@ def update_lcd_display(message_type):
 # ==============================================================================
 
 # ==============================================================================
-# --- ANA ÇALIŞMA BLOĞU ---
+# --- ANA ÇALIŞMA BLOĞU (Buzzer/LCD Durum Yönetimi Güncellendi) ---
 # ==============================================================================
 if __name__ == "__main__":
     atexit.register(release_resources_on_exit)
     if not init_hardware():
         sys.exit(1)
 
-    print("\n>>> Sürekli Tarama Modu V4.2 Başlatıldı (Tek Kısa Bip) <<<")
+    print("\n>>> Sürekli Tarama Modu V4.3 Başlatıldı (Durum Yönetimli Tek Bip) <<<")
     print(f"Algılama Eşiği: < {ALGILAMA_ESIGI_CM} cm")
     print("Durdurmak için Ctrl+C tuşlarına basın.")
 
@@ -225,25 +224,44 @@ if __name__ == "__main__":
                 current_direction_positive = True
 
             mesafe = sensor.distance * 100
-            object_detected = (mesafe < ALGILAMA_ESIGI_CM)
+            is_object_currently_close = (mesafe < ALGILAMA_ESIGI_CM)
 
-            if status_led:
-                if object_detected:
-                    if led_is_blinking:
-                        status_led.off();
-                        time.sleep(0.01);
-                        status_led.on()
-                        led_is_blinking = False
+            # --- GÜNCELLENMİŞ LED, BUZZER VE LCD KONTROL MANTIĞI ---
+            if is_object_currently_close:
+                if not object_alert_active:  # Nesne YENİ algılandı
+                    print(f"   >>> UYARI: Nesne {mesafe:.1f} cm'de algılandı! <<<")
+                    kisa_uyari_bip(BUZZER_BIP_SURESI)
+                    update_lcd_display("alert_greeting")
+                    if status_led:
+                        if led_is_blinking:  # Yanıp sönüyorsa, durdur ve sürekli yak
+                            status_led.off()
+                            time.sleep(0.01)  # Blink'in kapanması için
+                            status_led.on()
+                        elif not status_led.is_lit:  # Yanmıyorsa direkt yak (nadiren olur ama önlem)
+                            status_led.on()
+                    led_is_blinking = False
+                    object_alert_active = True
+                # else: Nesne zaten algılanmıştı, uyarı durumu devam ediyor, tekrar bip/LCD değişikliği yapma
+
+            else:  # Nesne algılanmıyor
+                if object_alert_active:  # Nesne YENİ kayboldu
+                    print("   <<< UYARI SONA ERDİ. >>>")
+                    update_lcd_display("normal_time")
+                    if status_led:
+                        if not led_is_blinking:  # Sürekli yanıyorsa, yanıp sönmeye başla
+                            status_led.blink(on_time=LED_BLINK_ON_SURESI, off_time=LED_BLINK_OFF_SURESI,
+                                             background=True)
+                    led_is_blinking = True
+                    object_alert_active = False
                 else:
-                    if not led_is_blinking:
+                    # Nesne hala algılanmıyor ve uyarı durumu aktif değildi,
+                    # Sadece LCD'deki saati güncelle (eğer gerekiyorsa)
+                    update_lcd_display("normal_time")
+                    # LED'in yanıp sönmeye devam ettiğinden emin ol (başlangıç durumu için)
+                    if status_led and not led_is_blinking:
                         status_led.blink(on_time=LED_BLINK_ON_SURESI, off_time=LED_BLINK_OFF_SURESI, background=True)
                         led_is_blinking = True
 
-            if object_detected:
-                kisa_uyari_bip(BUZZER_BIP_SURESI)  # GÜNCELLENDİ: cift_bip yerine kisa_uyari_bip çağrılıyor
-                update_lcd_display("alert_greeting")
-            else:
-                update_lcd_display("normal_time")
 
     except KeyboardInterrupt:
         print("\nKullanıcı tarafından durduruluyor...")
