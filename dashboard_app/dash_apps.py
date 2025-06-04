@@ -937,3 +937,64 @@ def yorumla_model_secimi(selected_model_value):
                          color="warning")
     return dbc.Alert(dcc.Markdown(yorum_text_from_ai, dangerously_allow_html=True, link_target="_blank"),
                      color="success")
+
+
+@app.callback(
+    Output('time-series-graph', 'figure'),
+    Input('selected-scan-store', 'data')  # Örnek olarak seçili tarama verisini alan bir Input
+)
+def update_time_series_graph(scan_data):
+    if not scan_data:
+        # Veri yoksa boş grafik döndür
+        return go.Figure()
+
+    # Gelen veriyi DataFrame'e çevirelim (bu adım sizin yapınıza göre değişebilir)
+    # ScanPoint modelinizde 'timestamp' ve 'mesafe_cm' alanları olduğunu varsayıyoruz
+    df = pd.DataFrame(scan_data['points'])
+    df['timestamp'] = pd.to_datetime(df['timestamp'])  # Zaman damgalarını datetime nesnesine çevir
+
+    # Grafiği oluştur
+    fig = go.Figure()
+
+    fig.add_trace(go.Scatter(
+        x=df['timestamp'],
+        y=df['mesafe_cm'],
+        mode='lines+markers',
+        name='Mesafe',
+        marker=dict(size=5),
+        line=dict(width=2)
+    ))
+
+    # === GRAFİK DÜZENLEMELERİ (Bu kısım en önemlisi) ===
+    fig.update_layout(
+        title_text="Zaman İçinde Mesafe Değişimi",
+        xaxis_title="Zaman",
+        yaxis_title="Mesafe (cm)",
+
+        # 1. X-Ekseni Zaman Formatını Detaylandırma
+        #    Etiketleri iki satıra bölerek okunurluğu artırır:
+        #    Üst satır: Gün Ay Yıl
+        #    Alt satır: Saat:Dakika:Saniye
+        xaxis_tickformat='%d %b %Y<br>%H:%M:%S',
+
+        # 2. Zaman Aralığı Seçici Ekleme (Rangeselector)
+        #    Grafiğin köşesine 1 dakika, 5 dakika, 15 dakika ve tümü gibi
+        #    hızlı yakınlaştırma butonları ekler.
+        xaxis_rangeselector=dict(
+            buttons=list([
+                dict(count=1, label="1dk", step="minute", stepmode="backward"),
+                dict(count=5, label="5dk", step="minute", stepmode="backward"),
+                dict(count=15, label="15dk", step="minute", stepmode="backward"),
+                dict(step="all", label="Tümü")
+            ])
+        ),
+
+        # 3. Zaman Kaydırıcı Ekleme (Rangeslider)
+        #    Grafiğin altına, fare ile sürükleyerek hassas zaman aralığı
+        #    seçimi yapmanızı sağlayan bir kaydırıcı ekler.
+        xaxis_rangeslider_visible=True,
+
+        template="plotly_dark"  # veya "plotly_white" gibi bir tema
+    )
+
+    return fig
