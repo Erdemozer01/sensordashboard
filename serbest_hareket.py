@@ -31,10 +31,10 @@ STEPS_PER_REVOLUTION = 4096
 STEP_MOTOR_INTER_STEP_DELAY = 0.0015
 STEP_MOTOR_SETTLE_TIME = 0.05
 
-SWEEP_ANGLE_MAX = 65
+SWEEP_ANGLE_MAX = 90
 ALGILAMA_ESIGI_CM = 20
-BUZZER_BIP_SURESI = 0.05
-BUZZER_BIP_ARASI_SURE = 0.05
+BUZZER_BIP_SURESI = 0.03  # GÜNCELLENDİ: Daha da kısa bir bip sesi için süreyi azalttık (örneğin 0.03 saniye)
+# BUZZER_BIP_ARASI_SURE = 0.05 # SİLİNDİ: Artık tek bip olacağı için bu parametreye gerek yok
 LED_BLINK_ON_SURESI = 0.5
 LED_BLINK_OFF_SURESI = 0.5
 LCD_TIME_UPDATE_INTERVAL = 1.0
@@ -127,9 +127,8 @@ def _single_step_motor(direction_positive):
         step_sequence)) % len(step_sequence)
     _set_step_pins(*step_sequence[current_step_sequence_index])
     current_motor_angle_global += (DEG_PER_STEP * (1 if direction_positive else -1))
-    # İsteğe bağlı: Açıyı belirli bir aralıkta tutmak için normalizasyon
-    # if current_motor_angle_global > 180: current_motor_angle_global -= 360
-    # if current_motor_angle_global < -180: current_motor_angle_global += 360
+    if current_motor_angle_global > 180: current_motor_angle_global -= 360
+    if current_motor_angle_global < -180: current_motor_angle_global += 360
     time.sleep(STEP_MOTOR_INTER_STEP_DELAY)
 
 
@@ -139,45 +138,35 @@ def _move_motor_steps(num_steps, direction_positive):
         current_step_sequence_index = (current_step_sequence_index + (1 if direction_positive else -1) + len(
             step_sequence)) % len(step_sequence)
         _set_step_pins(*step_sequence[current_step_sequence_index])
-        current_motor_angle_global += (DEG_PER_STEP * (1 if direction_positive else -1))  # Her adımda açıyı güncelle
+        current_motor_angle_global += (DEG_PER_STEP * (1 if direction_positive else -1))
         time.sleep(STEP_MOTOR_INTER_STEP_DELAY)
-    # İsteğe bağlı: Normalizasyon
-    # if current_motor_angle_global > 180: current_motor_angle_global -= 360
-    # if current_motor_angle_global < -180: current_motor_angle_global += 360
+    if current_motor_angle_global > 180: current_motor_angle_global -= 360
+    if current_motor_angle_global < -180: current_motor_angle_global += 360
 
 
 def move_motor_to_absolute_angle(target_angle_deg):
     global current_motor_angle_global
-
     angle_diff = target_angle_deg - current_motor_angle_global
     if angle_diff > 180:
         angle_diff -= 360
     elif angle_diff < -180:
         angle_diff += 360
-
     num_steps = round(abs(angle_diff) / DEG_PER_STEP)
     if num_steps == 0:
         time.sleep(STEP_MOTOR_SETTLE_TIME)
         return
-
     direction_positive = (angle_diff > 0)
-    # Homing için _move_motor_steps kullanalım, çünkü bu her adımda açıyı güncelliyor
     _move_motor_steps(num_steps, direction_positive)
-    # Hedefe ulaştıktan sonra global açıyı tam olarak hedef açıya set edebiliriz.
-    # Ancak _move_motor_steps zaten adım adım güncellediği için birikmiş hata olmaması lazım.
-    # Yine de emin olmak için:
     current_motor_angle_global = target_angle_deg
     time.sleep(STEP_MOTOR_SETTLE_TIME)
 
 
-def cift_bip(bip_suresi, ara_sure):
+# GÜNCELLENDİ: Fonksiyon adı ve içeriği tek bip için değiştirildi
+def kisa_uyari_bip(bip_suresi):
+    """Buzzer'ı bir defa kısa bir süre öttürür."""
     if buzzer:
-        buzzer.on();
-        time.sleep(bip_suresi);
-        buzzer.off()
-        time.sleep(ara_sure)
-        buzzer.on();
-        time.sleep(bip_suresi);
+        buzzer.on()
+        time.sleep(bip_suresi)
         buzzer.off()
 
 
@@ -215,7 +204,7 @@ if __name__ == "__main__":
     if not init_hardware():
         sys.exit(1)
 
-    print("\n>>> Sürekli Tarama Modu V4.1 Başlatıldı (Açı Düzeltmeli) <<<")
+    print("\n>>> Sürekli Tarama Modu V4.2 Başlatıldı (Tek Kısa Bip) <<<")
     print(f"Algılama Eşiği: < {ALGILAMA_ESIGI_CM} cm")
     print("Durdurmak için Ctrl+C tuşlarına basın.")
 
@@ -226,16 +215,14 @@ if __name__ == "__main__":
         while True:
             _single_step_motor(current_direction_positive)
 
-            # ---- ASİMETRİ DÜZELTME BLOKU ----
             if current_direction_positive and current_motor_angle_global >= SWEEP_ANGLE_MAX:
-                current_motor_angle_global = SWEEP_ANGLE_MAX  # Açıyı tam olarak sabitle
+                current_motor_angle_global = SWEEP_ANGLE_MAX
                 print(f"Sağ limit ({SWEEP_ANGLE_MAX}°) ulaşıldı, sola dönülüyor...")
                 current_direction_positive = False
             elif not current_direction_positive and current_motor_angle_global <= -SWEEP_ANGLE_MAX:
-                current_motor_angle_global = -SWEEP_ANGLE_MAX  # Açıyı tam olarak sabitle
+                current_motor_angle_global = -SWEEP_ANGLE_MAX
                 print(f"Sol limit (-{SWEEP_ANGLE_MAX}°) ulaşıldı, sağa dönülüyor...")
                 current_direction_positive = True
-            # ---- ASİMETRİ DÜZELTME BLOKU SONU ----
 
             mesafe = sensor.distance * 100
             object_detected = (mesafe < ALGILAMA_ESIGI_CM)
@@ -253,7 +240,7 @@ if __name__ == "__main__":
                         led_is_blinking = True
 
             if object_detected:
-                cift_bip(BUZZER_BIP_SURESI, BUZZER_BIP_ARASI_SURE)
+                kisa_uyari_bip(BUZZER_BIP_SURESI)  # GÜNCELLENDİ: cift_bip yerine kisa_uyari_bip çağrılıyor
                 update_lcd_display("alert_greeting")
             else:
                 update_lcd_display("normal_time")
