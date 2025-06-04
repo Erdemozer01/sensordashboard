@@ -464,9 +464,7 @@ def yorumla_tablo_verisi_gemini(df, model_name='gemini-2.5-flash-preview-05-20')
         prompt_text = (
             f"Aşağıdaki tablo, bir hc-sr04 sensörünün yaptığı taramadan elde edilen {df.to_string(index=False)} verileri yorumla"
             "Olası nesneleri (duvar, köşe, sandalye bacağı, kutu, insan.) tahmin etmeye çalış "
-            "boş alanları ve genel yerleşim düzenini kısa ve anlaşılır bir dille yorumla. ortamın alanını tahin etmeye çalış."
-            f"verilerden yola çıkarak polar grafiğe bağlı 3D GRAFİK OLUŞTUR"
-            f"{df.to_string(index=False)} verileriyle ortamın görselini tahminde bulunan resim oluştur"
+            "ortamın alanını tahin etmeye çalış."
             "Yorumunu maddeleme veya kısa paragraflar halinde yap. \n\n"
         )
         response = client.models.generate_content(model=model_name, contents=prompt_text)
