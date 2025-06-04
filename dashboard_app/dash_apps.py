@@ -11,9 +11,6 @@ from scipy.spatial import ConvexHull
 from sklearn.cluster import DBSCAN
 from sklearn.linear_model import RANSACRegressor
 
-# Django modellerini ve kütüphanelerini doğrudan import edin
-# Bu import'un doğru çalışması için dashboard.py'nin Django projesinin manage.py
-# ile aynı dizinde olması veya proje yolunun sys.path'e eklenmiş olması gerekir.
 try:
     from django.db.models import Max
     from scanner.models import Scan, ScanPoint  # 'scanner' yerine kendi Django uygulama adınızı yazın
@@ -34,7 +31,8 @@ from django_plotly_dash import DjangoDash
 from dash import html, dcc, Output, Input, State, no_update, dash_table
 import dash_bootstrap_components as dbc
 import plotly.graph_objects as go
-import matplotlib.pyplot as plt  # analyze_environment_shape içinde kullanılıyor
+import matplotlib.pyplot as plt
+import plotly, matplotlib
 
 # Diğer importlar
 try:
@@ -461,15 +459,16 @@ def yorumla_tablo_verisi_gemini(df, model_name='gemini-1.5-pro-latest'):  # Gün
     if not google_api_key: return "Hata: `GOOGLE_API_KEY` ayarlanmamış."
     if df is None or df.empty: return "Yorumlanacak tablo verisi bulunamadı."
     try:
-        genai.configure(api_key=google_api_key)
-        model = genai.GenerativeModel(model_name)
-        prompt = ("Aşağıdaki tablo, bir ultrasonik sensör taramasından elde edilen açı (derece) ve "
-                  "mesafe (cm) verilerini içermektedir. Bu verilere dayanarak, sensörün çevresindeki "
-                  "ortamı bir uzman gibi analiz et. Olası nesneleri (duvar, köşe, vb.), boş alanları ve "
-                  "genel yerleşim düzenini kısa ve anlaşılır bir dille yorumla. Yorumunu maddeleme "
-                  "veya kısa paragraflar halinde yap.\n\n"
-                  f"{df.to_string(index=False)}")
-        response = model.generate_content(prompt)
+        client = genai.Client(api_key=google_api_key)
+        prompt_text = (
+            f"Aşağıdaki tablo, bir hc-sr04 sensörünün yaptığı taramadan elde edilen {df.to_string(index=False)} verileri yorumla"
+            "Olası nesneleri (duvar, köşe, sandalye bacağı, kutu, insan.) tahmin etmeye çalış "
+            "boş alanları ve genel yerleşim düzenini kısa ve anlaşılır bir dille yorumla. ortamın alanını tahin etmeye çalış."
+            f"import plotly, matplotlib kütüphaneleri kullanarak 3 boyutlu grafiksel tahminde bulun "
+            "Yorumunu maddeleme veya kısa paragraflar halinde yap. \n\n"
+        )
+
+        response = client.models.generate_content(model=model_name, contents=prompt_text)
         return response.text
     except Exception as e:
         return f"Gemini'den yanıt alınırken bir hata oluştu: {e}"
