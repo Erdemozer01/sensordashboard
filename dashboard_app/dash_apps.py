@@ -941,7 +941,8 @@ def yorumla_model_secimi(selected_model_value):
 
 @app.callback(
     Output('time-series-graph', 'figure'),
-    Input('selected-scan-store', 'data')
+    Input('selected-scan-store', 'data'),
+    prevent_initial_call=True
 )
 def update_time_series_graph(scan_data):
     print(f"DEBUG: update_time_series_graph tetiklendi. scan_data boş mu: {scan_data is None}") # Terminalde kontrol için
