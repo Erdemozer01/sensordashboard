@@ -469,7 +469,7 @@ def estimate_geometric_shape(df_input):
         return "Geometrik analiz hatası."
 
 
-def yorumla_tablo_verisi_gemini(df, model_name='gemini-1.5-flash-latest'):
+def yorumla_tablo_verisi_gemini(df, model_name='gemini-2.0-flash-preview-image-generation'):
     if not GOOGLE_GENAI_AVAILABLE: return "Hata: Google GenerativeAI kütüphanesi yüklenemedi."
     if not google_api_key: return "Hata: `GOOGLE_API_KEY` ayarlanmamış."
     if df is None or df.empty: return "Yorumlanacak tablo verisi bulunamadı."
