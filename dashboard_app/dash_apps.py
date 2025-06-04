@@ -474,8 +474,8 @@ def yorumla_tablo_verisi_gemini(df, model_name='gemini-1.5-flash-latest'):
     if not google_api_key: return "Hata: `GOOGLE_API_KEY` ayarlanmamış."
     if df is None or df.empty: return "Yorumlanacak tablo verisi bulunamadı."
     try:
-        genai.configure(api_key=google_api_key)
-        model = genai.GenerativeModel(model_name)
+        client = genai.Client(api_key=google_api_key)
+
         prompt_text = (
             f"Aşağıdaki tablo, bir ultrasonik sensörün yaptığı taramadan elde edilen verileri içermektedir: "
             f"\n\n{df.to_string(index=False)}\n\n"
@@ -483,7 +483,7 @@ def yorumla_tablo_verisi_gemini(df, model_name='gemini-1.5-flash-latest'):
             "Verilerdeki desenlere göre potansiyel nesneleri (duvar, köşe, sandalye bacağı, kutu vb.) tahmin etmeye çalış. "
             "Yorumunu kısa, anlaşılır ve maddeleme kullanarak yap."
         )
-        response = model.generate_content(prompt_text)
+        response = client.models.generate_content(model=model_name, contents=prompt_text)
         return response.text
     except Exception as e:
         return f"Gemini'den yanıt alınırken bir hata oluştu: {e}"
