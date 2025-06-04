@@ -96,6 +96,7 @@ def init_hardware():
         sensor = DistanceSensor(echo=ECHO_PIN, trigger=TRIG_PIN, max_distance=2.5, queue_len=2)
         yellow_led, buzzer = LED(YELLOW_LED_PIN), Buzzer(BUZZER_PIN)
         yellow_led.off(); buzzer.off()
+        # Betik başladığında motorun mevcut açısı 0.0 olarak kabul edilir.
         current_motor_angle_global = 0.0
     except Exception as e:
         print(f"[{pid}] Donanım Başlatma HATA: {e}"); hardware_ok = False
@@ -224,32 +225,40 @@ if __name__ == "__main__":
     DEG_PER_STEP = 360.0 / STEPS_PER_REVOLUTION_OUTPUT_SHAFT
     if SCAN_STEP_ANGLE < DEG_PER_STEP: SCAN_STEP_ANGLE = DEG_PER_STEP
 
-    PHYSICAL_HOME_POSITION = 0.0
-    INITIAL_RIGHT_TURN_DEGREES = 135.0
-    PRE_SCAN_PHYSICAL_POSITION = (PHYSICAL_HOME_POSITION - INITIAL_RIGHT_TURN_DEGREES + 360.0) % 360.0
+    # === YENİ HAREKET MANTIĞI ===
+    # 1. Mutlak başlangıç konumunu hatırla. Bu, betik başladığındaki konumdur (init_hardware'dan 0.0 gelir).
+    ABSOLUTE_START_POSITION = current_motor_angle_global
+
+    # 2. Taramanın mantıksal açılarını tanımla. Her zaman 0'dan başlar ve pozitif değerler alır.
     LOGICAL_SCAN_START_ANGLE = 0.0
     LOGICAL_SCAN_END_ANGLE = SCAN_DURATION_ANGLE_PARAM
 
+    # 3. Veritabanı kaydını oluştur.
     if not create_scan_entry(LOGICAL_SCAN_START_ANGLE, LOGICAL_SCAN_END_ANGLE, SCAN_STEP_ANGLE, BUZZER_DISTANCE_CM, INVERT_MOTOR_DIRECTION):
         print(f"[{pid}] Veritabanı oturumu oluşturulamadı. Çıkılıyor."); sys.exit(1)
 
     print(f"[{pid}] Yeni Otomatik Tarama Başlatılıyor (ID: #{current_scan_object_global.id})...")
 
     try:
-        print(f"[{pid}] ADIM 0: Motor fiziksel başlangıç ({PHYSICAL_HOME_POSITION}°) pozisyonuna getiriliyor...")
-        move_motor_to_angle(PHYSICAL_HOME_POSITION)
-        time.sleep(0.5)
+        # 4. Tarama başlangıcı için ilk dönüşü yap.
+        #    Tarama açısının yarısı kadar sola (negatif yöne) dönerek taramanın merkezini ileriye hizala.
+        initial_turn_amount_deg = SCAN_DURATION_ANGLE_PARAM / 2.0
+        pre_scan_target_angle = ABSOLUTE_START_POSITION - initial_turn_amount_deg
 
-        print(f"[{pid}] ADIM 1: Tarama öncesi pozisyona ({PRE_SCAN_PHYSICAL_POSITION}°) dönülüyor...")
-        move_motor_to_angle(PRE_SCAN_PHYSICAL_POSITION)
+        print(f"[{pid}] ADIM 1: Tarama başlangıcı için ilk dönüş yapılıyor (hedef: {pre_scan_target_angle:.1f}°)...")
+        move_motor_to_angle(pre_scan_target_angle)
         time.sleep(1.0)
 
+        # 5. Taramanın mantıksal 0° noktasını ayarla.
+        #    Bu, ilk dönüşten sonraki mevcut fiziksel konumdur.
         physical_scan_reference_angle = current_motor_angle_global
         print(f"[{pid}] ADIM 2: Tarama başlıyor. Mantıksal [{LOGICAL_SCAN_START_ANGLE}° -> {LOGICAL_SCAN_END_ANGLE}°].")
+        print(f"   (Fiziksel referans açısı: {physical_scan_reference_angle:.1f}°)")
 
         collected_points, current_logical_angle = [], LOGICAL_SCAN_START_ANGLE
 
         while True:
+            # Fiziksel hedef = referans açısı + mevcut mantıksal açı
             target_physical_angle_for_step = physical_scan_reference_angle + current_logical_angle
             move_motor_to_angle(target_physical_angle_for_step)
 
@@ -257,11 +266,11 @@ if __name__ == "__main__":
             dist_cm = sensor.distance * 100
             if yellow_led: yellow_led.off()
 
+            # Kaydedilen açı (current_logical_angle) her zaman 0 veya pozitif olacaktır.
             print(f"  Okuma: Mantıksal {current_logical_angle:.1f}° -> {dist_cm:.1f} cm")
 
             if buzzer: buzzer.on() if dist_cm < BUZZER_DISTANCE_CM else buzzer.off()
 
-            # LCD'ye yazma ve hata yakalama iyileştirildi
             if lcd:
                 try:
                     if dist_cm < BUZZER_DISTANCE_CM:
@@ -279,6 +288,7 @@ if __name__ == "__main__":
             if 0 < dist_cm < (sensor.max_distance * 100 - 1):
                 collected_points.append((x_cm, y_cm))
 
+            # Veritabanına kaydedilen 'derece' değeri her zaman pozitif olan 'current_logical_angle' olur.
             ScanPoint.objects.create(scan=current_scan_object_global, derece=current_logical_angle, mesafe_cm=dist_cm, x_cm=x_cm, y_cm=y_cm, timestamp=timezone.now())
 
             if abs(current_logical_angle - LOGICAL_SCAN_END_ANGLE) < (SCAN_STEP_ANGLE / 20.0) or current_logical_angle >= LOGICAL_SCAN_END_ANGLE:
@@ -312,7 +322,8 @@ if __name__ == "__main__":
         print(f"[{pid}] KRİTİK HATA: Ana döngüde: {e}")
     finally:
         if script_exit_status_global not in [Scan.Status.ERROR]:
-            print(f"[{pid}] ADIM 3: İşlem sonu. Fiziksel başlangıca ({PHYSICAL_HOME_POSITION}°) geri dönülüyor...")
-            move_motor_to_angle(PHYSICAL_HOME_POSITION)
-            print(f"[{pid}] Fiziksel başlangıca dönüldü.")
+            # 6. İşlem sonunda motoru programın başladığı mutlak başlangıç konumuna geri döndür.
+            print(f"[{pid}] ADIM 3: İşlem sonu. Mutlak başlangıç konumuna ({ABSOLUTE_START_POSITION}°)...")
+            move_motor_to_angle(ABSOLUTE_START_POSITION)
+            print(f"[{pid}] Mutlak başlangıç konumuna dönüldü.")
         print(f"[{pid}] Betik sonlanıyor.")
