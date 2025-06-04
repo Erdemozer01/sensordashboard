@@ -106,7 +106,7 @@ control_panel = dbc.Card([
             options=[
                 {'label': 'Gemini Pro (Gelişmiş)', 'value': 'gemini-1.5-pro-latest'},
                 # Güncel model adlarını kontrol edin
-                {'label': 'Gemini Flash (Hızlı)', 'value': 'gemini-1.5-flash-latest'},
+                {'label': 'Gemini Flash (Hızlı)', 'value': 'gemini-2.5-flash-preview-05-20'},
             ],
             placeholder="Yorumlama için bir model seçin...",
             clearable=True,
@@ -454,7 +454,7 @@ def estimate_geometric_shape(df_input):
         print(f"Geometrik analiz hatası: {e}"); return "Geometrik analiz hatası."
 
 
-def yorumla_tablo_verisi_gemini(df, model_name='gemini-1.5-pro-latest'):  # Güncel model adını kontrol edin
+def yorumla_tablo_verisi_gemini(df, model_name='gemini-2.5-flash-preview-05-20'):  # Güncel model adını kontrol edin
     if not GOOGLE_GENAI_AVAILABLE: return "Hata: Google GenerativeAI kütüphanesi yüklenemedi."
     if not google_api_key: return "Hata: `GOOGLE_API_KEY` ayarlanmamış."
     if df is None or df.empty: return "Yorumlanacak tablo verisi bulunamadı."
