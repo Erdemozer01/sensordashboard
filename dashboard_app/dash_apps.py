@@ -430,7 +430,7 @@ def handle_start_scan_script(n_clicks, duration, step, buzzer, invert, steps_rev
             "--steps_per_rev", str(steps_rev)
         ]
         subprocess.Popen(cmd, start_new_session=True)
-        time.sleep(1.5)  # Betiğin PID dosyası oluşturması için bekle
+        time.sleep(2)
 
         # Başarı kontrolü
         if os.path.exists(SENSOR_SCRIPT_PID_FILE):
