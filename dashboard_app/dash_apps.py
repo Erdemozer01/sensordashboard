@@ -941,60 +941,66 @@ def yorumla_model_secimi(selected_model_value):
 
 @app.callback(
     Output('time-series-graph', 'figure'),
-    Input('selected-scan-store', 'data')  # Örnek olarak seçili tarama verisini alan bir Input
+    Input('selected-scan-store', 'data')
 )
 def update_time_series_graph(scan_data):
+    print(f"DEBUG: update_time_series_graph tetiklendi. scan_data boş mu: {scan_data is None}") # Terminalde kontrol için
     if not scan_data:
-        # Veri yoksa boş grafik döndür
-        return go.Figure()
+        print("DEBUG: scan_data boş, zaman serisi için boş figür döndürülüyor.") # Terminalde kontrol
+        return go.Figure() # Veri yoksa boş figür
 
-    # Gelen veriyi DataFrame'e çevirelim (bu adım sizin yapınıza göre değişebilir)
-    # ScanPoint modelinizde 'timestamp' ve 'mesafe_cm' alanları olduğunu varsayıyoruz
-    df = pd.DataFrame(scan_data['points'])
-    df['timestamp'] = pd.to_datetime(df['timestamp'])  # Zaman damgalarını datetime nesnesine çevir
+    try:
+        print("DEBUG: scan_data zaman serisi için işleniyor...") # Terminalde kontrol
+        # Gelen veriyi DataFrame'e çevirelim
+        # scan_data['points'] yapısının beklediğiniz gibi olduğundan emin olun
+        if 'points' not in scan_data or not isinstance(scan_data['points'], list):
+            print("DEBUG: HATA - scan_data['points'] beklenen formatta değil.") # Terminalde kontrol
+            return go.Figure() # Hatalı formatta veri varsa boş figür
 
-    # Grafiği oluştur
-    fig = go.Figure()
+        df = pd.DataFrame(scan_data['points'])
 
-    fig.add_trace(go.Scatter(
-        x=df['timestamp'],
-        y=df['mesafe_cm'],
-        mode='lines+markers',
-        name='Mesafe',
-        marker=dict(size=5),
-        line=dict(width=2)
-    ))
+        if df.empty:
+            print("DEBUG: DataFrame (df) boş, zaman serisi için boş figür döndürülüyor.") # Terminalde kontrol
+            return go.Figure()
 
-    # === GRAFİK DÜZENLEMELERİ (Bu kısım en önemlisi) ===
-    fig.update_layout(
-        title_text="Zaman İçinde Mesafe Değişimi",
-        xaxis_title="Zaman",
-        yaxis_title="Mesafe (cm)",
+        # 'timestamp' ve 'mesafe_cm' sütunlarının varlığını kontrol edin
+        if 'timestamp' not in df.columns or 'mesafe_cm' not in df.columns:
+            print("DEBUG: HATA - DataFrame'de 'timestamp' veya 'mesafe_cm' sütunu bulunamadı.") # Terminalde kontrol
+            return go.Figure()
 
-        # 1. X-Ekseni Zaman Formatını Detaylandırma
-        #    Etiketleri iki satıra bölerek okunurluğu artırır:
-        #    Üst satır: Gün Ay Yıl
-        #    Alt satır: Saat:Dakika:Saniye
-        xaxis_tickformat='%d %b %Y<br>%H:%M:%S',
+        df['timestamp'] = pd.to_datetime(df['timestamp'])
 
-        # 2. Zaman Aralığı Seçici Ekleme (Rangeselector)
-        #    Grafiğin köşesine 1 dakika, 5 dakika, 15 dakika ve tümü gibi
-        #    hızlı yakınlaştırma butonları ekler.
-        xaxis_rangeselector=dict(
-            buttons=list([
-                dict(count=1, label="1dk", step="minute", stepmode="backward"),
-                dict(count=5, label="5dk", step="minute", stepmode="backward"),
-                dict(count=15, label="15dk", step="minute", stepmode="backward"),
-                dict(step="all", label="Tümü")
-            ])
-        ),
+        fig = go.Figure()
+        fig.add_trace(go.Scatter(
+            x=df['timestamp'],
+            y=df['mesafe_cm'],
+            mode='lines+markers',
+            name='Mesafe',
+            marker=dict(size=5),
+            line=dict(width=2)
+        ))
 
-        # 3. Zaman Kaydırıcı Ekleme (Rangeslider)
-        #    Grafiğin altına, fare ile sürükleyerek hassas zaman aralığı
-        #    seçimi yapmanızı sağlayan bir kaydırıcı ekler.
-        xaxis_rangeslider_visible=True,
+        fig.update_layout(
+            title_text="Zaman İçinde Mesafe Değişimi",
+            xaxis_title="Zaman",
+            yaxis_title="Mesafe (cm)",
+            xaxis_tickformat='%d %b %Y<br>%H:%M:%S',
+            xaxis_rangeselector=dict(
+                buttons=list([
+                    dict(count=1, label="1dk", step="minute", stepmode="backward"),
+                    dict(count=5, label="5dk", step="minute", stepmode="backward"),
+                    dict(count=15, label="15dk", step="minute", stepmode="backward"),
+                    dict(step="all", label="Tümü")
+                ])
+            ),
+            xaxis_rangeslider_visible=True,
+            template="plotly_dark"
+        )
+        print("DEBUG: Zaman serisi figürü başarıyla oluşturuldu.") # Terminalde kontrol
+        return fig
 
-        template="plotly_dark"  # veya "plotly_white" gibi bir tema
-    )
-
-    return fig
+    except Exception as e:
+        print(f"DEBUG: update_time_series_graph içinde HATA: {e}") # Terminalde hatayı yazdır
+        import traceback
+        traceback.print_exc() # Detaylı hata izini yazdır
+        return go.Figure() # Hata durumunda boş bir figür döndür
