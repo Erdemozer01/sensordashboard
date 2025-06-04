@@ -80,11 +80,11 @@ control_panel = dbc.Card([
             id='ai-model-dropdown',
             options=[
                 {'label': 'Gemini Pro (Gelişmiş)', 'value': 'gemini-1.5-pro-latest'},
-                {'label': 'Gemini Flash (Hızlı)', 'value': 'gemini-1.5-flash-latest'},
+                {'label': 'Gemini Flash (2.0)', 'value': 'gemini-2.0-flash'},
             ],
-            value='gemini-1.5-pro-latest',  # DEĞİŞİKLİK: Gemini Pro'yu varsayılan olarak ayarla
+
             placeholder="Yorumlama için bir model seçin...",
-            clearable=False,
+            clearable=True,
             className="mb-3"
         ),
         html.Hr(),
