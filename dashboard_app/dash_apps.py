@@ -51,9 +51,8 @@ google_api_key = os.getenv("GOOGLE_API_KEY")
 # ==============================================================================
 # --- SABİTLER VE UYGULAMA BAŞLATMA ---
 # ==============================================================================
-# DEĞİŞTİRİLDİ: İki farklı script için dosya adları tanımlandı
-SENSOR_SCRIPT_FILENAME = 'sensor_script.py'  # Bu, veri toplayan orjinal script
-FREE_MOVEMENT_SCRIPT_FILENAME = 'free_movement_script.py'  # Bu, yeni serbest hareket scripti
+SENSOR_SCRIPT_FILENAME = 'sensor_script.py'
+FREE_MOVEMENT_SCRIPT_FILENAME = 'free_movement_script.py'
 
 SENSOR_SCRIPT_PATH = os.path.join(os.getcwd(), SENSOR_SCRIPT_FILENAME)
 FREE_MOVEMENT_SCRIPT_PATH = os.path.join(os.getcwd(), FREE_MOVEMENT_SCRIPT_FILENAME)
@@ -96,17 +95,17 @@ title_card = dbc.Row(
 control_panel = dbc.Card([
     dbc.CardHeader("Kontrol ve Ayarlar", className="bg-primary text-white"),
     dbc.CardBody([
-        # YENİ EKLENDİ: Mod seçimi için Dropdown
+        # DEĞİŞTİRİLDİ: Mod seçimi Dropdown yerine RadioItems ile yapıldı
         html.H6("Çalışma Modu:", className="mt-1"),
-        dcc.Dropdown(
-            id='mode-selection-dropdown',
+        dbc.RadioItems(
+            id='mode-selection-radios',  # ID güncellendi
             options=[
-                {'label': 'Tarama ve Haritalama Modu', 'value': 'scan_and_map'},
-                {'label': 'Serbest Hareket Modu (Gözcü)', 'value': 'free_movement'},
+                {'label': 'Mesafe Ölçümü ve Haritalama', 'value': 'scan_and_map'},
+                {'label': 'Serbest Hareket (Gözcü)', 'value': 'free_movement'},
             ],
             value='scan_and_map',  # Varsayılan mod
-            clearable=False,
-            className="mb-3"
+            inline=False,
+            className="mb-3",
         ),
         html.Hr(),
         dbc.Row([
@@ -118,7 +117,6 @@ control_panel = dbc.Card([
         html.Div(id='scan-status-message', style={'marginTop': '10px', 'minHeight': '40px', 'textAlign': 'center'},
                  className="mb-3"),
         html.Hr(),
-        # YENİ EKLENDİ: Bu bölüm artık dinamik olarak gizlenip gösterilebilir
         html.Div(id='scan-parameters-wrapper', children=[
             html.H6("Yapay Zeka Seçimi:", className="mt-3"),
             dcc.Dropdown(
@@ -152,7 +150,6 @@ control_panel = dbc.Card([
         ])
     ])
 ])
-# ... (Layout'un geri kalan kısmı (stats_panel, system_card, visualization_tabs vb.) aynı kalabilir) ...
 
 stats_panel = dbc.Card([dbc.CardHeader("Anlık Sensör Değerleri", className="bg-info text-white"), dbc.CardBody(dbc.Row(
     [dbc.Col(html.Div([html.H6("Mevcut Açı:"), html.H4(id='current-angle', children="--°")]), width=3,
@@ -326,7 +323,6 @@ def get_latest_scan():
         return None
 
 
-# ... (Diğer tüm yardımcı fonksiyonlar (add_scan_rays, analyze_environment_shape, vs.) aynı kalacak) ...
 def add_scan_rays(fig, df):
     if df.empty or not all(col in df.columns for col in ['x_cm', 'y_cm']): return
     x_lines, y_lines = [], []
@@ -497,10 +493,10 @@ def yorumla_tablo_verisi_gemini(df, model_name='gemini-1.5-flash-latest'):
 # --- CALLBACK FONKSİYONLARI ---
 # ==============================================================================
 
-# YENİ EKLENDİ: Mod seçimine göre parametre alanını gizleyen/gösteren callback
+# DEĞİŞTİRİLDİ: Callback artık RadioItems'a göre çalışıyor
 @app.callback(
     Output('scan-parameters-wrapper', 'style'),
-    Input('mode-selection-dropdown', 'value')
+    Input('mode-selection-radios', 'value')  # ID güncellendi
 )
 def toggle_parameter_visibility(selected_mode):
     if selected_mode == 'scan_and_map':
@@ -509,11 +505,11 @@ def toggle_parameter_visibility(selected_mode):
         return {'display': 'none'}  # Gizle
 
 
-# DEĞİŞTİRİLDİ: Başlatma callback'i artık modu da dikkate alıyor
+# DEĞİŞTİRİLDİ: Callback artık RadioItems'a göre çalışıyor
 @app.callback(
     Output('scan-status-message', 'children'),
     [Input('start-scan-button', 'n_clicks')],
-    [State('mode-selection-dropdown', 'value'),  # YENİ: Seçili modu al
+    [State('mode-selection-radios', 'value'),  # ID güncellendi
      State('scan-duration-angle-input', 'value'), State('step-angle-input', 'value'),
      State('buzzer-distance-input', 'value'), State('invert-motor-checkbox', 'value'),
      State('steps-per-rev-input', 'value')],
@@ -523,7 +519,6 @@ def handle_start_scan_script(n_clicks, selected_mode, duration, step, buzzer_dis
     if n_clicks == 0:
         return no_update
 
-    # --- Ortak Başlangıç Kontrolü ---
     if os.path.exists(SENSOR_SCRIPT_PID_FILE):
         try:
             with open(SENSOR_SCRIPT_PID_FILE, 'r') as pf:
@@ -532,6 +527,7 @@ def handle_start_scan_script(n_clicks, selected_mode, duration, step, buzzer_dis
                 return dbc.Alert(f"Bir betik zaten çalışıyor (PID:{pid}). Önce durdurun.", color="warning")
         except:
             pass
+
     for fp_lock_pid in [SENSOR_SCRIPT_LOCK_FILE, SENSOR_SCRIPT_PID_FILE]:
         if os.path.exists(fp_lock_pid):
             try:
@@ -542,9 +538,7 @@ def handle_start_scan_script(n_clicks, selected_mode, duration, step, buzzer_dis
     py_exec = sys.executable
     cmd = []
 
-    # --- Moda Göre Komut Oluşturma ---
     if selected_mode == 'scan_and_map':
-        # Parametreleri doğrula
         if not (isinstance(duration, (int, float)) and 10 <= duration <= 720): return dbc.Alert(
             "Tarama Açısı 10-720 derece arasında olmalı!", color="danger", duration=4000)
         if not (isinstance(step, (int, float)) and 0.1 <= abs(step) <= 45): return dbc.Alert(
@@ -554,22 +548,16 @@ def handle_start_scan_script(n_clicks, selected_mode, duration, step, buzzer_dis
         if not (isinstance(steps_rev, (int, float)) and 500 <= steps_rev <= 10000): return dbc.Alert(
             "Motor Adım/Tur 500-10000 arasında olmalı!", color="danger", duration=4000)
 
-        # Tarama scripti için komut oluştur
-        cmd = [py_exec, SENSOR_SCRIPT_PATH,
-               "--scan_duration_angle", str(duration),
-               "--step_angle", str(step),
-               "--buzzer_distance", str(buzzer_dist),
-               "--invert_motor_direction", str(invert),
-               "--steps_per_rev", str(steps_rev)]
+        cmd = [py_exec, SENSOR_SCRIPT_PATH, "--scan_duration_angle", str(duration), "--step_angle", str(step),
+               "--buzzer_distance", str(buzzer_dist), "--invert_motor_direction", str(invert), "--steps_per_rev",
+               str(steps_rev)]
 
     elif selected_mode == 'free_movement':
-        # Serbest hareket scripti için komut oluştur (parametre yok)
         cmd = [py_exec, FREE_MOVEMENT_SCRIPT_PATH]
 
     else:
         return dbc.Alert("Geçersiz mod seçildi!", color="danger")
 
-    # --- Script'i Başlatma ---
     try:
         if not os.path.exists(cmd[1]):
             return dbc.Alert(f"HATA: Betik dosyası bulunamadı: {cmd[1]}", color="danger")
@@ -586,18 +574,13 @@ def handle_start_scan_script(n_clicks, selected_mode, duration, step, buzzer_dis
         if pid_file_found:
             with open(SENSOR_SCRIPT_PID_FILE, 'r') as pf:
                 new_pid = pf.read().strip()
-            mode_name = "Tarama Modu" if selected_mode == 'scan_and_map' else "Serbest Hareket Modu"
+            mode_name = "Mesafe Ölçüm Modu" if selected_mode == 'scan_and_map' else "Serbest Hareket Modu"
             return dbc.Alert(f"{mode_name} başlatıldı (PID:{new_pid}).", color="success")
         else:
             return dbc.Alert(f"Başlatılamadı. PID dosyası {max_wait_time} saniye içinde oluşmadı.", color="danger")
     except Exception as e:
         return dbc.Alert(f"Betik başlatma hatası: {e}", color="danger")
 
-
-# ... (Geri kalan tüm callback'ler (handle_stop_scan_script, update_system_card, update_all_graphs, vb.) aynı kalabilir) ...
-# 'handle_stop_scan_script' artık evrensel olduğu için iki modu da durdurabilir.
-# 'update_all_graphs' ve diğerleri 'free_movement' modunda yeni veri gelmeyeceği için
-# en son taranan veriyi göstermeye devam edecektir, bu beklenen bir davranıştır.
 
 @app.callback(
     Output('scan-status-message', 'children', allow_duplicate=True),
@@ -681,12 +664,11 @@ def update_realtime_values(n):
             dist_s = f"{point.mesafe_cm:.1f} cm" if pd.notnull(point.mesafe_cm) else "-- cm"
             speed_s = f"{point.hiz_cm_s:.1f} cm/s" if pd.notnull(point.hiz_cm_s) else "-- cm/s"
             buzzer_threshold = scan.buzzer_distance_setting
-            if buzzer_threshold is not None and pd.notnull(
-                    point.mesafe_cm) and 0 < point.mesafe_cm <= buzzer_threshold: dist_style.update(
-                {'backgroundColor': '#d9534f', 'color': 'white'})
+            if buzzer_threshold is not None and pd.notnull(point.mesafe_cm) and 0 < point.mesafe_cm <= buzzer_threshold:
+                dist_style.update({'backgroundColor': '#d9534f', 'color': 'white'})
         max_dist_agg = scan.points.filter(mesafe_cm__lt=2500, mesafe_cm__gt=0).aggregate(max_dist_val=Max('mesafe_cm'))
-        if max_dist_agg and max_dist_agg.get(
-                'max_dist_val') is not None: max_dist_s = f"{max_dist_agg['max_dist_val']:.1f} cm"
+        if max_dist_agg and max_dist_agg.get('max_dist_val') is not None:
+            max_dist_s = f"{max_dist_agg['max_dist_val']:.1f} cm"
     return angle_s, dist_s, speed_s, dist_style, max_dist_s
 
 
@@ -729,8 +711,7 @@ def export_excel_callback(n_clicks_excel):
         points_df = pd.DataFrame(list(scan.points.all().values()))
     except Exception as e_excel_data:
         print(f"Excel için veri çekme hatası: {e_excel_data}");
-        return dcc.send_bytes(b"",
-                              f"veri_cekme_hatasi_{scan.id if scan else 'yok'}.xlsx")
+        return dcc.send_bytes(b"", f"veri_cekme_hatasi_{scan.id if scan else 'yok'}.xlsx")
     with io.BytesIO() as buf:
         try:
             with pd.ExcelWriter(buf, engine='xlsxwriter') as writer:
@@ -741,9 +722,7 @@ def export_excel_callback(n_clicks_excel):
                     pd.DataFrame().to_excel(writer, sheet_name='Veri Yok', index=False)
         except Exception as e_excel_write:
             print(f"Excel yazma hatası: {e_excel_write}");
-            pd.DataFrame([{"Hata": str(e_excel_write)}]).to_excel(writer,
-                                                                  sheet_name='Hata',
-                                                                  index=False)
+            pd.DataFrame([{"Hata": str(e_excel_write)}]).to_excel(writer, sheet_name='Hata', index=False)
         return dcc.send_bytes(buf.getvalue(), f"tarama_detaylari_id_{scan.id if scan else 'yok'}.xlsx")
 
 
@@ -763,10 +742,11 @@ def render_and_update_data_table(active_tab, n):
                                 style_cell={'textAlign': 'left', 'padding': '5px', 'fontSize': '0.9em'},
                                 style_header={'backgroundColor': 'rgb(230,230,230)', 'fontWeight': 'bold'},
                                 style_table={'minHeight': '65vh', 'height': '70vh', 'maxHeight': '75vh',
-                                             'overflowY': 'auto', 'overflowX': 'auto'}, page_size=50,
-                                sort_action="native", filter_action="native", virtualization=True,
-                                fixed_rows={'headers': True}, style_data_conditional=[
-            {'if': {'row_index': 'odd'}, 'backgroundColor': 'rgb(248, 248, 248)'}])
+                                             'overflowY': 'auto', 'overflowX': 'auto'},
+                                page_size=50, sort_action="native", filter_action="native", virtualization=True,
+                                fixed_rows={'headers': True},
+                                style_data_conditional=[
+                                    {'if': {'row_index': 'odd'}, 'backgroundColor': 'rgb(248, 248, 248)'}])
 
 
 @app.callback(
@@ -865,18 +845,20 @@ def yorumla_model_secimi(selected_model_value):
     if not selected_model_value: return html.Div("Yorum için bir model seçin.", className="text-center")
     scan = get_latest_scan()
     if not scan: return dbc.Alert("Analiz edilecek bir tarama bulunamadı.", color="warning", duration=4000)
-    if scan.ai_commentary: print(f"Scan ID {scan.id} için mevcut AI yorumu kullanılıyor."); return dbc.Alert(
-        dcc.Markdown(scan.ai_commentary, dangerously_allow_html=True, link_target="_blank"), color="info")
+    if scan.ai_commentary:
+        print(f"Scan ID {scan.id} için mevcut AI yorumu kullanılıyor.")
+        return dbc.Alert(dcc.Markdown(scan.ai_commentary, dangerously_allow_html=True, link_target="_blank"),
+                         color="info")
     points_qs = scan.points.all().values('derece', 'mesafe_cm')
     if not points_qs: return dbc.Alert("Yorumlanacak tarama verisi bulunamadı.", color="warning", duration=4000)
     df_data_for_ai = pd.DataFrame(list(points_qs))
-    if len(df_data_for_ai) > 500: print(
-        f"AI yorumu için çok fazla nokta ({len(df_data_for_ai)}), 500'e örnekleniyor..."); df_data_for_ai = df_data_for_ai.sample(
-        n=500, random_state=1)
-    print(f"Scan ID {scan.id} için yeni AI yorumu üretiliyor (Model: {selected_model_value})...");
+    if len(df_data_for_ai) > 500:
+        print(f"AI yorumu için çok fazla nokta ({len(df_data_for_ai)}), 500'e örnekleniyor...")
+        df_data_for_ai = df_data_for_ai.sample(n=500, random_state=1)
+    print(f"Scan ID {scan.id} için yeni AI yorumu üretiliyor (Model: {selected_model_value})...")
     yorum_text_from_ai = yorumla_tablo_verisi_gemini(df_data_for_ai, selected_model_value)
-    if "Hata:" in yorum_text_from_ai or "hata oluştu" in yorum_text_from_ai: return dbc.Alert(yorum_text_from_ai,
-                                                                                              color="danger")
+    if "Hata:" in yorum_text_from_ai or "hata oluştu" in yorum_text_from_ai:
+        return dbc.Alert(yorum_text_from_ai, color="danger")
     try:
         scan.ai_commentary = yorum_text_from_ai;
         scan.save()
