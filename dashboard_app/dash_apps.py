@@ -401,8 +401,9 @@ def update_polar_graph(fig, df):
 # ==========================================================
 def update_time_series_graph(fig, df):
     """
-    Verilen figure nesnesine zaman serisi grafiğini ekler ve formatlar.
-    Hatalı tarih verilerini (örn: 1970) filtreler.
+    Verilen figure nesnesine zaman serisi grafiğini ekler.
+    Grafiğin zaman aralığını, sadece mevcut taramanın zaman damgalarına göre
+    dinamik olarak ayarlar ve otomatik olarak o bölgeye odaklar.
     """
     # Gelen verinin veya gerekli sütunların boş olup olmadığını kontrol et
     if df.empty or 'timestamp' not in df.columns or 'mesafe_cm' not in df.columns:
@@ -412,27 +413,37 @@ def update_time_series_graph(fig, df):
     try:
         df_s = df.copy()
 
-        # Zaman damgası sütununu pandas'ın standart datetime nesnesine dönüştür.
-        # Hatalı olanları 'NaT' (Not a Time) olarak işaretle.
+        # Zaman damgası sütununu pandas'ın standart datetime nesnesine dönüştür
         df_s['timestamp'] = pd.to_datetime(df_s['timestamp'], errors='coerce')
 
-        # Hatalı veya boş tarihleri temizle.
+        # Hatalı veya boş tarihleri temizle
         df_s.dropna(subset=['timestamp'], inplace=True)
 
-        # 1970 gibi hatalı tarihleri temizlemek için sadece yakın tarihli verileri tut.
-        # Bu, sorunu kesin olarak çözer.
-        if not df_s.empty:
-            df_s = df_s[df_s['timestamp'].dt.year > 2024]
-
-        # Tarihe göre sırala.
-        df_s = df_s.sort_values(by='timestamp')
-
-        # Filtreleme sonrası veri kalıp kalmadığını kontrol et.
-        if df_s.empty:
-            fig.add_trace(go.Scatter(x=[], y=[], mode='lines', name='Veri Yok (Filtrelendi)'))
+        # Bir aralık belirlemek için en az 2 veri noktası gerekir
+        if len(df_s) < 2:
+            fig.add_trace(go.Scatter(x=[], y=[], mode='lines', name='Yetersiz Veri'))
             return
 
-        # Grafiğe asıl veriyi ekle: x eksenine zaman, y eksenine mesafe.
+        # Tarihe göre sırala
+        df_s = df_s.sort_values(by='timestamp')
+
+        # --- YENİ DİNAMİK ZAMAN ARALIĞI MANTIĞI ---
+        # 1. Verideki en son ve en ilk geçerli zamanı bul
+        min_time = df_s['timestamp'].min()
+        max_time = df_s['timestamp'].max()
+
+        # 2. Grafiğin kenarlarında küçük bir boşluk bırakmak için dolgu (padding) hesapla
+        #    Toplam sürenin %5'i kadar boşluk bırak, en az 2 saniye olsun.
+        padding = pd.Timedelta(seconds=(max_time - min_time).total_seconds() * 0.05)
+        if padding.total_seconds() < 2:
+            padding = pd.Timedelta(seconds=2)
+
+            # 3. Grafiğin x-ekseni için başlangıç ve bitiş aralığını belirle
+        x_range_start = min_time - padding
+        x_range_end = max_time + padding
+        # ---------------------------------------------
+
+        # Grafiğe asıl veriyi ekle
         fig.add_trace(go.Scatter(
             x=df_s['timestamp'],
             y=df_s['mesafe_cm'],
@@ -440,18 +451,21 @@ def update_time_series_graph(fig, df):
             name='Mesafe'
         ))
 
-        # Grafiğe gelişmiş formatlama ve interaktif özellikler ekle.
+        # Grafiğe gelişmiş formatlama ve interaktif özellikler ekle
         fig.update_layout(
-            # EKSEN TİPİNİ AÇIKÇA BELİRTME: Plotly'e bunun bir tarih ekseni olduğunu bildirir.
+            # Eksen tipini 'date' olarak zorunlu kıl
             xaxis_type='date',
+
+            # --- ANAHTAR DEĞİŞİKLİK: Eksen aralığını dinamik olarak ayarla ---
+            xaxis_range=[x_range_start, x_range_end],
 
             xaxis_title="Zaman",
             yaxis_title="Mesafe (cm)",
 
-            # Eksen etiket formatı: 05 Haz 2025 (üst satır) 14:30:15 (alt satır)
+            # Eksen etiket formatı
             xaxis_tickformat='%d %b %Y<br>%H:%M:%S',
 
-            # Hızlı zaman aralığı seçimi için butonlar
+            # Hızlı zaman aralığı seçimi için butonlar (isteğe bağlı)
             xaxis_rangeselector=dict(
                 buttons=list([
                     dict(count=1, label="1dk", step="minute", stepmode="backward"),
@@ -461,15 +475,14 @@ def update_time_series_graph(fig, df):
                 ])
             ),
 
-            # Altta çıkan ve fare ile kontrol edilebilen zaman kaydırma çubuğu
+            # Altta çıkan zaman kaydırma çubuğu (isteğe bağlı)
             xaxis_rangeslider_visible=True
         )
 
     except Exception as e:
-        # Kodda bir hata oluşursa, bunu logla ve grafikte hata mesajı göster.
+        # Kodda bir hata oluşursa, bunu logla ve grafikte hata mesajı göster
         logging.error(f"Zaman serisi grafiği oluşturulurken HATA: {e}")
         fig.add_trace(go.Scatter(x=[], y=[], mode='lines', name='Grafik Hatası'))
-
 
 # ==========================================================
 
