@@ -1,3 +1,4 @@
+import logging
 import os
 import sys
 import subprocess
@@ -401,52 +402,51 @@ def update_polar_graph(fig, df):
 def update_time_series_graph(fig, df):
     """
     Verilen figure nesnesine zaman serisi grafiğini ekler ve formatlar.
-    Bu bir callback DEĞİLDİR, update_all_graphs tarafından çağrılan bir yardımcıdır.
+    Bu bir callback DEĞİLDİR, update_all_graphs tarafından çağrılan bir yardımcı fonksiyondur.
     """
+    # Gelen verinin veya gerekli sütunların boş olup olmadığını kontrol et
     if df.empty or 'timestamp' not in df.columns or 'mesafe_cm' not in df.columns:
         fig.add_trace(go.Scatter(x=[], y=[], mode='lines', name='Veri Yok'))
         return
+
     try:
         df_s = df.copy()
 
-        # === HATA AYIKLAMA İÇİN EKLENEN BÖLÜM ===
-        print("\n--- ZAMAN SERİSİ DEBUG (update_time_series_graph) ---")
-        print("1. Orijinal 'timestamp' verisinin ilk 5 satırı ve tipi:")
-        print(df_s[['timestamp']].head())
-        print(f"Orijinal veri tipi: {df_s['timestamp'].dtype}")
-        # ==========================================
-
-        # Zaman damgası sütununu pandas'ın datetime nesnesine dönüştür
-        # Hatalı olanları 'NaT' (Not a Time) olarak işaretle
+        # Zaman damgası sütununu pandas'ın standart datetime nesnesine dönüştür.
+        # Hatalı olanları 'NaT' (Not a Time) olarak işaretle.
         df_s['timestamp'] = pd.to_datetime(df_s['timestamp'], errors='coerce')
 
-        # Dönüştürülemeyen (NaT) satırları veriden çıkar
+        # Dönüştürülemeyen (NaT) satırları veriden temizle.
         df_s.dropna(subset=['timestamp'], inplace=True)
 
-        # Zamana göre sırala
+        # Tarihe göre sırala.
         df_s = df_s.sort_values(by='timestamp')
 
-        # === HATA AYIKLAMA İÇİN EKLENEN BÖLÜM ===
-        print("\n2. Pandas'a dönüştürülmüş 'timestamp' verisinin ilk 5 satırı:")
-        print(df_s[['timestamp']].head())
-        # ==========================================
-
+        # Temizlik sonrası veri kalıp kalmadığını kontrol et.
         if df_s.empty:
-            print("DEBUG: Tarih formatlama sonrası zaman serisi için geçerli veri kalmadı.")
             fig.add_trace(go.Scatter(x=[], y=[], mode='lines', name='Veri Yok'))
             return
 
-        # Grafiğe veriyi ekle
-        fig.add_trace(go.Scatter(x=df_s['timestamp'], y=df_s['mesafe_cm'], mode='lines+markers', name='Mesafe'))
+        # Grafiğe asıl veriyi ekle: x eksenine zaman, y eksenine mesafe.
+        fig.add_trace(go.Scatter(
+            x=df_s['timestamp'],
+            y=df_s['mesafe_cm'],
+            mode='lines+markers',
+            name='Mesafe'
+        ))
 
-        # === GRAFİK DÜZENLEMELERİ ===
+        # Grafiğe gelişmiş formatlama ve interaktif özellikler ekle.
         fig.update_layout(
-            # EKSEN TİPİNİ AÇIKÇA BELİRTME (EN ÖNEMLİ DEĞİŞİKLİK)
+            # EKSEN TİPİNİ AÇIKÇA BELİRTME: Plotly'e bunun bir tarih ekseni olduğunu bildirir.
             xaxis_type='date',
 
             xaxis_title="Zaman",
             yaxis_title="Mesafe (cm)",
+
+            # Eksen etiket formatı: 05 Haz 2025 (üst satır) 14:30:15 (alt satır)
             xaxis_tickformat='%d %b %Y<br>%H:%M:%S',
+
+            # Hızlı zaman aralığı seçimi için butonlar
             xaxis_rangeselector=dict(
                 buttons=list([
                     dict(count=1, label="1dk", step="minute", stepmode="backward"),
@@ -455,13 +455,14 @@ def update_time_series_graph(fig, df):
                     dict(step="all", label="Tümü")
                 ])
             ),
+
+            # Altta çıkan ve fare ile kontrol edilebilen zaman kaydırma çubuğu
             xaxis_rangeslider_visible=True
         )
 
     except Exception as e:
-        print(f"Zaman serisi grafiği oluşturulurken KRİTİK HATA: {e}")
-        import traceback
-        traceback.print_exc()
+        # Kodda bir hata oluşursa, bunu logla ve grafikte hata mesajı göster.
+        logging.error(f"Zaman serisi grafiği oluşturulurken HATA: {e}")
         fig.add_trace(go.Scatter(x=[], y=[], mode='lines', name='Grafik Hatası'))
 
 
@@ -845,60 +846,114 @@ def render_and_update_data_table(active_tab, n):
                                     {'if': {'row_index': 'odd'}, 'backgroundColor': 'rgb(248, 248, 248)'}])
 
 
+# ==============================================================================
+# --- ANA GRAFİK GÜNCELLEYİCİ CALLBACK ---
+# ==============================================================================
 @app.callback(
-    [Output('scan-map-graph', 'figure'), Output('polar-regression-graph', 'figure'), Output('polar-graph', 'figure'),
-     Output('time-series-graph', 'figure'), Output('environment-estimation-text', 'children'),
-     Output('clustered-data-store', 'data')], [Input('interval-component-main', 'n_intervals')])
+    [
+        Output('scan-map-graph', 'figure'),
+        Output('polar-regression-graph', 'figure'),
+        Output('polar-graph', 'figure'),
+        Output('time-series-graph', 'figure'),
+        Output('environment-estimation-text', 'children'),
+        Output('clustered-data-store', 'data')
+    ],
+    Input('interval-component-main', 'n_intervals')
+)
 def update_all_graphs(n):
-    figs = [go.Figure() for _ in range(4)];
-    est_cart, est_polar, clear_path, shape_estimation = "Veri bekleniyor...", "Veri bekleniyor...", "", "Veri bekleniyor...";
-    store_data = None;
+    """
+    Tüm grafikleri ve analizleri periyodik olarak güncelleyen ana callback.
+    Bu fonksiyon, uygulamanın görsel kalbidir.
+    """
+    # Django modellerini, sadece bu fonksiyon çalıştığında import ederek
+    # uygulamanın başlangıç hatalarını önlüyoruz.
+    from scanner.models import ScanPoint
+
+    # Her döngü için başlangıç değerlerini ayarla
+    figs = [go.Figure() for _ in range(4)]
+    est_text = html.Div([html.P("Tarama başlatın veya verinin gelmesini bekleyin...")])
+    store_data = None
     scan_id_for_revision = 'initial_load'
+
+    # Veritabanından en son tarama verisini al
     scan = get_latest_scan()
-    if not scan:
-        est_cart = "Tarama başlatın."
-    else:
+
+    if scan:
         scan_id_for_revision = str(scan.id)
-        points_qs = scan.points.all().values('x_cm', 'y_cm', 'derece', 'mesafe_cm', 'timestamp')
-        if not points_qs:
-            est_cart = f"Tarama ID {scan.id} için nokta yok."
-        else:
+        points_qs = ScanPoint.objects.filter(scan=scan).values('x_cm', 'y_cm', 'derece', 'mesafe_cm', 'timestamp')
+
+        if points_qs:
             df_pts = pd.DataFrame(list(points_qs))
-            df_val = df_pts[(df_pts['mesafe_cm'] > 0.1) & (df_pts['mesafe_cm'] < 250.0)].copy()
-            if len(df_val) >= 2:
-                add_scan_rays(figs[0], df_val);
+            # Sadece geçerli ve makul aralıktaki verileri kullan
+            df_val = df_pts[(df_pts['mesafe_cm'] > 0.1) & (df_pts['mesafe_cm'] < 300.0)].copy()
+
+            if len(df_val) >= 5:  # Analizler için en az 5 nokta olsun
+
+                # --- Her Grafik ve Analiz için İlgili Yardımcı Fonksiyonları Çağır ---
+
+                # 1. 2D Harita ve Kümeleme Analizi
+                est_cart, df_clus = analyze_environment_shape(figs[0], df_val.copy())
+                store_data = df_clus.to_json(orient='split')  # Kümelenmiş veriyi sonraki tıklamalar için sakla
+                add_scan_rays(figs[0], df_val)
                 add_sector_area(figs[0], df_val)
-                est_cart, df_clus = analyze_environment_shape(figs[0], df_val.copy());
-                store_data = df_clus.to_json(orient='split')
+
+                # 2. Regresyon Analizi
                 line_data, est_polar = analyze_polar_regression(df_val)
                 figs[1].add_trace(
                     go.Scatter(x=df_val['derece'], y=df_val['mesafe_cm'], mode='markers', name='Noktalar'))
-                if line_data: figs[1].add_trace(
-                    go.Scatter(x=line_data['x'], y=line_data['y'], mode='lines', name='Regresyon',
-                               line=dict(color='red', width=3)))
-                clear_path = find_clearest_path(df_val);
-                shape_estimation = estimate_geometric_shape(df_val.copy())
-                update_polar_graph(figs[2], df_val);
-                update_time_series_graph(figs[3], df_val.copy())
+                if line_data:
+                    figs[1].add_trace(
+                        go.Scatter(x=line_data['x'], y=line_data['y'], mode='lines', name='Regresyon Çizgisi',
+                                   line=dict(color='red', width=3)))
+
+                # 3. Polar Grafik
+                update_polar_graph(figs[2], df_val)
+
+                # 4. Zaman Serisi Grafiği (Düzeltilmiş versiyon)
+                update_time_series_graph(figs[3], df_val)
+
+                # 5. Metin Analizleri
+                clear_path = find_clearest_path(df_val)
+                shape_estimation = estimate_geometric_shape(df_val)
+
+                # Analiz sonuçlarını bir araya getirerek göster
+                est_text = html.Div([
+                    html.P(shape_estimation, className="fw-bold"), html.Hr(),
+                    html.P(clear_path, className="fw-bold text-primary"), html.Hr(),
+                    html.P(f"Kümeleme: {est_cart}"), html.Hr(),
+                    html.P(f"Regresyon: {est_polar}")
+                ])
+
             else:
-                est_cart = "Analiz için yetersiz geçerli nokta."
-    for fig in figs: add_sensor_position(fig)
-    titles = ['Ortamın 2D Haritası', 'Açıya Göre Mesafe Regresyonu', 'Polar Grafik', 'Zaman Serisi - Mesafe'];
+                est_text = html.Div([html.P("Analiz için yeterli sayıda geçerli nokta bulunamadı.")])
+        else:
+            est_text = html.Div([html.P(f"Tarama ID #{scan.id} için nokta verisi bulunamadı.")])
+
+    # --- Tüm Grafiklere Ortak Ayarları Uygula ---
+
+    # Tüm grafiklere sensörün merkez konumunu ekle
+    for fig in figs:
+        add_sensor_position(fig)
+
+    titles = ['Ortamın 2D Haritası', 'Açıya Göre Mesafe Regresyonu', 'Polar Grafik', 'Zaman Serisi - Mesafe']
     common_legend = dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+
     for i, fig in enumerate(figs):
-        fig.update_layout(title_text=titles[i], uirevision=scan_id_for_revision, legend=common_legend,
-                          margin=dict(l=40, r=40, t=60, b=40))
+        fig.update_layout(
+            title_text=titles[i],
+            uirevision=scan_id_for_revision,  # Kullanıcı zoom'unu korumak için
+            template="plotly_dark",
+            legend=common_legend,
+            margin=dict(l=40, r=40, t=80, b=40)  # Başlık için üstte boşluk
+        )
+        # Her grafiğe özel eksen başlıkları
         if i == 0:
             fig.update_layout(xaxis_title="Yatay Mesafe (cm)", yaxis_title="Dikey Mesafe (cm)", yaxis_scaleanchor="x",
                               yaxis_scaleratio=1)
         elif i == 1:
-            fig.update_layout(xaxis_title="Tarama Açısı (°)", yaxis_title="Mesafe (cm)")
-    final_est_text = html.Div([html.H6("Geometrik Tahmin:", className="mt-2"), html.P(shape_estimation),
-                               html.H6("En Açık Yol:", className="mt-2"), html.P(clear_path, className="text-primary"),
-                               html.H6("Kümeleme Analizi:", className="mt-2"), html.P(est_cart),
-                               html.H6("Polar Regresyon:", className="mt-2"), html.P(est_polar)],
-                              style={'fontSize': '0.9em'})
-    return figs[0], figs[1], figs[2], figs[3], final_est_text, store_data
+            fig.update_layout(xaxis_title="Tarama Açısı (Derece)", yaxis_title="Mesafe (cm)")
+
+    return figs[0], figs[1], figs[2], figs[3], est_text, store_data
 
 @app.callback(
     Output('container-map-graph', 'style'),
