@@ -122,8 +122,7 @@ control_panel = dbc.Card([
             dcc.Dropdown(
                 id='ai-model-dropdown',
                 options=[
-                    {'label': 'Gemini Pro (Gelişmiş)', 'value': 'gemini-1.5-pro-latest'},
-                    {'label': 'Gemini Flash (Hızlı)', 'value': 'gemini-2.0-flash-preview-image-generation'},
+                    {'label': 'Gemini Flash (Hızlı)', 'value': 'gemini-2.0-flash'},
                 ],
                 placeholder="Yorumlama için bir model seçin...",
                 clearable=True,
@@ -469,7 +468,7 @@ def estimate_geometric_shape(df_input):
         return "Geometrik analiz hatası."
 
 
-def yorumla_tablo_verisi_gemini(df, model_name='gemini-2.0-flash-preview-image-generation'):
+def yorumla_tablo_verisi_gemini(df, model_name='gemini-2.0-flash'):
     if not GOOGLE_GENAI_AVAILABLE: return "Hata: Google GenerativeAI kütüphanesi yüklenemedi."
     if not google_api_key: return "Hata: `GOOGLE_API_KEY` ayarlanmamış."
     if df is None or df.empty: return "Yorumlanacak tablo verisi bulunamadı."
