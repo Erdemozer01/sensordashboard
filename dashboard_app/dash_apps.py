@@ -463,8 +463,8 @@ def yorumla_tablo_verisi_gemini(df, model_name='gemini-2.5-flash-preview-05-20')
         client = genai.Client(api_key=google_api_key)
         prompt_text = (
             f"Aşağıdaki tablo, bir hc-sr04 sensörünün yaptığı taramadan elde edilen {df.to_string(index=False)} verileri yorumla"
-            "Olası nesneleri (duvar, köşe, sandalye bacağı, kutu, insan.) tahmin etmeye çalış "
-            "ortamın alanını tahin etmeye çalış."
+            "Olası nesneleri (duvar, köşe, sandalye bacağı, kutu, insan vb) tahmin etmeye çalış "
+            "ortamın geometrik şekli ve alanını hesapla"
             "Yorumunu maddeleme veya kısa paragraflar halinde yap. \n\n"
         )
         response = client.models.generate_content(model=model_name, contents=prompt_text)
