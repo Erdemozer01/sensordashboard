@@ -1,29 +1,53 @@
-from gpiozero import DistanceSensor, LED, Buzzer, OutputDevice
-from RPLCD.i2c import CharLCD
-import time
-import sqlite3
+# sensor_script.py
+
 import os
 import sys
+import time
+import argparse
 import fcntl
 import atexit
 import math
-import argparse
+
+# ==============================================================================
+# --- DJANGO ENTEGRASYONU ---
+# Bu bölüm, betiğin Django ortamını ve modellerini tanımasını sağlar.
+# 'dream_pi_project' yerine kendi Django projenizin adını yazın.
+# ==============================================================================
+try:
+    sys.path.append(os.getcwd())
+    os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'dream_pi_project.settings')
+    import django
+
+    django.setup()
+    from django.utils import timezone
+    from scanner.models import Scan, ScanPoint
+
+    print("Django entegrasyonu başarılı.")
+except Exception as e:
+    print(f"Django entegrasyonu BAŞARISIZ: {e}")
+    sys.exit(1)
+# ==============================================================================
+
+# ==============================================================================
+# --- Donanım ve GPIO Kütüphaneleri ---
+# ==============================================================================
+from gpiozero import DistanceSensor, LED, Buzzer, OutputDevice
+
+# ==============================================================================
 
 # ==============================================================================
 # --- KONTROL DEĞİŞKENİ ---
-# Motor bağlı olmadığında test için bu değeri False yapın.
-# Motoru tekrar kullanmak istediğinizde True olarak değiştirin.
 # ==============================================================================
 MOTOR_BAGLI = True
 # ==============================================================================
 
 # ==============================================================================
-# --- Pin Tanımlamaları ve Donanım Ayarları ---
+# --- Pin Tanımlamaları ---
 # ==============================================================================
 TRIG_PIN, ECHO_PIN = 23, 24
 IN1_GPIO_PIN, IN2_GPIO_PIN, IN3_GPIO_PIN, IN4_GPIO_PIN = 6, 13, 19, 26
 YELLOW_LED_PIN, BUZZER_PIN = 27, 17
-LCD_I2C_ADDRESS, LCD_PORT_EXPANDER, LCD_COLS, LCD_ROWS, I2C_PORT = 0x27, 'PCF8574', 16, 2, 1
+# ==============================================================================
 
 # ==============================================================================
 # --- Varsayılan Değerler ---
@@ -34,20 +58,18 @@ DEFAULT_BUZZER_DISTANCE = 10
 DEFAULT_INVERT_MOTOR_DIRECTION = False
 DEFAULT_STEPS_PER_REVOLUTION = 4096
 STEP_MOTOR_INTER_STEP_DELAY, STEP_MOTOR_SETTLE_TIME, LOOP_TARGET_INTERVAL_S = 0.0015, 0.05, 0.6
+# ==============================================================================
 
 # ==============================================================================
 # --- Global Değişkenler ve Dosya Yolları ---
 # ==============================================================================
-try:
-    PROJECT_ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
-except NameError:
-    PROJECT_ROOT_DIR = os.getcwd()
-DB_NAME_ONLY, DB_PATH = 'live_scan_data.sqlite3', os.path.join(PROJECT_ROOT_DIR, 'live_scan_data.sqlite3')
 LOCK_FILE_PATH, PID_FILE_PATH = '/tmp/sensor_scan_script.lock', '/tmp/sensor_scan_script.pid'
-sensor, yellow_led, lcd, buzzer = None, None, None, None
+sensor, yellow_led, buzzer = None, None, None
 in1_dev, in2_dev, in3_dev, in4_dev = None, None, None, None
-lock_file_handle, current_scan_id_global, db_conn_main_script_global = None, None, None
-script_exit_status_global = 'interrupted_unexpectedly'
+lock_file_handle = None
+current_scan_object_global = None  # Mevcut 'Scan' model nesnesini tutacak
+script_exit_status_global = Scan.Status.ERROR  # Varsayılan çıkış durumu
+
 STEPS_PER_REVOLUTION_OUTPUT_SHAFT = DEFAULT_STEPS_PER_REVOLUTION
 DEG_PER_STEP, current_motor_angle_global, current_step_sequence_index = 0.0, 0.0, 0
 step_sequence = [[1, 0, 0, 0], [1, 1, 0, 0], [0, 1, 0, 0], [0, 1, 1, 0], [0, 0, 1, 0], [0, 0, 1, 1], [0, 0, 0, 1],
@@ -56,13 +78,12 @@ SCAN_DURATION_ANGLE_PARAM, SCAN_STEP_ANGLE, BUZZER_DISTANCE_CM, INVERT_MOTOR_DIR
 
 
 # ==============================================================================
-# --- Yardımcı Fonksiyonlar ---
+# --- Donanım ve Yardımcı Fonksiyonlar (Değişiklik Yok) ---
 # ==============================================================================
 def init_hardware():
-    global sensor, yellow_led, lcd, buzzer, current_motor_angle_global, in1_dev, in2_dev, in3_dev, in4_dev
+    global sensor, yellow_led, buzzer, current_motor_angle_global, in1_dev, in2_dev, in3_dev, in4_dev
     pid, hardware_ok = os.getpid(), True
     try:
-        # DÜZENLEME: Motor pinleri sadece MOTOR_BAGLI ise başlatılacak.
         if MOTOR_BAGLI:
             in1_dev, in2_dev, in3_dev, in4_dev = OutputDevice(IN1_GPIO_PIN), OutputDevice(IN2_GPIO_PIN), OutputDevice(
                 IN3_GPIO_PIN), OutputDevice(IN4_GPIO_PIN)
@@ -77,17 +98,6 @@ def init_hardware():
     except Exception as e:
         print(f"[{pid}] Donanım Başlatma HATA: {e}");
         hardware_ok = False
-    if hardware_ok:
-        try:
-            lcd = CharLCD(i2c_expander=LCD_PORT_EXPANDER, address=LCD_I2C_ADDRESS, port=I2C_PORT, cols=LCD_COLS,
-                          rows=LCD_ROWS, dotsize=8, charmap='A02', auto_linebreaks=True)
-            lcd.clear();
-            lcd.cursor_pos = (0, 0);
-            lcd.write_string("Dream Pi Hazir".ljust(LCD_COLS));
-            time.sleep(2)
-        except Exception as e_lcd:
-            print(f"[{pid}] LCD Başlatma UYARI: {e_lcd}");
-            lcd = None
     return hardware_ok
 
 
@@ -110,182 +120,22 @@ def _step_motor_4in(num_steps, direction_positive):
 
 def move_motor_to_angle(target_angle_deg):
     global current_motor_angle_global
-
-    # DÜZENLEME: Motor bağlı değilse, hareketi simüle et ve çık.
     if not MOTOR_BAGLI:
-        # Bu uyarıyı sadece bir kez göstermek için global bir flag kullan
-        if 'motorless_warning_printed' not in globals():
-            global motorless_warning_printed
-            print("[UYARI] MOTOR_BAGLI=False. Fiziksel motor hareketleri yapılmayacak, sadece açı güncellenecek.")
-            motorless_warning_printed = True
-
-        # Fiziksel hareket yerine, sadece global açı değişkenini güncelle.
         current_motor_angle_global = target_angle_deg
         return
-
-    # --- Orijinal motor kontrol kodu ---
     if DEG_PER_STEP <= 0: print(f"HATA: DEG_PER_STEP ({DEG_PER_STEP}) geçersiz!"); return
-
     normalized_current_angle = current_motor_angle_global % 360.0
     normalized_target_angle = target_angle_deg % 360.0
     angle_diff = normalized_target_angle - normalized_current_angle
-
     if abs(angle_diff) > 180.0:
-        if angle_diff > 0:
-            angle_diff -= 360.0
-        else:
-            angle_diff += 360.0
-
+        angle_diff -= 360.0 if angle_diff > 0 else -360.0
     if abs(angle_diff) < (DEG_PER_STEP / 2.0): return
     num_steps = round(abs(angle_diff) / DEG_PER_STEP)
     if num_steps == 0: return
-
     logical_dir_positive = (angle_diff > 0)
     physical_dir_positive = not logical_dir_positive if INVERT_MOTOR_DIRECTION else logical_dir_positive
-
-    print(
-        f"Motor Hareketi: Fiziksel {current_motor_angle_global:.1f}° -> Hedef Fiz. {target_angle_deg:.1f}°. Fark: {angle_diff:.1f}°, Adım: {num_steps}")
     _step_motor_4in(num_steps, physical_dir_positive)
-
-    current_motor_angle_global_cumulative = current_motor_angle_global + (
-            num_steps * DEG_PER_STEP * (1 if logical_dir_positive else -1))
-    current_motor_angle_global = current_motor_angle_global_cumulative
-
-
-def init_db_for_scan(logical_start_angle, logical_end_angle):
-    global current_scan_id_global
-    try:
-        with sqlite3.connect(DB_PATH, timeout=10) as conn:
-            conn.execute("PRAGMA journal_mode = WAL;")
-            cursor = conn.cursor()
-            # ... (Bu fonksiyonun geri kalanı değişmedi)
-            cursor.execute('''CREATE TABLE IF NOT EXISTS servo_scans
-                              (
-                                  id
-                                  INTEGER
-                                  PRIMARY
-                                  KEY,
-                                  start_time
-                                  REAL,
-                                  status
-                                  TEXT,
-                                  hesaplanan_alan_cm2
-                                  REAL,
-                                  cevre_cm
-                                  REAL,
-                                  max_genislik_cm
-                                  REAL,
-                                  max_derinlik_cm
-                                  REAL,
-                                  start_angle_setting
-                                  REAL,
-                                  end_angle_setting
-                                  REAL,
-                                  step_angle_setting
-                                  REAL,
-                                  buzzer_distance_setting
-                                  REAL,
-                                  invert_motor_direction_setting
-                                  BOOLEAN
-                              )''')
-            cursor.execute('''CREATE TABLE IF NOT EXISTS scan_points
-            (
-                id
-                INTEGER
-                PRIMARY
-                KEY,
-                scan_id
-                INTEGER,
-                derece
-                REAL,
-                mesafe_cm
-                REAL,
-                hiz_cm_s
-                REAL
-                DEFAULT
-                0,
-                timestamp
-                REAL,
-                x_cm
-                REAL,
-                y_cm
-                REAL,
-                FOREIGN
-                KEY
-                              (
-                scan_id
-                              ) REFERENCES servo_scans
-                              (
-                                  id
-                              ) ON DELETE CASCADE)''')
-            cursor.execute("UPDATE servo_scans SET status='interrupted_prior_run' WHERE status='running'")
-            cursor.execute(
-                "INSERT INTO servo_scans (start_time, status, start_angle_setting, end_angle_setting, step_angle_setting, buzzer_distance_setting, invert_motor_direction_setting) VALUES (?,?,?,?,?,?,?)",
-                (time.time(), 'running', logical_start_angle, logical_end_angle, SCAN_STEP_ANGLE, BUZZER_DISTANCE_CM,
-                 INVERT_MOTOR_DIRECTION))
-            current_scan_id_global = cursor.lastrowid
-    except Exception as e:
-        print(f"DB Hatası (init_db_for_scan): {e}");
-        current_scan_id_global = None
-
-
-def acquire_lock_and_pid():
-    global lock_file_handle
-    try:
-        lock_file_handle = open(LOCK_FILE_PATH, 'w');
-        fcntl.flock(lock_file_handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-        with open(PID_FILE_PATH, 'w') as pf:
-            pf.write(str(os.getpid()));
-            return True
-    except Exception:
-        return False
-
-
-def release_resources_on_exit():
-    global script_exit_status_global
-    pid = os.getpid();
-    print(f"[{pid}] Kaynaklar serbest bırakılıyor... Durum: {script_exit_status_global}")
-    if current_scan_id_global:
-        try:
-            with sqlite3.connect(DB_PATH, timeout=10) as conn:
-                conn.execute("UPDATE servo_scans SET status=? WHERE id=?",
-                             (script_exit_status_global, current_scan_id_global))
-        except Exception as e:
-            print(f"DB çıkış HATA: {e}")
-
-    # DÜZENLEME: Motor pinleri sadece MOTOR_BAGLI ise sıfırlanacak.
-    if MOTOR_BAGLI:
-        _set_step_pins(0, 0, 0, 0)
-
-    for dev in [sensor, yellow_led, buzzer, in1_dev, in2_dev, in3_dev, in4_dev]:
-        if dev and hasattr(dev, 'close'):
-            try:
-                dev.close()
-            except Exception:
-                pass
-    if lcd:
-        try:
-            lcd.clear()
-            lcd.cursor_pos = (0, 0)
-            lcd.write_string("Mehmet Erdem".ljust(LCD_COLS))
-            lcd.cursor_pos = (1, 0)
-            lcd.write_string("OZER (PhD.)".ljust(LCD_COLS))
-            time.sleep(3)
-        except Exception:
-            pass
-    if lock_file_handle:
-        try:
-            fcntl.flock(lock_file_handle.fileno(), fcntl.LOCK_UN);
-            lock_file_handle.close()
-        except Exception:
-            pass
-    for fp in [PID_FILE_PATH, LOCK_FILE_PATH]:
-        if os.path.exists(fp):
-            try:
-                os.remove(fp)
-            except OSError:
-                pass
-    print(f"[{pid}] Temizleme tamamlandı.")
+    current_motor_angle_global += (num_steps * DEG_PER_STEP * (1 if logical_dir_positive else -1))
 
 
 def shoelace_formula(points): return 0.5 * abs(sum(
@@ -302,12 +152,95 @@ def calculate_perimeter(points):
 
 
 # ==============================================================================
-# --- ANA ÇALIŞMA BLOĞU ---
+# --- Betik Yönetim Fonksiyonları (Güncellendi) ---
+# ==============================================================================
+def create_scan_entry(start_angle, end_angle, step_angle, buzzer_dist, invert_dir):
+    """Veritabanında yeni bir Scan nesnesi oluşturur."""
+    global current_scan_object_global
+    try:
+        # Çalışan ama tamamlanmamış eski taramaları 'hata' olarak işaretle
+        Scan.objects.filter(status=Scan.Status.RUNNING).update(status=Scan.Status.ERROR)
+
+        current_scan_object_global = Scan.objects.create(
+            start_angle_setting=start_angle,
+            end_angle_setting=end_angle,
+            step_angle_setting=step_angle,
+            buzzer_distance_setting=buzzer_dist,
+            invert_motor_direction_setting=invert_dir,
+            status=Scan.Status.RUNNING  # Başlangıç durumu
+        )
+        print(f"Yeni tarama kaydı veritabanında oluşturuldu: ID #{current_scan_object_global.id}")
+        return True
+    except Exception as e:
+        print(f"DB Hatası (create_scan_entry): {e}")
+        current_scan_object_global = None
+        return False
+
+
+def acquire_lock_and_pid():
+    global lock_file_handle
+    try:
+        lock_file_handle = open(LOCK_FILE_PATH, 'w')
+        fcntl.flock(lock_file_handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        with open(PID_FILE_PATH, 'w') as pf:
+            pf.write(str(os.getpid()))
+        return True
+    except Exception:
+        return False
+
+
+def release_resources_on_exit():
+    pid = os.getpid()
+    print(f"[{pid}] Kaynaklar serbest bırakılıyor... Durum: {script_exit_status_global}")
+
+    # Tarama durumunu veritabanında güncelle
+    if current_scan_object_global:
+        try:
+            # Nesneyi veritabanından yeniden çekerek güncel halini al
+            scan_to_update = Scan.objects.get(id=current_scan_object_global.id)
+            if scan_to_update.status == Scan.Status.RUNNING:
+                scan_to_update.status = script_exit_status_global
+                scan_to_update.save()
+                print(f"Tarama #{scan_to_update.id} durumu '{script_exit_status_global}' olarak güncellendi.")
+        except Scan.DoesNotExist:
+            print(f"HATA: Tarama ID #{current_scan_object_global.id} bulunamadı, durum güncellenemedi.")
+        except Exception as e:
+            print(f"DB çıkış HATA: {e}")
+
+    # Donanımı kapat
+    if MOTOR_BAGLI:
+        _set_step_pins(0, 0, 0, 0)
+    for dev in [sensor, yellow_led, buzzer, in1_dev, in2_dev, in3_dev, in4_dev]:
+        if dev and hasattr(dev, 'close'):
+            try:
+                dev.close()
+            except Exception:
+                pass
+
+    # Lock ve PID dosyalarını temizle
+    if lock_file_handle:
+        try:
+            fcntl.flock(lock_file_handle.fileno(), fcntl.LOCK_UN);
+            lock_file_handle.close()
+        except Exception:
+            pass
+    for fp in [PID_FILE_PATH, LOCK_FILE_PATH]:
+        if os.path.exists(fp):
+            try:
+                os.remove(fp)
+            except OSError:
+                pass
+    print(f"[{pid}] Temizleme tamamlandı.")
+
+
+# ==============================================================================
+# --- ANA ÇALIŞMA BLOĞU (Güncellendi) ---
 # ==============================================================================
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--scan_duration_angle", type=float, default=DEFAULT_SCAN_DURATION_ANGLE)
     parser.add_argument("--step_angle", type=float, default=DEFAULT_SCAN_STEP_ANGLE)
+    # ... (argparse argümanları aynı)
     parser.add_argument("--buzzer_distance", type=int, default=DEFAULT_BUZZER_DISTANCE)
     parser.add_argument("--invert_motor_direction", type=lambda x: str(x).lower() == 'true',
                         default=DEFAULT_INVERT_MOTOR_DIRECTION)
@@ -315,11 +248,12 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     SCAN_DURATION_ANGLE_PARAM = float(args.scan_duration_angle)
-    SCAN_STEP_ANGLE, BUZZER_DISTANCE_CM = float(args.step_angle), int(args.buzzer_distance)
-    INVERT_MOTOR_DIRECTION, STEPS_PER_REVOLUTION_OUTPUT_SHAFT = bool(args.invert_motor_direction), int(
-        args.steps_per_rev)
+    SCAN_STEP_ANGLE = float(args.step_angle)
+    BUZZER_DISTANCE_CM = int(args.buzzer_distance)
+    INVERT_MOTOR_DIRECTION = bool(args.invert_motor_direction)
+    STEPS_PER_REVOLUTION_OUTPUT_SHAFT = int(args.steps_per_rev)
 
-    pid = os.getpid();
+    pid = os.getpid()
     atexit.register(release_resources_on_exit)
     if not acquire_lock_and_pid(): print(f"[{pid}] Başka bir betik çalışıyor. Çıkılıyor."); sys.exit(1)
     if not init_hardware(): sys.exit(1)
@@ -327,24 +261,22 @@ if __name__ == "__main__":
     DEG_PER_STEP = 360.0 / STEPS_PER_REVOLUTION_OUTPUT_SHAFT
     if SCAN_STEP_ANGLE < DEG_PER_STEP: SCAN_STEP_ANGLE = DEG_PER_STEP
 
+    # Motor hareket mantığı (Değişiklik yok)
     PHYSICAL_HOME_POSITION = 0.0
     INITIAL_RIGHT_TURN_DEGREES = 135.0
     PRE_SCAN_PHYSICAL_POSITION = (PHYSICAL_HOME_POSITION - INITIAL_RIGHT_TURN_DEGREES + 360.0) % 360.0
-
     LOGICAL_SCAN_START_ANGLE = 0.0
     LOGICAL_SCAN_END_ANGLE = SCAN_DURATION_ANGLE_PARAM
 
-    init_db_for_scan(LOGICAL_SCAN_START_ANGLE, LOGICAL_SCAN_END_ANGLE)
-    if not current_scan_id_global: print(f"[{pid}] Veritabanı oturumu oluşturulamadı. Çıkılıyor."); sys.exit(1)
+    # Veritabanında yeni tarama kaydı oluştur
+    if not create_scan_entry(LOGICAL_SCAN_START_ANGLE, LOGICAL_SCAN_END_ANGLE, SCAN_STEP_ANGLE, BUZZER_DISTANCE_CM,
+                             INVERT_MOTOR_DIRECTION):
+        print(f"[{pid}] Veritabanı oturumu oluşturulamadı. Çıkılıyor.")
+        sys.exit(1)
 
-    print(f"[{pid}] Yeni Otomatik Tarama Başlatılıyor...")
-    if lcd: lcd.clear(); lcd.write_string(f"Scan: {LOGICAL_SCAN_END_ANGLE:.0f} derece".ljust(LCD_COLS))
+    print(f"[{pid}] Yeni Otomatik Tarama Başlatılıyor (ID: #{current_scan_object_global.id})...")
 
     try:
-        db_conn_main_script_global = sqlite3.connect(DB_PATH, timeout=10)
-        db_conn_main_script_global.execute("PRAGMA journal_mode = WAL;")
-        cursor_main = db_conn_main_script_global.cursor()
-
         print(f"[{pid}] ADIM 0: Motor fiziksel başlangıç ({PHYSICAL_HOME_POSITION}°) pozisyonuna getiriliyor...")
         move_motor_to_angle(PHYSICAL_HOME_POSITION)
         time.sleep(0.5)
@@ -354,8 +286,7 @@ if __name__ == "__main__":
         time.sleep(1.0)
 
         physical_scan_reference_angle = current_motor_angle_global
-        print(
-            f"[{pid}] ADIM 2: Tarama başlıyor. Mantıksal [{LOGICAL_SCAN_START_ANGLE}° -> {LOGICAL_SCAN_END_ANGLE}°]. Fiziksel referans: {physical_scan_reference_angle:.1f}°")
+        print(f"[{pid}] ADIM 2: Tarama başlıyor. Mantıksal [{LOGICAL_SCAN_START_ANGLE}° -> {LOGICAL_SCAN_END_ANGLE}°].")
 
         collected_points, current_logical_angle = [], LOGICAL_SCAN_START_ANGLE
 
@@ -363,92 +294,72 @@ if __name__ == "__main__":
             target_physical_angle_for_step = physical_scan_reference_angle + current_logical_angle
             move_motor_to_angle(target_physical_angle_for_step)
 
-            if yellow_led:
-                yellow_led.on()
-                time.sleep(0.05)
+            if yellow_led: yellow_led.on(); time.sleep(0.05)
 
             dist_cm = sensor.distance * 100
             angle_rad_for_calc = math.radians(current_logical_angle)
             x_cm, y_cm = dist_cm * math.cos(angle_rad_for_calc), dist_cm * math.sin(angle_rad_for_calc)
 
-            print(
-                f"  Okuma: Mantıksal {current_logical_angle:.1f}° (Fiz: {current_motor_angle_global:.1f}°) -> {dist_cm:.1f} cm")
+            print(f"  Okuma: Mantıksal {current_logical_angle:.1f}° -> {dist_cm:.1f} cm")
 
-            if yellow_led:
-                yellow_led.off()
+            if yellow_led: yellow_led.off()
+            if buzzer: buzzer.on() if dist_cm < BUZZER_DISTANCE_CM else buzzer.off()
 
-            if dist_cm < BUZZER_DISTANCE_CM:
-                if buzzer:
-                    buzzer.on()
-                if lcd:
-                    try:
-                        lcd.cursor_pos = (0, 0)
-                        lcd.write_string("Dokunma Bana".ljust(LCD_COLS))
-                        lcd.cursor_pos = (1, 0)
-                        lcd.write_string(f"Mesafe: {dist_cm:<5.1f}cm".ljust(LCD_COLS))
-                    except Exception:
-                        pass
-            else:
-                if buzzer:
-                    buzzer.off()
-                if lcd:
-                    try:
-                        lcd.cursor_pos = (0, 0)
-                        lcd.write_string(f"Aci(L):{current_logical_angle:<6.1f}".ljust(LCD_COLS))
-                        lcd.cursor_pos = (1, 0)
-                        lcd.write_string(f"Mesafe: {dist_cm:<5.1f}cm".ljust(LCD_COLS))
-                    except Exception:
-                        pass
-
+            # Veritabanına yeni ScanPoint nesnesi olarak kaydet
             if 0 < dist_cm < (sensor.max_distance * 100 - 1):
                 collected_points.append((x_cm, y_cm))
 
-            cursor_main.execute(
-                "INSERT INTO scan_points (scan_id, derece, mesafe_cm, x_cm, y_cm, timestamp) VALUES (?,?,?,?,?,?)",
-                (current_scan_id_global, current_logical_angle, dist_cm, x_cm, y_cm, time.time()))
-            db_conn_main_script_global.commit()
+            ScanPoint.objects.create(
+                scan=current_scan_object_global,
+                derece=current_logical_angle,
+                mesafe_cm=dist_cm,
+                x_cm=x_cm,
+                y_cm=y_cm,
+                timestamp=timezone.now()
+            )
 
             if abs(current_logical_angle - LOGICAL_SCAN_END_ANGLE) < (
                     SCAN_STEP_ANGLE / 20.0) or current_logical_angle >= LOGICAL_SCAN_END_ANGLE:
-                print(f"[{pid}] Tarama bitti, mantıksal son açıya ({current_logical_angle:.1f}°) ulaşıldı.");
+                print(f"[{pid}] Tarama bitti, mantıksal son açıya ({current_logical_angle:.1f}°) ulaşıldı.")
                 break
 
             current_logical_angle += SCAN_STEP_ANGLE
             current_logical_angle = min(current_logical_angle, LOGICAL_SCAN_END_ANGLE)
-
             time.sleep(max(0, LOOP_TARGET_INTERVAL_S - STEP_MOTOR_SETTLE_TIME))
 
+        # Tarama sonrası analiz ve veritabanı güncelleme
         if len(collected_points) >= 3:
             polygon = [(0, 0)] + collected_points
             area, perimeter = shoelace_formula(polygon), calculate_perimeter(collected_points)
-            x_coords = [p[0] for p in collected_points if
-                        isinstance(p, (list, tuple)) and len(p) > 0 and isinstance(p[0], (int, float))]
-            y_coords = [p[1] for p in collected_points if
-                        isinstance(p, (list, tuple)) and len(p) > 1 and isinstance(p[1], (int, float))]
+            x_coords = [p[0] for p in collected_points]
+            y_coords = [p[1] for p in collected_points]
             width = (max(y_coords) - min(y_coords)) if y_coords else 0.0
             depth = max(x_coords) if x_coords else 0.0
-            cursor_main.execute(
-                "UPDATE servo_scans SET hesaplanan_alan_cm2=?, cevre_cm=?, max_genislik_cm=?, max_derinlik_cm=?, status=? WHERE id=?",
-                (area, perimeter, width, depth, 'completed_analysis', current_scan_id_global))
-            script_exit_status_global = 'completed_analysis'
+
+            # Ana Scan nesnesini güncelle
+            current_scan_object_global.calculated_area_cm2 = area
+            current_scan_object_global.perimeter_cm = perimeter
+            current_scan_object_global.max_width_cm = width
+            current_scan_object_global.max_depth_cm = depth
+            script_exit_status_global = Scan.Status.COMPLETED
         else:
-            script_exit_status_global = 'completed_insufficient_points'
-        db_conn_main_script_global.commit()
+            script_exit_status_global = Scan.Status.INSUFFICIENT_POINTS
+
+        current_scan_object_global.status = script_exit_status_global
+        current_scan_object_global.save()
 
     except KeyboardInterrupt:
-        script_exit_status_global = 'interrupted_ctrl_c';
+        script_exit_status_global = Scan.Status.INTERRUPTED
         print(f"\n[{pid}] Ctrl+C ile kesildi.")
     except Exception as e:
-        script_exit_status_global = 'error_in_loop';
-        import traceback;
+        script_exit_status_global = Scan.Status.ERROR
+        import traceback
 
-        traceback.print_exc();
-        print(
-            f"[{pid}] KRİTİK HATA: Ana döngüde: {e}")
+        traceback.print_exc()
+        print(f"[{pid}] KRİTİK HATA: Ana döngüde: {e}")
     finally:
-        if script_exit_status_global not in ['error_in_loop']:
+        if script_exit_status_global not in [Scan.Status.ERROR]:
             print(f"[{pid}] ADIM 3: İşlem sonu. Fiziksel başlangıca ({PHYSICAL_HOME_POSITION}°) geri dönülüyor...")
             move_motor_to_angle(PHYSICAL_HOME_POSITION)
             print(f"[{pid}] Fiziksel başlangıca dönüldü.")
-        if db_conn_main_script_global: db_conn_main_script_global.close()
         print(f"[{pid}] Betik sonlanıyor.")

@@ -36,6 +36,7 @@ INSTALLED_APPS = [
     'django.contrib.messages',
     'django.contrib.staticfiles',
     'dashboard_app.apps.DashboardAppConfig',
+    'scanner.apps.ScannerConfig',
     'django_plotly_dash.apps.DjangoPlotlyDashConfig',
     'django_bootstrap5',
 ]
@@ -161,5 +162,3 @@ STATICFILES_FINDERS = [
     'django_plotly_dash.finders.DashComponentFinder',
     'django_plotly_dash.finders.DashAppDirectoryFinder',
 ]
-
-
