@@ -1,7 +1,34 @@
-import time
+import time, os
 import atexit
 import sys
+# PID dosyası yönetimi için sabitler (dashboard ile aynı olmalı)
+SENSOR_SCRIPT_PID_FILE = '/tmp/sensor_scan_script.pid'
+SENSOR_SCRIPT_LOCK_FILE = '/tmp/sensor_scan_script.lock'
 
+# --- PID ve Lock Dosyası Yönetimi ---
+def create_pid_file():
+    if os.path.exists(SENSOR_SCRIPT_LOCK_FILE):
+        print("HATA: Kilit dosyası zaten var. Başka bir işlem çalışıyor olabilir.")
+        sys.exit(1)
+    try:
+        pid = os.getpid()
+        with open(SENSOR_SCRIPT_PID_FILE, 'w') as f:
+            f.write(str(pid))
+        # Lock dosyasını PID dosyası başarıyla oluşturulduktan sonra yarat
+        open(SENSOR_SCRIPT_LOCK_FILE, 'w').close()
+        print(f"PID dosyası ({SENSOR_SCRIPT_PID_FILE}) ve kilit dosyası oluşturuldu. PID: {pid}")
+    except IOError as e:
+        print(f"HATA: PID dosyası oluşturulamadı: {e}")
+        sys.exit(1)
+
+def remove_pid_and_lock_files():
+    print("PID ve kilit dosyaları temizleniyor...")
+    for f in [SENSOR_SCRIPT_PID_FILE, SENSOR_SCRIPT_LOCK_FILE]:
+        if os.path.exists(f):
+            try:
+                os.remove(f)
+            except OSError:
+                pass
 # Gerekli GPIO kütüphanelerini import et
 try:
     from gpiozero import DistanceSensor, Buzzer, OutputDevice, LED
@@ -259,6 +286,12 @@ def perform_measurement_and_react():
 # --- ANA ÇALIŞMA BLOĞU ---
 # ==============================================================================
 if __name__ == "__main__":
+    # PID ve kilit dosyalarını program sonunda temizle
+    atexit.register(remove_pid_and_lock_files)
+
+    # Programın başında PID ve kilit dosyalarını oluştur
+    create_pid_file()
+
     atexit.register(release_resources_on_exit)
     if not init_hardware():
         sys.exit(1)
