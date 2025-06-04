@@ -79,7 +79,7 @@ navbar = dbc.NavbarSimple(
     dark=True,
     sticky="top",
     fluid=True,
-    # className="mb-4" # Genel padding olduğu için bu kaldırıldı
+    className="mb-4"
 )
 # ==============================================================================
 
