@@ -469,7 +469,6 @@ def yorumla_tablo_verisi_gemini(df, model_name='gemini-2.5-flash-preview-05-20')
             f"{df.to_string(index=False)} verileriyle ortamın görselini tahminde bulunan resim oluştur"
             "Yorumunu maddeleme veya kısa paragraflar halinde yap. \n\n"
         )
-
         response = client.models.generate_content(model=model_name, contents=prompt_text)
         return response.text
     except Exception as e:
