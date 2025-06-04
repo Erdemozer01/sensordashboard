@@ -395,23 +395,54 @@ def update_polar_graph(fig, df):
                                  angularaxis=dict(direction="clockwise", period=360, thetaunit="degrees")))
 
 
+# ==========================================================
+# --- BU YARDIMCI FONKSİYONU GÜNCELLEYİN ---
+# ==========================================================
 def update_time_series_graph(fig, df):
+    """
+    Verilen figure nesnesine zaman serisi grafiğini ekler ve formatlar.
+    Bu bir callback DEĞİLDİR, update_all_graphs tarafından çağrılan bir yardımcıdır.
+    """
     if df.empty or 'timestamp' not in df.columns or 'mesafe_cm' not in df.columns:
         fig.add_trace(go.Scatter(x=[], y=[], mode='lines', name='Veri Yok'))
         return
     try:
+        # Zaman damgası sütununun datetime olduğundan emin ol
         if not pd.api.types.is_datetime64_any_dtype(df['timestamp']):
             df_s = df.copy()
-            df_s['timestamp'] = pd.to_datetime(df_s['timestamp'], unit='s', errors='coerce')
+            df_s['timestamp'] = pd.to_datetime(df_s['timestamp'], errors='coerce')
             df_s = df_s.sort_values(by='timestamp')
         else:
             df_s = df.sort_values(by='timestamp')
 
+        # Grafiğe veriyi ekle
         fig.add_trace(go.Scatter(x=df_s['timestamp'], y=df_s['mesafe_cm'], mode='lines+markers', name='Mesafe'))
+
+        # === İstenen Gelişmiş Düzenlemeler ===
+        fig.update_layout(
+            # Not: Ana başlık update_all_graphs içinde ayarlandığı için burada tekrar ayarlanmıyor.
+            xaxis_title="Zaman",
+            yaxis_title="Mesafe (cm)",
+            # 1. Detaylı zaman formatı
+            xaxis_tickformat='%d %b %Y<br>%H:%M:%S',
+            # 2. Hızlı zoom butonları
+            xaxis_rangeselector=dict(
+                buttons=list([
+                    dict(count=1, label="1dk", step="minute", stepmode="backward"),
+                    dict(count=5, label="5dk", step="minute", stepmode="backward"),
+                    dict(count=15, label="15dk", step="minute",stepmode="backward"),
+                    dict(step="all", label="Tümü")
+                ])
+            ),
+            # 3. Altta çıkan zaman kaydırma çubuğu
+            xaxis_rangeslider_visible=True
+        )
+
     except Exception as e:
         print(f"Zaman serisi grafiği oluşturulurken HATA: {e}")
         fig.add_trace(go.Scatter(x=[], y=[], mode='lines', name='Grafik Hatası'))
-    fig.update_layout(xaxis_title="Zaman", yaxis_title="Mesafe (cm)", xaxis=dict(tickformat='%H:%M:%S'))
+
+# ==========================================================
 
 
 def find_clearest_path(df_valid):
@@ -938,70 +969,3 @@ def yorumla_model_secimi(selected_model_value):
     return dbc.Alert(dcc.Markdown(yorum_text_from_ai, dangerously_allow_html=True, link_target="_blank"),
                      color="success")
 
-
-@app.callback(
-    Output('time-series-graph', 'figure'),
-    Input('selected-scan-store', 'data'),
-    prevent_initial_call=True
-)
-def update_time_series_graph(scan_data):
-    print(f"DEBUG: update_time_series_graph tetiklendi. scan_data boş mu: {scan_data is None}") # Terminalde kontrol için
-    if not scan_data:
-        print("DEBUG: scan_data boş, zaman serisi için boş figür döndürülüyor.") # Terminalde kontrol
-        return go.Figure() # Veri yoksa boş figür
-
-    try:
-        print("DEBUG: scan_data zaman serisi için işleniyor...") # Terminalde kontrol
-        # Gelen veriyi DataFrame'e çevirelim
-        # scan_data['points'] yapısının beklediğiniz gibi olduğundan emin olun
-        if 'points' not in scan_data or not isinstance(scan_data['points'], list):
-            print("DEBUG: HATA - scan_data['points'] beklenen formatta değil.") # Terminalde kontrol
-            return go.Figure() # Hatalı formatta veri varsa boş figür
-
-        df = pd.DataFrame(scan_data['points'])
-
-        if df.empty:
-            print("DEBUG: DataFrame (df) boş, zaman serisi için boş figür döndürülüyor.") # Terminalde kontrol
-            return go.Figure()
-
-        # 'timestamp' ve 'mesafe_cm' sütunlarının varlığını kontrol edin
-        if 'timestamp' not in df.columns or 'mesafe_cm' not in df.columns:
-            print("DEBUG: HATA - DataFrame'de 'timestamp' veya 'mesafe_cm' sütunu bulunamadı.") # Terminalde kontrol
-            return go.Figure()
-
-        df['timestamp'] = pd.to_datetime(df['timestamp'])
-
-        fig = go.Figure()
-        fig.add_trace(go.Scatter(
-            x=df['timestamp'],
-            y=df['mesafe_cm'],
-            mode='lines+markers',
-            name='Mesafe',
-            marker=dict(size=5),
-            line=dict(width=2)
-        ))
-
-        fig.update_layout(
-            title_text="Zaman İçinde Mesafe Değişimi",
-            xaxis_title="Zaman",
-            yaxis_title="Mesafe (cm)",
-            xaxis_tickformat='%d %b %Y<br>%H:%M:%S',
-            xaxis_rangeselector=dict(
-                buttons=list([
-                    dict(count=1, label="1dk", step="minute", stepmode="backward"),
-                    dict(count=5, label="5dk", step="minute", stepmode="backward"),
-                    dict(count=15, label="15dk", step="minute", stepmode="backward"),
-                    dict(step="all", label="Tümü")
-                ])
-            ),
-            xaxis_rangeslider_visible=True,
-            template="plotly_dark"
-        )
-        print("DEBUG: Zaman serisi figürü başarıyla oluşturuldu.") # Terminalde kontrol
-        return fig
-
-    except Exception as e:
-        print(f"DEBUG: update_time_series_graph içinde HATA: {e}") # Terminalde hatayı yazdır
-        import traceback
-        traceback.print_exc() # Detaylı hata izini yazdır
-        return go.Figure() # Hata durumunda boş bir figür döndür
