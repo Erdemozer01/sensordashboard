@@ -28,34 +28,40 @@ I2C_PORT = 1
 # ==============================================================================
 STEPS_PER_REVOLUTION = 4096
 STEP_MOTOR_INTER_STEP_DELAY = 0.0015
+STEP_MOTOR_SETTLE_TIME = 0.05  # Motor durduktan sonra ölçüm için bekleme
 
-# Yeni mod ayarları
-SWEEP_ANGLE = 90  # Merkezin sağına ve soluna kaç derece döneceği
-ALGILAMA_ESIGI_CM = 20  # Bu mesafeden daha yakın nesneler uarıyı tetikler
-BUZZER_BIP_SURESI = 0.1
+# Serbest hareket modu ayarları
+BEKLEME_SURESI_SN_DONGU_SONU = 10  # Tüm hareket silsilesi bittikten sonra beklenecek süre
+DONUS_ACISI = 90  # Sağa ve sola ne kadar döneceği (derece)
+ALGILAMA_ESIGI_CM = 20  # Bu mesafeden daha yakın nesneler uyarıyı tetikler
+
+# Buzzer ayarları
+BUZZER_BIP_SURESI = 0.05  # Her bir bip'in süresi
+BUZZER_BIP_ARASI_SURE = 0.05  # İki bip arasındaki bekleme süresi
 # ==============================================================================
 
 # --- Global Değişkenler ---
 sensor, buzzer, lcd = None, None, None
 in1_dev, in2_dev, in3_dev, in4_dev = None, None, None, None
+current_motor_angle_global = 0.0
 current_step_sequence_index = 0
+DEG_PER_STEP = 360.0 / STEPS_PER_REVOLUTION
 step_sequence = [[1, 0, 0, 0], [1, 1, 0, 0], [0, 1, 0, 0], [0, 1, 1, 0],
                  [0, 0, 1, 0], [0, 0, 1, 1], [0, 0, 0, 1], [1, 0, 0, 1]]
 current_lcd_state = None  # LCD'nin titremesini önlemek için mevcut durumu tutar
 
 
 # ==============================================================================
-# --- Donanım ve Yardımcı Fonksiyonlar ---
+# --- Donanım ve Motor Fonksiyonları ---
 # ==============================================================================
 
 def init_hardware():
-    """Gerekli donanım bileşenlerini başlatır."""
     global sensor, buzzer, lcd, in1_dev, in2_dev, in3_dev, in4_dev
     print("Donanımlar başlatılıyor...")
     try:
         in1_dev, in2_dev, in3_dev, in4_dev = OutputDevice(IN1_GPIO_PIN), OutputDevice(IN2_GPIO_PIN), OutputDevice(
             IN3_GPIO_PIN), OutputDevice(IN4_GPIO_PIN)
-        sensor = DistanceSensor(echo=ECHO_PIN, trigger=TRIG_PIN, max_distance=2.5, queue_len=5)
+        sensor = DistanceSensor(echo=ECHO_PIN, trigger=TRIG_PIN, max_distance=2.5, queue_len=2)  # queue_len düşürüldü
         buzzer = Buzzer(BUZZER_PIN)
         buzzer.off()
 
@@ -67,7 +73,6 @@ def init_hardware():
         except Exception as e_lcd:
             print(f"UYARI: LCD başlatılamadı! Hata: {e_lcd}")
             lcd = None
-
         print("✓ Donanımlar başarıyla başlatıldı.")
         return True
     except Exception as e:
@@ -76,7 +81,6 @@ def init_hardware():
 
 
 def release_resources_on_exit():
-    """Program sonlandığında donanım pinlerini serbest bırakır."""
     print("\nProgram sonlandırılıyor, kaynaklar serbest bırakılıyor...")
     _set_step_pins(0, 0, 0, 0)
     if lcd:
@@ -97,20 +101,51 @@ def _set_step_pins(s1, s2, s3, s4):
     if in4_dev: in4_dev.value = bool(s4)
 
 
-def _step_motor(direction_positive):
-    """Motoru bir adım hareket ettirir."""
+def _step_motor(num_steps, direction_positive):
+    """Motoru belirtilen adım sayısı kadar hareket ettirir (çoklu adım)."""
     global current_step_sequence_index
-    current_step_sequence_index = (current_step_sequence_index + (1 if direction_positive else -1) + len(
-        step_sequence)) % len(step_sequence)
-    _set_step_pins(*step_sequence[current_step_sequence_index])
-    time.sleep(STEP_MOTOR_INTER_STEP_DELAY)
+    for _ in range(int(num_steps)):
+        current_step_sequence_index = (current_step_sequence_index + (1 if direction_positive else -1) + len(
+            step_sequence)) % len(step_sequence)
+        _set_step_pins(*step_sequence[current_step_sequence_index])
+        time.sleep(STEP_MOTOR_INTER_STEP_DELAY)
 
 
-def kisa_bip(duration):
-    """Buzzer'ı belirtilen süre kadar öttürür."""
+def move_motor_to_angle(target_angle_deg):
+    """Motoru belirtilen açıya hareket ettirir ve durur."""
+    global current_motor_angle_global
+
+    # Mevcut mantık, göreceli harekete dayanıyor.
+    # Hedefe olan farkı hesapla ve o kadar adım at.
+    angle_diff = target_angle_deg - current_motor_angle_global
+
+    # 360 derece dönüşlerde en kısa yolu bulmak için (isteğe bağlı, mevcut basit farkla çalışır)
+    # if abs(angle_diff) > 180:
+    #     angle_diff = angle_diff - (360 if angle_diff > 0 else -360)
+
+    num_steps = round(abs(angle_diff) / DEG_PER_STEP)
+    if num_steps == 0:
+        time.sleep(STEP_MOTOR_SETTLE_TIME)  # Hedefteyse bile kısa bir bekleme
+        return
+
+    direction_positive = (angle_diff > 0)
+    _step_motor(num_steps, direction_positive)
+    current_motor_angle_global += (num_steps * DEG_PER_STEP * (1 if direction_positive else -1))
+    # Normalize angle to be within -180 to 180 or 0 to 360 if needed,
+    # but for this logic, cumulative angle is fine as long as target_angle_deg is within a reasonable range.
+    # current_motor_angle_global = current_motor_angle_global % 360
+    time.sleep(STEP_MOTOR_SETTLE_TIME)
+
+
+def cift_bip(bip_suresi, ara_sure):
+    """Buzzer'ı iki kez kısa aralıklarla öttürür."""
     if buzzer:
         buzzer.on()
-        time.sleep(duration)
+        time.sleep(bip_suresi)
+        buzzer.off()
+        time.sleep(ara_sure)
+        buzzer.on()
+        time.sleep(bip_suresi)
         buzzer.off()
 
 
@@ -118,7 +153,7 @@ def update_lcd(new_state):
     """LCD ekranı sadece durum değiştiğinde günceller."""
     global current_lcd_state
     if new_state == current_lcd_state or not lcd:
-        return  # Durum aynıysa veya LCD yoksa hiçbir şey yapma
+        return
 
     try:
         lcd.clear()
@@ -130,10 +165,10 @@ def update_lcd(new_state):
             lcd.write_string("Merhaba benim")
             lcd.cursor_pos = (1, 0)
             lcd.write_string("Adim Dream Pi")
-        current_lcd_state = new_state  # Yeni durumu kaydet
+        current_lcd_state = new_state
     except Exception as e:
         print(f"LCD Yazma Hatası: {e}")
-        current_lcd_state = "error"  # Hata durumuna geç
+        current_lcd_state = "error"
 
 
 # ==============================================================================
@@ -145,41 +180,41 @@ if __name__ == "__main__":
     if not init_hardware():
         sys.exit(1)
 
-    print("\n>>> Sürekli Tarama Modu Başlatıldı <<<")
+    print("\n>>> Serbest Hareket Modu V3 Başlatıldı (Dur-Bak & Çift Bip) <<<")
     print(f"Algılama Eşiği: < {ALGILAMA_ESIGI_CM} cm")
     print("Durdurmak için Ctrl+C tuşlarına basın.")
 
-    # Başlangıçta LCD ekranını normal duruma getir
-    update_lcd("normal")
-
-    # Motorun bir tam turdaki adım sayısının 360'a bölümüyle bir derecelik adımı bul
-    steps_per_degree = STEPS_PER_REVOLUTION / 360.0
-    # Salınım açısı için gereken adım sayısı
-    sweep_steps = int(SWEEP_ANGLE * steps_per_degree)
+    update_lcd("normal")  # Başlangıçta LCD normal durumda
+    move_motor_to_angle(0)  # Motoru merkeze al
 
     try:
         while True:
-            # Sağa doğru salınım
-            print(f"--> Sağa doğru taranıyor (+{SWEEP_ANGLE}°)...")
-            for _ in range(sweep_steps):
-                _step_motor(direction_positive=True)
+            # Önceki `serbest_hareket.py` (v1) gibi hareket silsilesi
+            hareket_silsilesi = [
+                (f"Saga ({DONUS_ACISI} gr.)", DONUS_ACISI),
+                ("Merkeze", 0),
+                (f"Sola (-{DONUS_ACISI} gr.)", -DONUS_ACISI),
+                ("Merkeze", 0)
+            ]
+
+            for hareket_adi, hedef_aci in hareket_silsilesi:
+                print(f"\n>> Hedef: {hareket_adi} ({hedef_aci}°)")
+                move_motor_to_angle(hedef_aci)  # Motor hedefe gider ve durur
+
+                # Durduktan sonra ölçüm yap
                 mesafe = sensor.distance * 100
+                print(f"   Mesafe (Aci {current_motor_angle_global:.1f}°): {mesafe:.1f} cm")
+
                 if mesafe < ALGILAMA_ESIGI_CM:
+                    print("   UYARI: Nesne algılandı!")
                     update_lcd("alert")
-                    kisa_bip(BUZZER_BIP_SURESI)
+                    cift_bip(BUZZER_BIP_SURESI, BUZZER_BIP_ARASI_SURE)
                 else:
                     update_lcd("normal")
 
-            # Sola doğru salınım
-            print(f"<-- Sola doğru taranıyor (-{SWEEP_ANGLE}°)...")
-            for _ in range(sweep_steps):
-                _step_motor(direction_positive=False)
-                mesafe = sensor.distance * 100
-                if mesafe < ALGILAMA_ESIGI_CM:
-                    update_lcd("alert")
-                    kisa_bip(BUZZER_BIP_SURESI)
-                else:
-                    update_lcd("normal")
+            # Tüm hareket silsilesi bittikten sonra bekle
+            print(f"\n>>> Döngü tamamlandı. {BEKLEME_SURESI_SN_DONGU_SONU} saniye bekleniyor...")
+            time.sleep(BEKLEME_SURESI_SN_DONGU_SONU)
 
     except KeyboardInterrupt:
         print("\nKullanıcı tarafından durduruldu.")
