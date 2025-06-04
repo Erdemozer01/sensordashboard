@@ -9,6 +9,8 @@ import atexit
 import math
 import argparse
 import numpy as np
+# YENİ: Yapay zeka planlayıcı modülünü import et
+import ai_planner
 
 # ==============================================================================
 # --- KONTROL DEĞİŞKENİ ---
@@ -47,7 +49,7 @@ DB_NAME_ONLY, DB_PATH = 'live_scan_data.sqlite3', os.path.join(PROJECT_ROOT_DIR,
 LOCK_FILE_PATH, PID_FILE_PATH = '/tmp/sensor_scan_script.lock', '/tmp/sensor_scan_script.pid'
 sensor, yellow_led, lcd, buzzer = None, None, None, None
 in1_dev, in2_dev, in3_dev, in4_dev = None, None, None, None
-lock_file_handle, current_scan_id_global, db_conn_main_script_global = None, None, None
+lock_file_handle, current_scan_id_global = None, None
 script_exit_status_global = 'interrupted_unexpectedly'
 physical_scan_reference_angle = 0.0
 STEPS_PER_REVOLUTION_OUTPUT_SHAFT = DEFAULT_STEPS_PER_REVOLUTION
@@ -148,9 +150,66 @@ def init_db_for_scan(logical_start_angle, logical_end_angle):
             conn.execute("PRAGMA journal_mode = WAL;")
             cursor = conn.cursor()
             cursor.execute('''CREATE TABLE IF NOT EXISTS servo_scans
-                              (id INTEGER PRIMARY KEY, start_time REAL, status TEXT, hesaplanan_alan_cm2 REAL, cevre_cm REAL, max_genislik_cm REAL, max_derinlik_cm REAL, start_angle_setting REAL, end_angle_setting REAL, step_angle_setting REAL, buzzer_distance_setting REAL, invert_motor_direction_setting BOOLEAN, ai_commentary TEXT)''')
+                              (
+                                  id
+                                  INTEGER
+                                  PRIMARY
+                                  KEY,
+                                  start_time
+                                  REAL,
+                                  status
+                                  TEXT,
+                                  hesaplanan_alan_cm2
+                                  REAL,
+                                  cevre_cm
+                                  REAL,
+                                  max_genislik_cm
+                                  REAL,
+                                  max_derinlik_cm
+                                  REAL,
+                                  start_angle_setting
+                                  REAL,
+                                  end_angle_setting
+                                  REAL,
+                                  step_angle_setting
+                                  REAL,
+                                  buzzer_distance_setting
+                                  REAL,
+                                  invert_motor_direction_setting
+                                  BOOLEAN,
+                                  ai_commentary
+                                  TEXT
+                              )''')
             cursor.execute('''CREATE TABLE IF NOT EXISTS scan_points
-            (id INTEGER PRIMARY KEY, scan_id INTEGER, derece REAL, mesafe_cm REAL, hiz_cm_s REAL DEFAULT 0, timestamp REAL, x_cm REAL, y_cm REAL, FOREIGN KEY(scan_id) REFERENCES servo_scans(id) ON DELETE CASCADE)''')
+            (
+                id
+                INTEGER
+                PRIMARY
+                KEY,
+                scan_id
+                INTEGER,
+                derece
+                REAL,
+                mesafe_cm
+                REAL,
+                hiz_cm_s
+                REAL
+                DEFAULT
+                0,
+                timestamp
+                REAL,
+                x_cm
+                REAL,
+                y_cm
+                REAL,
+                FOREIGN
+                KEY
+                              (
+                scan_id
+                              ) REFERENCES servo_scans
+                              (
+                                  id
+                              ) ON DELETE CASCADE)''')
             cursor.execute("UPDATE servo_scans SET status='interrupted_prior_run' WHERE status='running'")
             cursor.execute(
                 "INSERT INTO servo_scans (start_time, status, start_angle_setting, end_angle_setting, step_angle_setting, buzzer_distance_setting, invert_motor_direction_setting) VALUES (?,?,?,?,?,?,?)",
@@ -230,10 +289,8 @@ def calculate_perimeter(points):
     perimeter += math.hypot(points[-1][0], points[-1][1])
     return perimeter
 
+
 def perform_scan_task(task_params, db_conn):
-    """
-    Verilen parametrelere göre bir tarama görevini yerine getirir ve verileri kaydeder.
-    """
     global current_motor_angle_global, physical_scan_reference_angle, script_exit_status_global
 
     start_angle = task_params.get("start_angle", 0.0)
@@ -262,7 +319,8 @@ def perform_scan_task(task_params, db_conn):
         angle_rad_for_calc = math.radians(current_logical_angle)
         x_cm, y_cm = dist_cm * math.cos(angle_rad_for_calc), dist_cm * math.sin(angle_rad_for_calc)
 
-        print(f"  Okuma: Mantıksal {current_logical_angle:.1f}° (Fiz: {current_motor_angle_global:.1f}°) -> {dist_cm:.1f} cm")
+        print(
+            f"  Okuma: Mantıksal {current_logical_angle:.1f}° (Fiz: {current_motor_angle_global:.1f}°) -> {dist_cm:.1f} cm")
 
         if yellow_led: yellow_led.off()
 
@@ -321,7 +379,7 @@ def perform_scan_task(task_params, db_conn):
 
 
 # ==============================================================================
-# --- ANA ÇALIŞMA BLOĞU (YENİDEN DÜZENLENDİ) ---
+# --- ANA ÇALIŞMA BLOĞU (AI Entegreli) ---
 # ==============================================================================
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
@@ -345,27 +403,38 @@ if __name__ == "__main__":
 
     DEG_PER_STEP = 360.0 / STEPS_PER_REVOLUTION_OUTPUT_SHAFT
 
-    mission_plan = [
-        {"task_name": "Eve Git", "type": "move", "target_angle": 0},
-        {"task_name": "Genel Kaba Tarama (Göz Atma)", "type": "scan", "start_angle": 0, "end_angle": 270, "step_angle": 30.0},
-        {"task_name": "Sağdaki İlginç Bölgeye Odaklan", "type": "scan", "start_angle": 45, "end_angle": 90, "step_angle": 2.0},
-        {"task_name": "Eve Geri Dön", "type": "move", "target_angle": 0}
-    ]
-
-    init_db_for_scan(0, 360)
-    if not current_scan_id_global: print(f"[{pid}] Veritabanı oturumu oluşturulamadı. Çıkılıyor."); sys.exit(1)
-
-    print(f"[{pid}] YENİ GÖREV PLANI BAŞLATILIYOR... Toplam {len(mission_plan)} görev.")
-    if lcd: lcd.clear(); lcd.write_string(f"Gorev Plani".ljust(LCD_COLS))
-
     try:
-        db_conn_main_script_global = sqlite3.connect(DB_PATH, timeout=10)
-        db_conn_main_script_global.execute("PRAGMA journal_mode = WAL;")
+        init_db_for_scan(0, 360)
+        if not current_scan_id_global:
+            print(f"[{pid}] Veritabanı oturumu oluşturulamadı. Çıkılıyor.");
+            sys.exit(1)
 
-        for task in mission_plan:
+        db_conn = sqlite3.connect(DB_PATH, timeout=10)
+        db_conn.execute("PRAGMA journal_mode = WAL;")
+
+        glimpse_task = {"task_name": "Genel Kaba Tarama (Göz Atma)", "type": "scan", "start_angle": 0, "end_angle": 270,
+                        "step_angle": 30.0}
+
+        perform_scan_task(glimpse_task, db_conn)
+
+        cursor = db_conn.cursor()
+        cursor.execute("SELECT derece, mesafe_cm FROM scan_points WHERE scan_id=? ORDER BY derece ASC",
+                       (current_scan_id_global,))
+        glimpse_data = cursor.fetchall()
+
+        ai_generated_plan = ai_planner.get_ai_mission_plan(glimpse_data)
+
+        if not ai_generated_plan:
+            print("[MAIN] Yapay zekadan geçerli bir plan alınamadı. Basit bir eve dönüş planı uygulanacak.")
+            ai_generated_plan = [{"task_name": "Eve Geri Dön", "type": "move", "target_angle": 0}]
+
+        print(f"\n[{pid}] YAPAY ZEKA GÖREV PLANI BAŞLATILIYOR... Toplam {len(ai_generated_plan)} görev.")
+        if lcd: lcd.clear(); lcd.write_string(f"AI Gorev Plani".ljust(LCD_COLS))
+
+        for task in ai_generated_plan:
             task_type = task.get("type")
             if task_type == "scan":
-                perform_scan_task(task, db_conn_main_script_global)
+                perform_scan_task(task, db_conn)
             elif task_type == "move":
                 task_name = task.get("task_name", "Bilinmeyen Hareket")
                 target = task.get("target_angle", 0)
@@ -374,18 +443,18 @@ if __name__ == "__main__":
                 print(f"[{pid}] GÖREV BİTTİ: '{task_name}'")
             time.sleep(1.0)
 
-        script_exit_status_global = 'completed_mission'
-        print(f"[{pid}] Tüm görev planı başarıyla tamamlandı.")
+        script_exit_status_global = 'completed_ai_mission'
+        print(f"[{pid}] Yapay zeka görev planı başarıyla tamamlandı.")
 
     except KeyboardInterrupt:
-        script_exit_status_global = 'interrupted_ctrl_c'; print(f"\n[{pid}] Ctrl+C ile kesildi.")
+        script_exit_status_global = 'interrupted_ctrl_c';
+        print(f"\n[{pid}] Ctrl+C ile kesildi.")
     except Exception as e:
-        script_exit_status_global = 'error_in_loop'; import traceback; traceback.print_exc()
+        script_exit_status_global = 'error_in_loop';
+        import traceback;
+
+        traceback.print_exc()
         print(f"[{pid}] KRİTİK HATA: Ana döngüde: {e}")
     finally:
-        if script_exit_status_global not in ['error_in_loop']:
-            print(f"[{pid}] İşlem sonu. Fiziksel başlangıca geri dönülüyor...")
-            move_motor_to_angle(0)
-            print(f"[{pid}] Fiziksel başlangıca dönüldü.")
-        if db_conn_main_script_global: db_conn_main_script_global.close()
+        if 'db_conn' in locals() and db_conn: db_conn.close()
         print(f"[{pid}] Betik sonlanıyor.")
