@@ -375,7 +375,7 @@ def yorumla_tablo_verisi_gemini(df, model_name='gemini-1.5-pro-latest'):
             "Bu verilere dayanarak, sensörün çevresindeki ortamı bir uzman gibi analiz et. "
             "Olası nesneleri (duvar, köşe, sandalye bacağı, kutu vb.), "
             "boş alanları ve genel yerleşim düzenini kısa ve anlaşılır bir dille yorumla. "
-            "Yorumunu maddeleme veya kısa paragraflar halinde yap.\n\n"
+            "Yorumunu maddeleme veya kısa paragraflar halinde yap. Ortamın alanını tahmin et ve 3d grafiğini oluştur. \n\n"
         )
         prompt_text += df.to_string(index=False)
         response = client.models.generate_content(model=model_name, contents=prompt_text)
