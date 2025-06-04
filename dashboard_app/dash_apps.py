@@ -7,6 +7,7 @@ import signal
 import psutil
 import pandas as pd
 import numpy as np
+from matplotlib.pyplot import figure
 from scipy.spatial import ConvexHull
 from sklearn.cluster import DBSCAN
 from sklearn.linear_model import RANSACRegressor
@@ -464,8 +465,8 @@ def yorumla_tablo_verisi_gemini(df, model_name='gemini-2.5-flash-preview-05-20')
             f"Aşağıdaki tablo, bir hc-sr04 sensörünün yaptığı taramadan elde edilen {df.to_string(index=False)} verileri yorumla"
             "Olası nesneleri (duvar, köşe, sandalye bacağı, kutu, insan.) tahmin etmeye çalış "
             "boş alanları ve genel yerleşim düzenini kısa ve anlaşılır bir dille yorumla. ortamın alanını tahin etmeye çalış."
-            f"{df.to_string(index=False)} verileriyle import plotly, matplotlib kütüphaneleri kullanarak 3 boyutlu grafiksel tahminde bulun "
-            f"{df.to_string(index=False)} verileriyle imagen kullanarak ortamın görselini tahminde bulun "
+            f"verilerden yola çıkarak polar grafiğe bağlı 3D GRAFİK OLUŞTUR"
+            f"{df.to_string(index=False)} verileriyle ortamın görselini tahminde bulunan resim oluştur"
             "Yorumunu maddeleme veya kısa paragraflar halinde yap. \n\n"
         )
 
