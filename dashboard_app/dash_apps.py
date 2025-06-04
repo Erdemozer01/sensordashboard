@@ -396,7 +396,7 @@ def update_polar_graph(fig, df):
 
 
 # ==========================================================
-# --- BU YARDIMCI FONKSİYONU GÜNCELLEYİN ---
+# --- BU YARDIMCI FONKSİYONU AŞAĞIDAKİ İLE GÜNCELLEYİN ---
 # ==========================================================
 def update_time_series_graph(fig, df):
     """
@@ -407,40 +407,63 @@ def update_time_series_graph(fig, df):
         fig.add_trace(go.Scatter(x=[], y=[], mode='lines', name='Veri Yok'))
         return
     try:
-        # Zaman damgası sütununun datetime olduğundan emin ol
-        if not pd.api.types.is_datetime64_any_dtype(df['timestamp']):
-            df_s = df.copy()
-            df_s['timestamp'] = pd.to_datetime(df_s['timestamp'], errors='coerce')
-            df_s = df_s.sort_values(by='timestamp')
-        else:
-            df_s = df.sort_values(by='timestamp')
+        df_s = df.copy()
+
+        # === HATA AYIKLAMA İÇİN EKLENEN BÖLÜM ===
+        print("\n--- ZAMAN SERİSİ DEBUG (update_time_series_graph) ---")
+        print("1. Orijinal 'timestamp' verisinin ilk 5 satırı ve tipi:")
+        print(df_s[['timestamp']].head())
+        print(f"Orijinal veri tipi: {df_s['timestamp'].dtype}")
+        # ==========================================
+
+        # Zaman damgası sütununu pandas'ın datetime nesnesine dönüştür
+        # Hatalı olanları 'NaT' (Not a Time) olarak işaretle
+        df_s['timestamp'] = pd.to_datetime(df_s['timestamp'], errors='coerce')
+
+        # Dönüştürülemeyen (NaT) satırları veriden çıkar
+        df_s.dropna(subset=['timestamp'], inplace=True)
+
+        # Zamana göre sırala
+        df_s = df_s.sort_values(by='timestamp')
+
+        # === HATA AYIKLAMA İÇİN EKLENEN BÖLÜM ===
+        print("\n2. Pandas'a dönüştürülmüş 'timestamp' verisinin ilk 5 satırı:")
+        print(df_s[['timestamp']].head())
+        # ==========================================
+
+        if df_s.empty:
+            print("DEBUG: Tarih formatlama sonrası zaman serisi için geçerli veri kalmadı.")
+            fig.add_trace(go.Scatter(x=[], y=[], mode='lines', name='Veri Yok'))
+            return
 
         # Grafiğe veriyi ekle
         fig.add_trace(go.Scatter(x=df_s['timestamp'], y=df_s['mesafe_cm'], mode='lines+markers', name='Mesafe'))
 
-        # === İstenen Gelişmiş Düzenlemeler ===
+        # === GRAFİK DÜZENLEMELERİ ===
         fig.update_layout(
-            # Not: Ana başlık update_all_graphs içinde ayarlandığı için burada tekrar ayarlanmıyor.
+            # EKSEN TİPİNİ AÇIKÇA BELİRTME (EN ÖNEMLİ DEĞİŞİKLİK)
+            xaxis_type='date',
+
             xaxis_title="Zaman",
             yaxis_title="Mesafe (cm)",
-            # 1. Detaylı zaman formatı
             xaxis_tickformat='%d %b %Y<br>%H:%M:%S',
-            # 2. Hızlı zoom butonları
             xaxis_rangeselector=dict(
                 buttons=list([
                     dict(count=1, label="1dk", step="minute", stepmode="backward"),
                     dict(count=5, label="5dk", step="minute", stepmode="backward"),
-                    dict(count=15, label="15dk", step="minute",stepmode="backward"),
+                    dict(count=15, label="15dk", step="minute", stepmode="backward"),
                     dict(step="all", label="Tümü")
                 ])
             ),
-            # 3. Altta çıkan zaman kaydırma çubuğu
             xaxis_rangeslider_visible=True
         )
 
     except Exception as e:
-        print(f"Zaman serisi grafiği oluşturulurken HATA: {e}")
+        print(f"Zaman serisi grafiği oluşturulurken KRİTİK HATA: {e}")
+        import traceback
+        traceback.print_exc()
         fig.add_trace(go.Scatter(x=[], y=[], mode='lines', name='Grafik Hatası'))
+
 
 # ==========================================================
 
