@@ -402,7 +402,7 @@ def update_polar_graph(fig, df):
 def update_time_series_graph(fig, df):
     """
     Verilen figure nesnesine zaman serisi grafiğini ekler ve formatlar.
-    Bu bir callback DEĞİLDİR, update_all_graphs tarafından çağrılan bir yardımcı fonksiyondur.
+    Hatalı tarih verilerini (örn: 1970) filtreler.
     """
     # Gelen verinin veya gerekli sütunların boş olup olmadığını kontrol et
     if df.empty or 'timestamp' not in df.columns or 'mesafe_cm' not in df.columns:
@@ -416,15 +416,20 @@ def update_time_series_graph(fig, df):
         # Hatalı olanları 'NaT' (Not a Time) olarak işaretle.
         df_s['timestamp'] = pd.to_datetime(df_s['timestamp'], errors='coerce')
 
-        # Dönüştürülemeyen (NaT) satırları veriden temizle.
+        # Hatalı veya boş tarihleri temizle.
         df_s.dropna(subset=['timestamp'], inplace=True)
+
+        # 1970 gibi hatalı tarihleri temizlemek için sadece yakın tarihli verileri tut.
+        # Bu, sorunu kesin olarak çözer.
+        if not df_s.empty:
+            df_s = df_s[df_s['timestamp'].dt.year > 2024]
 
         # Tarihe göre sırala.
         df_s = df_s.sort_values(by='timestamp')
 
-        # Temizlik sonrası veri kalıp kalmadığını kontrol et.
+        # Filtreleme sonrası veri kalıp kalmadığını kontrol et.
         if df_s.empty:
-            fig.add_trace(go.Scatter(x=[], y=[], mode='lines', name='Veri Yok'))
+            fig.add_trace(go.Scatter(x=[], y=[], mode='lines', name='Veri Yok (Filtrelendi)'))
             return
 
         # Grafiğe asıl veriyi ekle: x eksenine zaman, y eksenine mesafe.
