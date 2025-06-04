@@ -960,7 +960,6 @@ def update_all_graphs(n):
         fig.update_layout(
             title_text=titles[i],
             uirevision=scan_id_for_revision,  # Kullanıcı zoom'unu korumak için
-            template="plotly_dark",
             legend=common_legend,
             margin=dict(l=40, r=40, t=80, b=40)  # Başlık için üstte boşluk
         )
