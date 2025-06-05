@@ -1,3 +1,4 @@
+import base64
 import logging
 import os
 import sys
@@ -612,34 +613,53 @@ def yorumla_tablo_verisi_gemini(df, model_name='models/gemini-2.0-flash'):
         return f"Gemini'den yanıt alınırken bir hata oluştu: {e}"
 
 
-def image_generate(df):
-    if not GOOGLE_GENAI_AVAILABLE: return "Hata: Google GenerativeAI kütüphanesi yüklenemedi."
-    if not google_api_key: return "Hata: `GOOGLE_API_KEY` ayarlanmamış."
-    if df is None or df.empty: return "Yorumlanacak tablo verisi bulunamadı."
-
-    text = yorumla_tablo_verisi_gemini(df, model_name='gemini-2.0-flash-preview-image-generation')
-
-    from google import genai
-    from google.genai import types
+def image_generate(prompt_text):
+    """
+    Verilen metin isteminden bir görüntü oluşturur ve Base64 URI olarak döndürür.
+    """
+    if not GOOGLE_GENAI_AVAILABLE:
+        return ["Hata: Google GenerativeAI kütüphanesi yüklenemedi."]
+    if not google_api_key:
+        return ["Hata: `GOOGLE_API_KEY` ayarlanmamış."]
+    if not prompt_text:
+        return ["Görüntü oluşturmak için bir metin istemi (prompt) gerekli."]
 
     try:
+        # Görüntü üretimi için en uygun modellerden birini kullanıyoruz.
+        # Gemini 1.5 Flash hem hızlı hem de güçlüdür.
+        model = generativeai.GenerativeModel(model_name="gemini-1.5-flash")
 
-        client = genai.Client(api_key=google_api_key)
-
-        prompt = f'{text} yorumu değerlendir. Resim oluştur'
-
-        response = client.models.generate_images(
-            model="imagen-3.0-generate-002",
-            prompt=prompt,
-            config=types.GenerateContentConfig(
-                response_modalities=['TEXT', 'IMAGE']
-            )
+        # API'ye gönderilecek istem (prompt)
+        # Daha sanatsal ve detaylı bir çıktı için istemi zenginleştiriyoruz.
+        full_prompt = (
+            f"Aşağıdaki açıklamaya dayanan, bir radar tarama haritasını andıran, "
+            f"fotorealistik ve ayrıntılı bir sahne oluştur: '{prompt_text}'. "
+            f"Görsel, yukarıdan aşağıya (top-down view) bir görünüme sahip olmalı."
         )
 
-        return response.generated_images
+        # Görüntüyü oluştur
+        response = model.generate_content(full_prompt)
+
+        # Yanıttan gelen görüntü verilerini Base64'e çevir
+        image_urls = []
+        for part in response.candidates[0].content.parts:
+            if part.mime_type.startswith("image/"):
+                # Ham görüntü verisini Base64 string'e dönüştür
+                image_bytes = part.data
+                encoded_image = base64.b64encode(image_bytes).decode("utf-8")
+                # Web'de kullanılabilir data URI formatını oluştur
+                mime_type = part.mime_type
+                data_uri = f"data:{mime_type};base64,{encoded_image}"
+                image_urls.append(data_uri)
+
+        if not image_urls:
+            return ["Yapay zeka bir görüntü döndürmedi."]
+
+        return image_urls
 
     except Exception as e:
-        return f"Gemini'den yanıt alınırken bir hata oluştu: {e}"
+        print(f"Gemini görüntü oluşturma hatası: {e}")
+        return [f"Görüntü oluşturulurken hata oluştu: {e}"]
 
 
 # ==============================================================================
@@ -1073,37 +1093,68 @@ def display_cluster_info(clickData, stored_data_json):
         return True, "Hata", f"Küme bilgisi gösterilemedi: {e}"
 
 
-@app.callback([Output('ai-yorum-sonucu', 'children'), Output('ai-image', 'children')],[Input('ai-model-dropdown', 'value')], prevent_initial_call=True)
+# === GÜNCELLENDİ: Bu callback fonksiyonunu değiştirin ===
+@app.callback(
+    [Output('ai-yorum-sonucu', 'children'), Output('ai-image', 'children')],
+    [Input('ai-model-dropdown', 'value')],
+    prevent_initial_call=True
+)
 def yorumla_model_secimi(selected_model_value):
-    if not selected_model_value: return html.Div("Yorum için bir model seçin.", className="text-center")
+    # 1. Başlangıç kontrolleri
+    if not selected_model_value:
+        return html.Div("Yorum için bir model seçin.", className="text-center"), no_update
+
     scan = get_latest_scan()
-    if not scan: return dbc.Alert("Analiz edilecek bir tarama bulunamadı.", color="warning", duration=4000)
-    if scan.ai_commentary:
-        print(f"Scan ID {scan.id} için mevcut AI yorumu kullanılıyor.")
-        return dbc.Alert(dcc.Markdown(scan.ai_commentary, dangerously_allow_html=True, link_target="_blank"),
-                         color="info")
+    if not scan:
+        alert = dbc.Alert("Analiz edilecek bir tarama bulunamadı.", color="warning", duration=4000)
+        return alert, no_update
+
+    # 2. Veritabanından veriyi çek veya yeni yorum üret
     points_qs = scan.points.all().values('derece', 'mesafe_cm')
-    if not points_qs: return dbc.Alert("Yorumlanacak tarama verisi bulunamadı.", color="warning", duration=4000)
+    if not points_qs:
+        alert = dbc.Alert("Yorumlanacak tarama verisi bulunamadı.", color="warning", duration=4000)
+        return alert, no_update
+
     df_data_for_ai = pd.DataFrame(list(points_qs))
     if len(df_data_for_ai) > 500:
-        print(f"AI yorumu için çok fazla nokta ({len(df_data_for_ai)}), 500'e örnekleniyor...")
         df_data_for_ai = df_data_for_ai.sample(n=500, random_state=1)
-    print(f"Scan ID {scan.id} için yeni AI yorumu üretiliyor (Model: {selected_model_value})...")
+
+    print(f"Scan ID {scan.id} için AI yorumu ve görüntü üretiliyor (Model: {selected_model_value})...")
+
+    # --- METİN YORUMUNU ÜRET ---
     yorum_text_from_ai = yorumla_tablo_verisi_gemini(df_data_for_ai, selected_model_value)
-    image_ai = image_generate(df_data_for_ai)
+
+    # Hata kontrolü
     if "Hata:" in yorum_text_from_ai or "hata oluştu" in yorum_text_from_ai:
-        return dbc.Alert(yorum_text_from_ai, color="danger")
+        return dbc.Alert(yorum_text_from_ai, color="danger"), no_update
+
+    # --- GÖRÜNTÜYÜ ÜRET ---
+    # Metin yorumunu, görüntü üretimi için istem (prompt) olarak kullan
+    base64_images = image_generate(yorum_text_from_ai)
+
+    # Görüntüleri göstermek için html.Img bileşenleri oluştur
+    image_components = []
+    if base64_images and not base64_images[0].startswith("Hata"):
+        for img_data in base64_images:
+            image_components.append(
+                html.Img(src=img_data,
+                         style={'maxWidth': '100%', 'height': 'auto', 'borderRadius': '10px', 'marginTop': '10px'})
+            )
+    else:
+        # Görüntü üretilemediyse hata mesajı göster
+        image_components = [dbc.Alert(base64_images[0], color="warning")]
+
+    # Veritabanına kaydetme (opsiyonel, sadece metni kaydediyoruz)
     try:
-        scan.ai_commentary = yorum_text_from_ai;
+        scan.ai_commentary = yorum_text_from_ai
         scan.save()
         print(f"Scan ID {scan.id} için yeni AI yorumu veritabanına kaydedildi.")
     except Exception as e_db_save:
-        return dbc.Alert([html.H6("Yorum kaydedilemedi:"), html.P(f"{e_db_save}"), html.Hr(),
-                          dcc.Markdown(yorum_text_from_ai, dangerously_allow_html=True, link_target="_blank")],
-                         color="warning")
-    return [
-        dbc.Alert(dcc.Markdown(yorum_text_from_ai, dangerously_allow_html=True, link_target="_blank"),
-                     color="success"),
-        dbc.Alert(dcc.Markdown(image_ai, dangerously_allow_html=True, link_target="_blank"),
-                     color="success")
-    ]
+        # Kayıt hatası olursa bile yorumu ve resmi göstermeye devam et
+        print(f"DB Kayıt Hatası: {e_db_save}")
+
+    # Sonuçları döndür
+    return (
+        dbc.Alert(dcc.Markdown(yorum_text_from_ai, dangerously_allow_html=True, link_target="_blank"), color="success"),
+        html.Div(image_components)  # Görüntü bileşenlerini Div içinde döndür
+    )
