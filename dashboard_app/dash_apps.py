@@ -787,35 +787,6 @@ def update_all_graphs(n):
     return figs[0], figs[1], figs[2], figs[3], est_text, store_data
 
 
-@app.callback(
-    Output('container-map-graph', 'style'),
-    Output('container-regression-graph', 'style'),
-    Output('container-polar-graph', 'style'),
-    Output('container-time-series-graph', 'style'),
-    Input('graph-selector-dropdown', 'value')
-)
-def update_graph_visibility(selected_graph):
-    # === TEST İÇİN BU SATIRI EKLEYİN ===
-    print(f"======> Dropdown seçimi yapıldı: {selected_graph}")
-
-    # Başlangıçta tüm grafikleri gizle
-    style_map = {'display': 'none'}
-    style_regression = {'display': 'none'}
-    style_polar = {'display': 'none'}
-    style_time = {'display': 'none'}
-
-    # Seçilen grafiği görünür yap
-    if selected_graph == 'map':
-        style_map = {'display': 'block'}
-    elif selected_graph == 'regression':
-        style_regression = {'display': 'block'}
-    elif selected_graph == 'polar':
-        style_polar = {'display': 'block'}
-    elif selected_graph == 'time':
-        style_time = {'display': 'block'}
-
-    return style_map, style_regression, style_polar, style_time
-
 # ... (Geri kalan tüm callback'ler aynı, en sondaki AI callback'i hariç)
 
 @app.callback(
