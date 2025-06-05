@@ -1,6 +1,6 @@
 import os
 import json
-from google import genai
+from google import generativeai
 from dotenv import load_dotenv
 
 # API anahtarını .env dosyasından yükle
@@ -16,13 +16,11 @@ def get_ai_mission_plan(scan_data_points):
         print("HATA: GOOGLE_API_KEY bulunamadı.")
         return None
 
-    client = genai.Client(api_key=GOOGLE_API_KEY)
-
+    generativeai.configure(api_key=GOOGLE_API_KEY)
+    model = generativeai.GenerativeModel('gemini-2.0-flash')
 
     # Gelen [(derece, mesafe), ...] listesini basit bir string'e çevir
     data_string = str(scan_data_points)
-
-
 
     # Gemini'ye hem ne yapacağını öğreten hem de istediğimiz formatı gösteren bir komut (prompt)
     prompt = f"""
@@ -51,14 +49,12 @@ def get_ai_mission_plan(scan_data_points):
     Senin JSON Cevabın:
     """
 
-    model = client.models.generate_content(model='gemini-2.0-flash', contents=prompt)
-
     try:
         print("\n[AI Planner] Yapay zekadan görev planı isteniyor...")
-        response = model.text
+        response = model.generate_content(prompt)
 
         # Yapay zeka cevabındaki potansiyel markdown formatını temizle
-        clean_response_text = response.replace('```json', '').replace('```', '').strip()
+        clean_response_text = response.text.replace('```json', '').replace('```', '').strip()
 
         print(f"[AI Planner] Gelen Ham Cevap:\n{clean_response_text}")
 
