@@ -589,7 +589,7 @@ def yorumla_tablo_verisi_gemini(df, model_name='gemini-2.0-flash'):
     if df is None or df.empty: return "Yorumlanacak tablo verisi bulunamadı."
     try:
         generativeai.configure(api_key=google_api_key)
-        model = generativeai.GenerativeModel('gemini-2.0-flash')
+        model = generativeai.GenerativeModel('models/gemini-2.0-flash')
 
         prompt_text = (
             f"Aşağıdaki tablo, bir ultrasonik sensörün yaptığı taramadan elde edilen verileri içermektedir: "
