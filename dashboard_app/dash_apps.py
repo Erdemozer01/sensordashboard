@@ -37,7 +37,7 @@ import matplotlib.pyplot as plt
 
 # Diğer importlar
 try:
-    from google import genai
+    from google import generativeai
 
     GOOGLE_GENAI_AVAILABLE = True
 except ImportError:
@@ -588,7 +588,8 @@ def yorumla_tablo_verisi_gemini(df, model_name='gemini-2.0-flash'):
     if not google_api_key: return "Hata: `GOOGLE_API_KEY` ayarlanmamış."
     if df is None or df.empty: return "Yorumlanacak tablo verisi bulunamadı."
     try:
-        client = genai.Client(api_key=google_api_key)
+        generativeai.configure(api_key=google_api_key)
+        model = generativeai.GenerativeModel('gemini-2.0-flash')
 
         prompt_text = (
             f"Aşağıdaki tablo, bir ultrasonik sensörün yaptığı taramadan elde edilen verileri içermektedir: "
@@ -598,7 +599,7 @@ def yorumla_tablo_verisi_gemini(df, model_name='gemini-2.0-flash'):
             "ortamın fotosunu tahmin etmeye çalış ve görsel oluştur"
             "Yorumunu kısa, anlaşılır ve maddeleme kullanarak yap."
         )
-        response = client.models.generate_content(model=model_name, contents=prompt_text)
+        response = model.generate_content(contents=prompt_text)
         return response.text
     except Exception as e:
         return f"Gemini'den yanıt alınırken bir hata oluştu: {e}"
