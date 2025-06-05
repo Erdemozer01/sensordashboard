@@ -1,6 +1,6 @@
 import os
 import json
-import google.generai as genai
+from google import genai
 from dotenv import load_dotenv
 
 # API anahtarını .env dosyasından yükle
