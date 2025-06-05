@@ -12,7 +12,8 @@ from matplotlib.pyplot import figure
 from scipy.spatial import ConvexHull
 from sklearn.cluster import DBSCAN
 from sklearn.linear_model import RANSACRegressor
-import base64  # Görüntü için eklendi
+import base64
+from google.generativeai.types import GenerationConfig
 
 try:
     from django.db.models import Max
@@ -49,29 +50,7 @@ from dotenv import load_dotenv
 
 load_dotenv()  # .env dosyasından ortam değişkenlerini yükler
 google_api_key = os.getenv("GOOGLE_API_KEY")
-import google.generativeai as genai
 
-if not google_api_key:
-    print("HATA: .env dosyasında GOOGLE_API_KEY bulunamadı.")
-else:
-    try:
-        genai.configure(api_key=google_api_key)
-
-        print("=" * 50)
-        print("API Anahtarınızın Kullanabildiği Modellerin Listesi:")
-        print("=" * 50)
-
-        for m in genai.list_models():
-            # Sadece 'generateContent' metodunu destekleyen modelleri listeliyoruz.
-            # Görüntü üretimi için bu gereklidir.
-            if 'generateContent' in m.supported_generation_methods:
-                print(f"- {m.name}")
-
-        print("\n" + "=" * 50)
-        print("Yukarıdaki listeden 'models/gemini...' veya 'models/imagen...' içeren bir model adı seçin.")
-
-    except Exception as e:
-        print(f"Modeller listelenirken bir hata oluştu: {e}")
 
 
 # ==============================================================================
@@ -575,7 +554,7 @@ def yorumla_tablo_verisi_gemini(df, model_name='gemini-1.5-flash'):
 def image_generate(prompt_text):
     """
     Verilen metin isteminden bir görüntü oluşturur ve Base64 URI olarak döndürür.
-    Kullanıcının hesabında bulunan, görüntü üretimi için özelleştirilmiş modeli kullanır.
+    Modelin beklediği doğru yanıt türü konfigürasyonunu içerir.
     """
     if not GOOGLE_GENAI_AVAILABLE:
         return ["Hata: Google GenerativeAI kütüphanesi yüklenemedi."]
@@ -585,34 +564,31 @@ def image_generate(prompt_text):
         return ["Görüntü oluşturmak için bir metin istemi (prompt) gerekli."]
 
     try:
-        genai.configure(api_key=google_api_key)
+        generativeai.configure(api_key=google_api_key)
+
+        model = generativeai.GenerativeModel(model_name="models/gemini-2.0-flash-preview-image-generation")
+
+        short_prompt = " ".join(prompt_text.split('.')[:3])
+        full_prompt = f"Fotorealistik, yukarıdan aşağıya (top-down view) bir radar tarama haritası: {short_prompt}"
 
         # === DEĞİŞİKLİK BURADA ===
-        # Model listeleme script'inden bulduğumuz, sizin hesabınız için çalışan DOĞRU model adını kullanıyoruz.
-        model = genai.GenerativeModel(model_name="models/gemini-2.0-flash-preview-image-generation")
-
-        # Özel görüntü modelleri genellikle daha kısa ve net istemleri tercih eder.
-        # Yorumun ilk 3 cümlesini alarak daha temiz bir istem oluşturalım.
-        short_prompt = " ".join(prompt_text.split('.')[:3])
-
-        full_prompt = (
-            f"Fotorealistik, yukarıdan aşağıya (top-down view) bir radar tarama haritası: {short_prompt}"
+        # Modelin hata mesajında belirttiği gibi, hem IMAGE hem de TEXT
+        # yanıtı beklediğimizi açıkça belirtiyoruz.
+        config = GenerationConfig(
+            response_modalities=['IMAGE', 'TEXT']
         )
 
-        response = model.generate_content(full_prompt)
+        # API çağrısını yeni konfigürasyon ile yapıyoruz
+        response = model.generate_content(full_prompt, generation_config=config)
 
         image_urls = []
-
-        # API'den gelen yanıttaki her parçayı kontrol et
         for part in response.candidates[0].content.parts:
             image_data_part = None
-            # Hem yeni hem de eski kütüphane sürümleri için uyumluluk kontrolü
             if hasattr(part, 'mime_type') and part.mime_type.startswith("image/"):
                 image_data_part = part
             elif hasattr(part, 'inline_data') and part.inline_data.mime_type.startswith("image/"):
                 image_data_part = part.inline_data
 
-            # Görüntü verisi bulunduysa Base64'e çevir ve listeye ekle
             if image_data_part:
                 image_bytes = image_data_part.data
                 encoded_image = base64.b64encode(image_bytes).decode("utf-8")
@@ -622,7 +598,7 @@ def image_generate(prompt_text):
 
         if not image_urls:
             print("GÖRÜNTÜ YANITI BEKLENENDEN FARKLI:", response)
-            return ["Seçilen model bir görüntü döndürmedi. Modelin durumunu veya istemi kontrol edin."]
+            return ["Model bir görüntü döndürmedi. Lütfen modelin durumunu veya istemi kontrol edin."]
 
         return image_urls
 
