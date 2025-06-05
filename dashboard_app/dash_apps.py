@@ -14,7 +14,7 @@ from sklearn.cluster import DBSCAN
 from sklearn.linear_model import RANSACRegressor
 import base64
 from google.generativeai.types import GenerationConfig
-
+import google.generativeai as genai
 # Dash ve Plotly Kütüphaneleri
 from django_plotly_dash import DjangoDash
 from dash import html, dcc, Output, Input, State, no_update, dash_table
