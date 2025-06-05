@@ -548,11 +548,10 @@ def yorumla_tablo_verisi_gemini(df, model_name='gemini-1.5-flash'):
         return f"Gemini'den yanıt alınırken bir hata oluştu: {e}"
 
 
-# === GÜNCELLENDİ: Bu fonksiyonu tamamen değiştirin ===
 def image_generate(prompt_text):
     """
     Verilen metin isteminden bir görüntü oluşturur ve Base64 URI olarak döndürür.
-    Eski ve yeni kütüphane sürümleriyle uyumlu çalışmaya çalışır.
+    Bu iş için özel olarak tasarlanmış olan Imagen modelini kullanır.
     """
     if not GOOGLE_GENAI_AVAILABLE:
         return ["Hata: Google GenerativeAI kütüphanesi yüklenemedi."]
@@ -563,33 +562,31 @@ def image_generate(prompt_text):
 
     try:
         generativeai.configure(api_key=google_api_key)
-        model = generativeai.GenerativeModel(model_name="gemini-1.5-flash")
+
+        # === DEĞİŞİKLİK BURADA ===
+        # Genel amaçlı Gemini yerine, doğrudan resim üretmek için tasarlanmış
+        # Google Imagen modelini kullanıyoruz. Bu modelin en güncel versiyonlarından biri.
+        model = generativeai.GenerativeModel(model_name="imagen-3")
+
+        # Imagen modelleri genellikle daha kısa ve net istemleri tercih eder.
+        # Bu yüzden metin yorumunun ilk birkaç cümlesini kullanmak daha etkili olabilir.
+        short_prompt = " ".join(prompt_text.split('.')[:3])  # Yorumun ilk 3 cümlesini alalım.
 
         full_prompt = (
-            f"Aşağıdaki açıklamaya dayanan, bir radar tarama haritasını andıran, "
-            f"fotorealistik ve ayrıntılı bir sahne oluştur: '{prompt_text}'. "
-            f"Görsel, yukarıdan aşağıya (top-down view) bir görünüme sahip olmalı."
+            f"Fotorealistik, yukarıdan aşağıya (top-down view) bir radar tarama haritası: {short_prompt}"
         )
 
         response = model.generate_content(full_prompt)
 
         image_urls = []
 
-        # Yanıttaki her bir parçayı (part) döngüye al
         for part in response.candidates[0].content.parts:
             image_data_part = None
-
-            # YENİ YAPI KONTROLÜ (Önerilen)
-            # Eğer part nesnesinin doğrudan mime_type özelliği varsa bu yeni sürümdür.
             if hasattr(part, 'mime_type') and part.mime_type.startswith("image/"):
                 image_data_part = part
-
-            # ESKİ YAPI KONTROLÜ (Eski kütüphaneler için)
-            # Eğer part nesnesinin içinde 'inline_data' diye bir nesne varsa bu eski sürümdür.
             elif hasattr(part, 'inline_data') and part.inline_data.mime_type.startswith("image/"):
                 image_data_part = part.inline_data
 
-            # Eğer bir görüntü verisi bulunduysa Base64'e çevir
             if image_data_part:
                 image_bytes = image_data_part.data
                 encoded_image = base64.b64encode(image_bytes).decode("utf-8")
@@ -598,15 +595,22 @@ def image_generate(prompt_text):
                 image_urls.append(data_uri)
 
         if not image_urls:
-            # Hata ayıklama için yanıtın tamamını yazdırabiliriz
-            print("AI GÖRÜNTÜ YANITI BEKLENENDEN FARKLI:", response)
-            return ["Yapay zeka bir görüntü döndürmedi."]
+            print("IMAGEN GÖRÜNTÜ YANITI BEKLENENDEN FARKLI:", response)
+            return [
+                "Imagen modeli bir görüntü döndürmedi. Lütfen API anahtarınızı ve proje yetkilerinizi kontrol edin."]
 
         return image_urls
 
     except Exception as e:
-        print(f"Gemini görüntü oluşturma hatası: {e}")
-        return [f"Görüntü oluşturulurken hata oluştu: {e}"]
+        print(f"Imagen görüntü oluşturma hatası: {e}")
+        # Hata mesajını daha anlaşılır hale getirelim
+        error_message = str(e)
+        if "API key not valid" in error_message:
+            return ["API anahtarı geçersiz. Lütfen kontrol edin."]
+        if "permission" in error_message.lower() or "not found" in error_message.lower():
+            return [
+                f"Model Hatası: '{model.model_name}' modelini kullanma izniniz olmayabilir veya model adı yanlış. API anahtarınızın projesini kontrol edin. Hata: {e}"]
+        return [f"Görüntü oluşturulurken bilinmeyen bir hata oluştu: {e}"]
 
 
 # ==============================================================================
