@@ -17,7 +17,7 @@ def get_ai_mission_plan(scan_data_points):
         return None
 
     generativeai.configure(api_key=GOOGLE_API_KEY)
-    model = generativeai.GenerativeModel('gemini-pro')
+    model = generativeai.GenerativeModel('gemini-2.0-flash')
 
     # Gelen [(derece, mesafe), ...] listesini basit bir string'e çevir
     data_string = str(scan_data_points)
