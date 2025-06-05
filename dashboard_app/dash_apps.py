@@ -49,6 +49,30 @@ from dotenv import load_dotenv
 
 load_dotenv()  # .env dosyasından ortam değişkenlerini yükler
 google_api_key = os.getenv("GOOGLE_API_KEY")
+import google.generativeai as genai
+
+if not google_api_key:
+    print("HATA: .env dosyasında GOOGLE_API_KEY bulunamadı.")
+else:
+    try:
+        genai.configure(api_key=google_api_key)
+
+        print("=" * 50)
+        print("API Anahtarınızın Kullanabildiği Modellerin Listesi:")
+        print("=" * 50)
+
+        for m in genai.list_models():
+            # Sadece 'generateContent' metodunu destekleyen modelleri listeliyoruz.
+            # Görüntü üretimi için bu gereklidir.
+            if 'generateContent' in m.supported_generation_methods:
+                print(f"- {m.name}")
+
+        print("\n" + "=" * 50)
+        print("Yukarıdaki listeden 'models/gemini...' veya 'models/imagen...' içeren bir model adı seçin.")
+
+    except Exception as e:
+        print(f"Modeller listelenirken bir hata oluştu: {e}")
+
 
 # ==============================================================================
 # --- SABİTLER VE UYGULAMA BAŞLATMA ---
