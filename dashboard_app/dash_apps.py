@@ -552,6 +552,7 @@ def yorumla_tablo_verisi_gemini(df, model_name='gemini-1.5-flash'):
 def image_generate(prompt_text):
     """
     Verilen metin isteminden bir görüntü oluşturur ve Base64 URI olarak döndürür.
+    Eski ve yeni kütüphane sürümleriyle uyumlu çalışmaya çalışır.
     """
     if not GOOGLE_GENAI_AVAILABLE:
         return ["Hata: Google GenerativeAI kütüphanesi yüklenemedi."]
@@ -561,34 +562,44 @@ def image_generate(prompt_text):
         return ["Görüntü oluşturmak için bir metin istemi (prompt) gerekli."]
 
     try:
-        # Görüntü üretimi için en uygun modellerden birini kullanıyoruz.
-        # Gemini 1.5 Flash hem hızlı hem de güçlüdür.
+        generativeai.configure(api_key=google_api_key)
         model = generativeai.GenerativeModel(model_name="gemini-1.5-flash")
 
-        # API'ye gönderilecek istem (prompt)
-        # Daha sanatsal ve detaylı bir çıktı için istemi zenginleştiriyoruz.
         full_prompt = (
             f"Aşağıdaki açıklamaya dayanan, bir radar tarama haritasını andıran, "
             f"fotorealistik ve ayrıntılı bir sahne oluştur: '{prompt_text}'. "
             f"Görsel, yukarıdan aşağıya (top-down view) bir görünüme sahip olmalı."
         )
 
-        # Görüntüyü oluştur
         response = model.generate_content(full_prompt)
 
-        # Yanıttan gelen görüntü verilerini Base64'e çevir
         image_urls = []
+
+        # Yanıttaki her bir parçayı (part) döngüye al
         for part in response.candidates[0].content.parts:
-            if part.mime_type.startswith("image/"):
-                # Ham görüntü verisini Base64 string'e dönüştür
-                image_bytes = part.data
+            image_data_part = None
+
+            # YENİ YAPI KONTROLÜ (Önerilen)
+            # Eğer part nesnesinin doğrudan mime_type özelliği varsa bu yeni sürümdür.
+            if hasattr(part, 'mime_type') and part.mime_type.startswith("image/"):
+                image_data_part = part
+
+            # ESKİ YAPI KONTROLÜ (Eski kütüphaneler için)
+            # Eğer part nesnesinin içinde 'inline_data' diye bir nesne varsa bu eski sürümdür.
+            elif hasattr(part, 'inline_data') and part.inline_data.mime_type.startswith("image/"):
+                image_data_part = part.inline_data
+
+            # Eğer bir görüntü verisi bulunduysa Base64'e çevir
+            if image_data_part:
+                image_bytes = image_data_part.data
                 encoded_image = base64.b64encode(image_bytes).decode("utf-8")
-                # Web'de kullanılabilir data URI formatını oluştur
-                mime_type = part.mime_type
+                mime_type = image_data_part.mime_type
                 data_uri = f"data:{mime_type};base64,{encoded_image}"
                 image_urls.append(data_uri)
 
         if not image_urls:
+            # Hata ayıklama için yanıtın tamamını yazdırabiliriz
+            print("AI GÖRÜNTÜ YANITI BEKLENENDEN FARKLI:", response)
             return ["Yapay zeka bir görüntü döndürmedi."]
 
         return image_urls
