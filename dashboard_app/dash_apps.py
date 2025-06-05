@@ -124,6 +124,7 @@ control_panel = dbc.Card([
                 id='ai-model-dropdown',
                 options=[
                     {'label': 'Gemini Flash (Hızlı)', 'value': 'gemini-2.0-flash'},
+                    {'label': 'Gemini Pro (Gelişmiş)', 'value': 'gemini-2.5-pro-preview-05-06'},
                 ],
                 placeholder="Yorumlama için bir model seçin...",
                 clearable=True,
@@ -583,13 +584,13 @@ def estimate_geometric_shape(df_input):
         return "Geometrik analiz hatası."
 
 
-def yorumla_tablo_verisi_gemini(df, model_name='gemini-2.0-flash'):
+def yorumla_tablo_verisi_gemini(df, model_name='models/gemini-2.0-flash'):
     if not GOOGLE_GENAI_AVAILABLE: return "Hata: Google GenerativeAI kütüphanesi yüklenemedi."
     if not google_api_key: return "Hata: `GOOGLE_API_KEY` ayarlanmamış."
     if df is None or df.empty: return "Yorumlanacak tablo verisi bulunamadı."
     try:
         generativeai.configure(api_key=google_api_key)
-        model = generativeai.GenerativeModel('models/gemini-2.0-flash')
+        model = generativeai.GenerativeModel(model_name=model_name)
 
         prompt_text = (
             f"Aşağıdaki tablo, bir ultrasonik sensörün yaptığı taramadan elde edilen verileri içermektedir: "
