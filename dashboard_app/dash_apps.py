@@ -552,10 +552,6 @@ def yorumla_tablo_verisi_gemini(df, model_name='gemini-1.5-flash'):
 
 
 def image_generate(prompt_text):
-    """
-    Verilen metin isteminden bir görüntü oluşturur ve Base64 URI olarak döndürür.
-    Modelin beklediği doğru yanıt türü konfigürasyonunu içerir.
-    """
     if not GOOGLE_GENAI_AVAILABLE:
         return ["Hata: Google GenerativeAI kütüphanesi yüklenemedi."]
     if not google_api_key:
@@ -565,45 +561,31 @@ def image_generate(prompt_text):
 
     try:
         generativeai.configure(api_key=google_api_key)
-
         model = generativeai.GenerativeModel(model_name="models/gemini-2.0-flash-preview-image-generation")
-
         short_prompt = " ".join(prompt_text.split('.')[:3])
         full_prompt = f"Fotorealistik, yukarıdan aşağıya (top-down view) bir radar tarama haritası: {short_prompt}"
 
-        # === DEĞİŞİKLİK BURADA ===
-        # Modelin hata mesajında belirttiği gibi, hem IMAGE hem de TEXT
-        # yanıtı beklediğimizi açıkça belirtiyoruz.
+        # Bu konfigürasyon artık güncel kütüphane ile sorunsuz çalışacaktır.
         config = GenerationConfig(
             response_modalities=['IMAGE', 'TEXT']
         )
 
-        # API çağrısını yeni konfigürasyon ile yapıyoruz
         response = model.generate_content(full_prompt, generation_config=config)
 
         image_urls = []
         for part in response.candidates[0].content.parts:
-            image_data_part = None
             if hasattr(part, 'mime_type') and part.mime_type.startswith("image/"):
-                image_data_part = part
-            elif hasattr(part, 'inline_data') and part.inline_data.mime_type.startswith("image/"):
-                image_data_part = part.inline_data
-
-            if image_data_part:
-                image_bytes = image_data_part.data
+                image_bytes = part.data
                 encoded_image = base64.b64encode(image_bytes).decode("utf-8")
-                mime_type = image_data_part.mime_type
-                data_uri = f"data:{mime_type};base64,{encoded_image}"
+                data_uri = f"data:{part.mime_type};base64,{encoded_image}"
                 image_urls.append(data_uri)
 
         if not image_urls:
-            print("GÖRÜNTÜ YANITI BEKLENENDEN FARKLI:", response)
-            return ["Model bir görüntü döndürmedi. Lütfen modelin durumunu veya istemi kontrol edin."]
+            return ["Model bir görüntü döndürmedi."]
 
         return image_urls
 
     except Exception as e:
-        print(f"Görüntü oluşturma hatası: {e}")
         return [f"Görüntü oluşturulurken hata oluştu: {e}"]
 
 
