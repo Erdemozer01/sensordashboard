@@ -252,6 +252,7 @@ app.layout = html.Div(
     children=[
         navbar,
         dbc.Row([
+            # Sol Sütun (Kontrol Paneli vb.) - BURADA DEĞİŞİKLİK YOK
             dbc.Col(
                 [
                     control_panel,
@@ -265,51 +266,60 @@ app.layout = html.Div(
                 md=4,
                 className="mb-3"
             ),
+
+            # === DEĞİŞİKLİK BURADA BAŞLIYOR: Sağ Sütun ===
             dbc.Col(
                 [
+                    # Grafikleri içeren sekmeli yapı
                     visualization_tabs,
-                    html.Br(),
+
+                    # Analiz ve AI kartlarını içeren yeni bir satır
                     dbc.Row(
                         [
-                            dbc.Col(analysis_card, md=8),
-                            dbc.Col(estimation_card, md=4)
-                        ]
+                            # Tarama Analizi Kartı
+                            dbc.Col(analysis_card, md=7, className="mt-3"),  # Genişliği ayarlandı
+
+                            # Ortam Tahmini Kartı
+                            dbc.Col(estimation_card, md=5, className="mt-3"),  # Genişliği ayarlandı
+                        ],
+                        className="g-2"  # Sütunlar arası boşluk
                     ),
+
+                    # AI Yorumlama Kartı
                     dbc.Row(
                         [
                             dbc.Col(
-                                [
-                                    dbc.Card(
-                                        [
-                                            dbc.CardHeader("Akıllı Yorumlama ve Görselleştirme (Yapay Zeka)",
-                                                           className="bg-info text-white"),
-                                            dbc.CardBody(
-                                                dcc.Loading(
-                                                    id="loading-ai-comment",
-                                                    type="default",
-                                                    children=[
-                                                        html.Div(id='ai-yorum-sonucu', children=[
-                                                            html.P(
-                                                                "Yorum ve görüntü almak için yukarıdan bir yapay zeka modeli seçin."),
-                                                        ], className="text-center mt-2"),
-                                                        html.Div(id='ai-image', children=[],
-                                                                 className="text-center mt-2")
-                                                    ]
-                                                )
+                                dbc.Card(
+                                    [
+                                        dbc.CardHeader("Akıllı Yorumlama ve Görselleştirme (Yapay Zeka)",
+                                                       className="bg-info text-white"),
+                                        dbc.CardBody(
+                                            dcc.Loading(
+                                                id="loading-ai-comment",
+                                                type="default",
+                                                children=[
+                                                    html.Div(id='ai-yorum-sonucu', children=[
+                                                        html.P(
+                                                            "Yorum ve görüntü almak için yukarıdan bir yapay zeka modeli seçin."),
+                                                    ], className="text-center mt-2"),
+                                                    html.Div(id='ai-image', children=[], className="text-center mt-2")
+                                                ]
                                             )
-                                        ],
-                                        className="mt-3"
-                                    )
-                                ],
-                                md=12
+                                        )
+                                    ],
+                                ),
+                                width=12,
+                                className="mt-3"  # Üst boşluk
                             )
-                        ],
-                        className="mt-3"
+                        ]
                     )
                 ],
-                md=8
+                md=8  # Sağ sütunun toplam genişliği
             )
+            # === DEĞİŞİKLİK BURADA BİTİYOR ===
         ]),
+
+        # ... (dcc.Store, dbc.Modal, dcc.Interval aynı kalıyor)
         dcc.Store(id='clustered-data-store'),
         dbc.Modal(
             [dbc.ModalHeader(dbc.ModalTitle(id="modal-title")), dbc.ModalBody(id="modal-body")],
