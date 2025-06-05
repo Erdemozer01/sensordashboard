@@ -55,10 +55,10 @@ def get_ai_mission_plan(scan_data_points):
 
     try:
         print("\n[AI Planner] Yapay zekadan görev planı isteniyor...")
-        response = model.generate_content(prompt)
+        response = model.text
 
         # Yapay zeka cevabındaki potansiyel markdown formatını temizle
-        clean_response_text = response.text.replace('```json', '').replace('```', '').strip()
+        clean_response_text = response.replace('```json', '').replace('```', '').strip()
 
         print(f"[AI Planner] Gelen Ham Cevap:\n{clean_response_text}")
 
