@@ -595,9 +595,9 @@ def yorumla_tablo_verisi_gemini(df, model_name='models/gemini-2.0-flash'):
         prompt_text = (
             f"Aşağıdaki tablo, bir ultrasonik sensörün yaptığı taramadan elde edilen verileri içermektedir: "
             f"\n\n{df.to_string(index=False)}\n\n"
-            "Bu verilere dayanarak, ortamın olası yapısını (örneğin: 'geniş bir oda', 'dar bir koridor', 'köşeye yerleştirilmiş nesne') analiz et. "
+            "Bu verilere dayanarak, ortamın olası yapısını (örneğin: 'geniş bir oda', 'dar bir koridor', 'köşeye yerleştirilmiş nesne') analiz et ve alanını , çevresini ortamın geometrik şeklini tahmin etmeye çalış "
             "Verilerdeki desenlere göre potansiyel nesneleri (duvar, köşe, sandalye bacağı, kutu, insan vb.) tahmin etmeye çalış. "
-            "Olası Ortam Senaryolarına dayalı ortamın fotosunu tahmin etmeye çalış."
+            "Olası Ortam Senaryolarına dayalı ortamın fotosunu tahmin etmeye çalış. "
             "Tablo verilerine bakarak tahmin ettiğin nesnelere bağlı resim oluştur"
         )
 
