@@ -1073,7 +1073,7 @@ def display_cluster_info(clickData, stored_data_json):
         return True, "Hata", f"Küme bilgisi gösterilemedi: {e}"
 
 
-@app.callback(Output('ai-yorum-sonucu', 'children'), Output('ai-image', 'children'),[Input('ai-model-dropdown', 'value')], prevent_initial_call=True)
+@app.callback([Output('ai-yorum-sonucu', 'children'), Output('ai-image', 'children')],[Input('ai-model-dropdown', 'value')], prevent_initial_call=True)
 def yorumla_model_secimi(selected_model_value):
     if not selected_model_value: return html.Div("Yorum için bir model seçin.", className="text-center")
     scan = get_latest_scan()
@@ -1101,6 +1101,6 @@ def yorumla_model_secimi(selected_model_value):
         return dbc.Alert([html.H6("Yorum kaydedilemedi:"), html.P(f"{e_db_save}"), html.Hr(),
                           dcc.Markdown(yorum_text_from_ai, dangerously_allow_html=True, link_target="_blank")],
                          color="warning")
-    return [dbc.Alert(dcc.Markdown(yorum_text_from_ai, dangerously_allow_html=True, link_target="_blank"),
+    return dbc.Alert(dcc.Markdown(yorum_text_from_ai, dangerously_allow_html=True, link_target="_blank"),
                      color="success"), dbc.Alert(dcc.Markdown(image_ai, dangerously_allow_html=True, link_target="_blank"),
-                     color="success")]
+                     color="success")
