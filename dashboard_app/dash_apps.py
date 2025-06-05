@@ -597,7 +597,8 @@ def yorumla_tablo_verisi_gemini(df, model_name='models/gemini-2.0-flash'):
             f"\n\n{df.to_string(index=False)}\n\n"
             "Bu verilere dayanarak, ortamın olası yapısını (örneğin: 'geniş bir oda', 'dar bir koridor', 'köşeye yerleştirilmiş nesne') analiz et. "
             "Verilerdeki desenlere göre potansiyel nesneleri (duvar, köşe, sandalye bacağı, kutu, insan vb.) tahmin etmeye çalış. "
-            "Olası Ortam Senaryolarına dayalı ortamın fotosunu tahmin etmeye çalış ve görsel ve image oluştur. örneğin kanepe duvar vs tamin ettiysen bunu image oluşturarak göster"
+            "Olası Ortam Senaryolarına dayalı ortamın fotosunu tahmin etmeye çalış."
+            "Tablo verilerine bakarak tahmin ettiğin nesnelere bağlı resim oluştur"
         )
 
         response = model.generate_content(contents=prompt_text)
