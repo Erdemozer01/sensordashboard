@@ -16,11 +16,13 @@ def get_ai_mission_plan(scan_data_points):
         print("HATA: GOOGLE_API_KEY bulunamadı.")
         return None
 
-    genai.configure(api_key=GOOGLE_API_KEY)
-    model = genai.GenerativeModel('gemini-2.0-flash')
+    client = genai.Client(api_key=GOOGLE_API_KEY)
+
 
     # Gelen [(derece, mesafe), ...] listesini basit bir string'e çevir
     data_string = str(scan_data_points)
+
+
 
     # Gemini'ye hem ne yapacağını öğreten hem de istediğimiz formatı gösteren bir komut (prompt)
     prompt = f"""
@@ -48,6 +50,8 @@ def get_ai_mission_plan(scan_data_points):
     Giriş Verisi: "{data_string}"
     Senin JSON Cevabın:
     """
+
+    model = client.models.generate_content(model='gemini-2.0-flash', contents=prompt)
 
     try:
         print("\n[AI Planner] Yapay zekadan görev planı isteniyor...")
