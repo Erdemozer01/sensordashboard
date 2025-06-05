@@ -311,6 +311,11 @@ app.layout = html.Div(
                                                         html.Div(id='ai-yorum-sonucu', children=[
                                                             html.P(
                                                                 "Yorum almak için yukarıdan bir yapay zeka modeli seçin."),
+                                                        ], className="text-center mt-2"),
+
+                                                        html.Div(id='ai-image', children=[
+                                                            html.P(
+                                                                "Ortamın görüntüsünü oluşturmak için model seçin"),
                                                         ], className="text-center mt-2")
                                                     ]
                                                 )
@@ -485,6 +490,7 @@ def update_time_series_graph(fig, df):
         logging.error(f"Zaman serisi grafiği oluşturulurken HATA: {e}")
         fig.add_trace(go.Scatter(x=[], y=[], mode='lines', name='Grafik Hatası'))
 
+
 # ==========================================================
 
 
@@ -597,12 +603,41 @@ def yorumla_tablo_verisi_gemini(df, model_name='models/gemini-2.0-flash'):
             f"\n\n{df.to_string(index=False)}\n\n"
             "Bu verilere dayanarak, ortamın olası yapısını (örneğin: 'geniş bir oda', 'dar bir koridor', 'köşeye yerleştirilmiş nesne') analiz et ve alanını , çevresini ortamın geometrik şeklini tahmin etmeye çalış "
             "Verilerdeki desenlere göre potansiyel nesneleri (duvar, köşe, sandalye bacağı, kutu, insan vb.) tahmin etmeye çalış. "
-            "Olası Ortam Senaryolarına dayalı ortamın fotosunu tahmin etmeye çalış. "
-            "Tablo verilerine bakarak tahmin ettiğin nesnelere bağlı resim oluştur"
+
         )
 
         response = model.generate_content(contents=prompt_text)
         return response.text
+    except Exception as e:
+        return f"Gemini'den yanıt alınırken bir hata oluştu: {e}"
+
+
+def image_generate(df):
+    if not GOOGLE_GENAI_AVAILABLE: return "Hata: Google GenerativeAI kütüphanesi yüklenemedi."
+    if not google_api_key: return "Hata: `GOOGLE_API_KEY` ayarlanmamış."
+    if df is None or df.empty: return "Yorumlanacak tablo verisi bulunamadı."
+
+    text = yorumla_tablo_verisi_gemini(df, model_name='gemini-2.0-flash-preview-image-generation')
+
+    from google import genai
+    from google.genai import types
+
+    try:
+
+        client = genai.Client(api_key=google_api_key)
+
+        prompt = f'{text} yorumu değerlendir. Resim oluştur'
+
+        response = client.models.generate_images(
+            model="imagen-3.0-generate-002",
+            prompt=prompt,
+            config=types.GenerateContentConfig(
+                response_modalities=['TEXT', 'IMAGE']
+            )
+        )
+
+        return response.generated_images
+
     except Exception as e:
         return f"Gemini'den yanıt alınırken bir hata oluştu: {e}"
 
@@ -975,6 +1010,7 @@ def update_all_graphs(n):
 
     return figs[0], figs[1], figs[2], figs[3], est_text, store_data
 
+
 @app.callback(
     Output('container-map-graph', 'style'),
     Output('container-regression-graph', 'style'),
@@ -1037,7 +1073,7 @@ def display_cluster_info(clickData, stored_data_json):
         return True, "Hata", f"Küme bilgisi gösterilemedi: {e}"
 
 
-@app.callback(Output('ai-yorum-sonucu', 'children'), [Input('ai-model-dropdown', 'value')], prevent_initial_call=True)
+@app.callback(Output('ai-yorum-sonucu', 'children'), Output('ai-image', 'children'),[Input('ai-model-dropdown', 'value')], prevent_initial_call=True)
 def yorumla_model_secimi(selected_model_value):
     if not selected_model_value: return html.Div("Yorum için bir model seçin.", className="text-center")
     scan = get_latest_scan()
@@ -1054,6 +1090,7 @@ def yorumla_model_secimi(selected_model_value):
         df_data_for_ai = df_data_for_ai.sample(n=500, random_state=1)
     print(f"Scan ID {scan.id} için yeni AI yorumu üretiliyor (Model: {selected_model_value})...")
     yorum_text_from_ai = yorumla_tablo_verisi_gemini(df_data_for_ai, selected_model_value)
+    image_ai = image_generate(df_data_for_ai)
     if "Hata:" in yorum_text_from_ai or "hata oluştu" in yorum_text_from_ai:
         return dbc.Alert(yorum_text_from_ai, color="danger")
     try:
@@ -1065,5 +1102,5 @@ def yorumla_model_secimi(selected_model_value):
                           dcc.Markdown(yorum_text_from_ai, dangerously_allow_html=True, link_target="_blank")],
                          color="warning")
     return dbc.Alert(dcc.Markdown(yorum_text_from_ai, dangerously_allow_html=True, link_target="_blank"),
+                     color="success"), dbc.Alert(dcc.Markdown(image_ai, dangerously_allow_html=True, link_target="_blank"),
                      color="success")
-
