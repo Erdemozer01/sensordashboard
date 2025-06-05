@@ -570,7 +570,7 @@ def image_generate(prompt_text):
         full_prompt = f"Fotorealistik, yukarıdan aşağıya (top-down view) bir radar tarama haritası: {short_prompt}"
 
         config = GenerationConfig(
-            response_modalities=['IMAGE', 'TEXT']
+            response_Modalities=['IMAGE', 'TEXT']
         )
 
         response = model.generate_content(full_prompt, generation_config=config)
