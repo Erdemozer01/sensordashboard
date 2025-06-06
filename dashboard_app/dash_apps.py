@@ -41,6 +41,18 @@ google_api_key = os.getenv("GOOGLE_API_KEY")
 # ==============================================================================
 # --- SABİTLER VE UYGULAMA BAŞLATMA ---
 # ==============================================================================
+SENSOR_SCRIPT_FILENAME = 'sensor_script.py'
+FREE_MOVEMENT_SCRIPT_FILENAME = 'free_movement_script.py'
+SENSOR_SCRIPT_PATH = os.path.join(os.getcwd(), SENSOR_SCRIPT_FILENAME)
+FREE_MOVEMENT_SCRIPT_PATH = os.path.join(os.getcwd(), FREE_MOVEMENT_SCRIPT_FILENAME)
+SENSOR_SCRIPT_LOCK_FILE = '/tmp/sensor_scan_script.lock'
+SENSOR_SCRIPT_PID_FILE = '/tmp/sensor_scan_script.pid'
+DEFAULT_UI_SCAN_DURATION_ANGLE = 270.0
+DEFAULT_UI_SCAN_STEP_ANGLE = 10.0
+DEFAULT_UI_BUZZER_DISTANCE = 10
+DEFAULT_UI_INVERT_MOTOR = False
+DEFAULT_UI_STEPS_PER_REVOLUTION = 4096
+
 app = DjangoDash('RealtimeSensorDashboard', external_stylesheets=[dbc.themes.BOOTSTRAP])
 
 # ==============================================================================
@@ -87,18 +99,19 @@ control_panel = dbc.Card([
             html.Hr(),
             html.H6("Tarama Parametreleri:", className="mt-2"),
             dbc.InputGroup([dbc.InputGroupText("Tarama Açısı (°)", style={"width": "150px"}),
-                            dbc.Input(id="scan-duration-angle-input", type="number", value=270.0, min=10, max=720,
-                                      step=1)], className="mb-2"),
+                            dbc.Input(id="scan-duration-angle-input", type="number",
+                                      value=DEFAULT_UI_SCAN_DURATION_ANGLE, min=10, max=720, step=1)],
+                           className="mb-2"),
             dbc.InputGroup([dbc.InputGroupText("Adım Açısı (°)", style={"width": "150px"}),
-                            dbc.Input(id="step-angle-input", type="number", value=10.0, min=0.1, max=45, step=0.1)],
-                           className="mb-2"),
+                            dbc.Input(id="step-angle-input", type="number", value=DEFAULT_UI_SCAN_STEP_ANGLE, min=0.1,
+                                      max=45, step=0.1)], className="mb-2"),
             dbc.InputGroup([dbc.InputGroupText("Uyarı Mes. (cm)", style={"width": "150px"}),
-                            dbc.Input(id="buzzer-distance-input", type="number", value=10, min=0, max=200, step=1)],
-                           className="mb-2"),
+                            dbc.Input(id="buzzer-distance-input", type="number", value=DEFAULT_UI_BUZZER_DISTANCE,
+                                      min=0, max=200, step=1)], className="mb-2"),
             dbc.InputGroup([dbc.InputGroupText("Motor Adım/Tur", style={"width": "150px"}),
-                            dbc.Input(id="steps-per-rev-input", type="number", value=4096, min=500, max=10000, step=1)],
-                           className="mb-2"),
-            dbc.Checkbox(id="invert-motor-checkbox", label="Motor Yönünü Ters Çevir", value=False,
+                            dbc.Input(id="steps-per-rev-input", type="number", value=DEFAULT_UI_STEPS_PER_REVOLUTION,
+                                      min=500, max=10000, step=1)], className="mb-2"),
+            dbc.Checkbox(id="invert-motor-checkbox", label="Motor Yönünü Ters Çevir", value=DEFAULT_UI_INVERT_MOTOR,
                          className="mt-2 mb-2"),
         ])
     ])
@@ -164,7 +177,7 @@ ai_card = dbc.Card([
     ]))
 ])
 
-# LAYOUT DÜZELTMESİ: Dört ayrı Div ve bir kontrol callback'i (doğru yöntem)
+# GRAFİK LAYOUT DÜZELTMESİ: Dört ayrı Div ve bir kontrol callback'i (en sağlam yöntem)
 visualization_tabs = dbc.Tabs([
     dbc.Tab([
         dbc.Row([
@@ -179,6 +192,7 @@ visualization_tabs = dbc.Tabs([
                 value='map', clearable=False, style={'marginTop': '10px'}
             ), width=6)
         ], justify="center", className="mb-3"),
+        # Her grafik kendi div'i içinde, varsayılan olarak sadece ilki görünür
         html.Div([
             html.Div(dcc.Graph(id='scan-map-graph', style={'height': '75vh'}), id='container-map-graph',
                      style={'display': 'block'}),
@@ -224,10 +238,16 @@ app.layout = html.Div(style={'padding': '20px'}, children=[
 # ==============================================================================
 # --- YARDIMCI FONKSİYONLAR ---
 # ==============================================================================
-# ... (Tüm yardımcı fonksiyonlar (is_process_running, add_scan_rays, vb.) değişiklik olmadan aynı kalacak) ...
-# ... (KOD TEKRARINI ÖNLEMEK İÇİN BURAYA EKLENMEDİ, KENDİ KODUNUZDAKİLERİ KORUYUN) ...
+def is_process_running(pid):
+    if pid is None: return False
+    try:
+        return psutil.pid_exists(pid)
+    except Exception:
+        return False
+
 
 def get_latest_scan():
+    # MIGRATE SORUNU İÇİN DÜZELTME
     from scanner.models import Scan
     try:
         running_scan = Scan.objects.filter(status='RUNNING').order_by('-start_time').first()
@@ -236,6 +256,28 @@ def get_latest_scan():
     except Exception:
         return None
 
+
+def add_scan_rays(fig, df):
+    if df.empty or not all(c in df.columns for c in ['x_cm', 'y_cm']): return
+    x, y = [], []
+    for _, r in df.iterrows(): x.extend([0, r['y_cm'], None]); y.extend([0, r['x_cm'], None])
+    fig.add_trace(go.Scatter(x=x, y=y, mode='lines', line=dict(color='rgba(255,100,100,0.4)', dash='dash', width=1),
+                             showlegend=False))
+
+
+def add_sector_area(fig, df):
+    if df.empty or not all(c in df.columns for c in ['x_cm', 'y_cm']): return
+    fig.add_trace(go.Scatter(x=[0, *df['y_cm'], 0], y=[0, *df['x_cm'], 0], mode='lines', fill='toself',
+                             fillcolor='rgba(255,0,0,0.15)', line=dict(color='rgba(255,0,0,0.4)'),
+                             name='Taranan Sektör'))
+
+
+def add_sensor_position(fig):
+    fig.add_trace(
+        go.Scatter(x=[0], y=[0], mode='markers', marker=dict(size=12, symbol='circle', color='red'), name='Sensör'))
+
+
+# ... (Diğer yardımcı fonksiyonlarınız buraya eklenebilir)
 
 def yorumla_tablo_verisi_gemini(df, model_name):
     if not GOOGLE_GENAI_AVAILABLE: return "Hata: Google GenerativeAI kütüphanesi yüklenemedi."
@@ -260,7 +302,7 @@ def image_generate(prompt_text):
         genai.configure(api_key=google_api_key)
         model = genai.GenerativeModel(model_name="models/gemini-2.0-flash-preview-image-generation")
 
-        # GÖRÜNTÜ OLUŞTURMA İÇİN PROMPT DÜZELTMESİ
+        # GÖRÜNTÜ OLUŞTURMA DÜZELTMESİ: Kısa ve net prompt
         short_prompt = prompt_text.split('.')[0]
         full_prompt = f"Bir odaya yerleştirilmiş nesnelerin fotorealistik, yukarıdan aşağıya (top-down view) radar tarama haritası: {short_prompt}"
 
@@ -295,11 +337,8 @@ def image_generate(prompt_text):
 # ==============================================================================
 # --- CALLBACK FONKSİYONLARI ---
 # ==============================================================================
-# Not: Diğer tüm callback'leri (handle_start_scan_script, update_realtime_values, vb.)
-# kendi kodunuzdan buraya ekleyebilirsiniz. Onların içeriğinde bir değişiklik gerekmiyor,
-# sadece model importlarının fonksiyon içinde olduğundan emin olun.
 
-# LAYOUT DÜZELTMESİ: Grafik görünürlüğünü kontrol eden callback
+# GRAFİK LAYOUT DÜZELTMESİ: Grafik görünürlüğünü kontrol eden callback
 @app.callback(
     Output('container-map-graph', 'style'),
     Output('container-regression-graph', 'style'),
@@ -332,10 +371,10 @@ def update_graph_visibility(selected_graph):
     Input('interval-component-main', 'n_intervals')
 )
 def update_all_graphs(n):
+    # MIGRATE SORUNU İÇİN DÜZELTME
     from scanner.models import ScanPoint
 
     scan = get_latest_scan()
-    # Boş figürler oluştur
     map_fig, reg_fig, pol_fig, ts_fig = go.Figure(), go.Figure(), go.Figure(), go.Figure()
     est_text, store_data = "Tarama verisi bekleniyor...", no_update
 
@@ -343,20 +382,46 @@ def update_all_graphs(n):
         points_qs = ScanPoint.objects.filter(scan=scan).values('x_cm', 'y_cm', 'derece', 'mesafe_cm', 'timestamp')
         if points_qs.exists():
             df_pts = pd.DataFrame(list(points_qs))
-            df_val = df_pts[(df_pts['mesafe_cm'] > 0.1) & (df_pts['mesafe_cm'] < 300.0)].copy()
+            df_val = df_pts[(df_pts['mesafe_cm'] > 0.1) & (df_pts['mesafe_cm'] < 400.0)].copy()
 
             if len(df_val) >= 5:
-                # Analiz ve çizim fonksiyonlarını burada çağırın...
-                # ... (analyze_environment_shape, analyze_polar_regression, vb.)
-                # Bu fonksiyonların figür nesnelerini parametre olarak aldığından emin olun.
-                est_text = "Analizler yapılıyor..."  # Örnek metin
-                # ...
+                # Tüm analiz ve çizim fonksiyonları burada çağrılır
+                est_cart, df_clus = analyze_environment_shape(map_fig, df_val.copy())
+                store_data = df_clus.to_json(orient='split')
+                add_scan_rays(map_fig, df_val)
+                add_sector_area(map_fig, df_val)
 
-    # Her figür için ortak ayarları burada yapın
-    # ...
+                line_data, est_polar = analyze_polar_regression(df_val)
+                reg_fig.add_trace(
+                    go.Scatter(x=df_val['derece'], y=df_val['mesafe_cm'], mode='markers', name='Noktalar'))
+                if line_data:
+                    reg_fig.add_trace(
+                        go.Scatter(x=line_data['x'], y=line_data['y'], mode='lines', name='Regresyon Çizgisi',
+                                   line=dict(color='red', width=3)))
 
-    # Not: Bu fonksiyonun içeriğini kendi çalışan kodunuzdan almanız en doğrusu olacaktır.
-    # Burası sadece bir iskelettir.
+                update_polar_graph(pol_fig, df_val)
+                # Kendi kodunuzdaki diğer yardımcı fonksiyonları (update_time_series_graph vb.) burada kullanın
+
+                clear_path = find_clearest_path(df_val)
+                shape_estimation = estimate_geometric_shape(df_val)
+                est_text = html.Div([
+                    html.P(shape_estimation, className="fw-bold"), html.Hr(),
+                    html.P(clear_path, className="fw-bold text-primary"), html.Hr(),
+                    html.P(f"Kümeleme: {est_cart}"), html.Hr(),
+                    html.P(f"Regresyon: {est_polar}")
+                ])
+
+    for fig in [map_fig, reg_fig, pol_fig, ts_fig]:
+        add_sensor_position(fig)
+        fig.update_layout(legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+                          margin=dict(l=40, r=40, t=80, b=40))
+
+    map_fig.update_layout(title_text='Ortamın 2D Haritası', xaxis_title="Yatay Mesafe (cm)",
+                          yaxis_title="Dikey Mesafe (cm)", yaxis_scaleanchor="x", yaxis_scaleratio=1)
+    reg_fig.update_layout(title_text='Açıya Göre Mesafe Regresyonu', xaxis_title="Tarama Açısı (Derece)",
+                          yaxis_title="Mesafe (cm)")
+    pol_fig.update_layout(title_text='Polar Grafik')
+    ts_fig.update_layout(title_text='Zaman Serisi - Mesafe')
 
     return map_fig, reg_fig, pol_fig, ts_fig, est_text, store_data
 
@@ -367,6 +432,7 @@ def update_all_graphs(n):
     prevent_initial_call=True
 )
 def yorumla_model_secimi(selected_model_value):
+    # MIGRATE SORUNU İÇİN DÜZELTME
     from scanner.models import Scan
 
     if not selected_model_value:
@@ -416,6 +482,7 @@ def yorumla_model_secimi(selected_model_value):
         html.Div(image_components)
     )
 
-# Diğer tüm callback'lerinizi (datatable, export, vb.) buraya ekleyebilirsiniz.
-# Sadece `from scanner.models import ...` gibi importların fonksiyonların
-# içinde olduğundan emin olun.
+# Kalan diğer tüm callback'lerinizi (datatable, export, sistem durumu vb.)
+# kendi çalışan kodunuzdan buraya ekleyebilirsiniz.
+# Önemli olan, veritabanı modellerini (Scan, ScanPoint)
+# sadece ilgili fonksiyonların içinde import etmektir.
