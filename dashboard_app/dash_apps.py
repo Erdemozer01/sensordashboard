@@ -12,6 +12,8 @@ from matplotlib.pyplot import figure
 from scipy.spatial import ConvexHull
 from sklearn.cluster import DBSCAN
 from sklearn.linear_model import RANSACRegressor
+from PIL import Image
+
 
 try:
     from django.db.models import Max
@@ -547,58 +549,51 @@ def yorumla_tablo_verisi_gemini(df, model_name='gemini-1.5-flash-latest'):
         return f"Gemini'den yanıt alınırken bir hata oluştu: {e}"
 
 
-def image_generate(prompt_text, model_name):
+def generate_image_from_map(map_figure, model_name):
     """
-    Yapay zekayı doğrudan resim üretmeye zorlayan, basitleştirilmiş ve kararlı fonksiyon.
+    Verilen Plotly harita figürünü resme çevirir ve bu resmi kullanarak
+    yapay zekadan yeni bir fotogerçekçi resim oluşturmasını ister.
     """
-    if not GOOGLE_GENAI_AVAILABLE:
-        return dbc.Alert("Hata: Google GenerativeAI kütüphanesi yüklenemedi.", color="danger")
-    if not google_api_key:
-        return dbc.Alert("Hata: `GOOGLE_API_KEY` ayarlanmamış.", color="danger")
-    if not prompt_text or "Hata:" in prompt_text:
-        return dbc.Alert("Resim oluşturmak için geçerli bir metin yorumu gerekli.", color="warning")
+    if not GOOGLE_GENAI_AVAILABLE or not map_figure:
+        return dbc.Alert("AI için gerekli kütüphane veya harita verisi eksik.", color="warning")
 
     try:
+        # Figürü PNG formatında bir byte dizisine çevir
+        img_bytes = map_figure.to_image(format="png", width=800, height=600, scale=2)
+
+        # Byte dizisinden bir resim nesnesi oluştur
+        map_image = Image.open(io.BytesIO(img_bytes))
+
         generativeai.configure(api_key=google_api_key)
         model = generativeai.GenerativeModel(model_name=model_name)
 
-        # --- EN ÖNEMLİ DEĞİŞİKLİK: PROMPT'U GÜÇLENDİRME ---
-        final_prompt = (
-            "IMPORTANT: Your only task is to generate and output a single image file. "
-            "Do not respond with text, JSON, or a new prompt. Your response must be only the image data. "
-            "Based on the following analysis, generate one photorealistic, top-down schematic view of the environment: "
-            f"'{prompt_text}'"
-        )
+        prompt = [
+            "You are an expert interior designer and architect. "
+            "Analyze the attached image, which is a 2D schematic from an ultrasonic sensor scan. "
+            "Based *only* on the shapes, walls, and detected points in this schematic, "
+            "create a single, clean, photorealistic top-down rendering of what this room or environment might actually look like. "
+            "Do not include any text, labels, or grid lines from the original schematic in your final image.",
+            map_image,
+        ]
 
-        print(">> Güçlendirilmiş prompt ile resim isteniyor...")
-        response = model.generate_content(final_prompt)
-        print(f">> Gelen yanıt: {response}")
+        print(">> Harita resmi ve yeni prompt ile resim isteniyor...")
+        response = model.generate_content(prompt)
 
-        # --- YANITI KONTROL ETME ---
         if response.candidates and response.candidates[0].content.parts:
             part = response.candidates[0].content.parts[0]
             if hasattr(part, 'file_data') and hasattr(part.file_data, 'file_uri') and part.file_data.file_uri:
-                print(f"✅ Başarılı: Resim URI'si bulundu: {part.file_data.file_uri}")
+                print(f"✅ Başarılı: Resim URI'si harita üzerinden bulundu: {part.file_data.file_uri}")
                 return html.Img(
                     src=part.file_data.file_uri,
                     style={'maxWidth': '100%', 'height': 'auto', 'borderRadius': '10px', 'marginTop': '10px'}
                 )
 
-        # Eğer yukarıdaki blok çalışmazsa, resim üretilmemiştir.
-        finish_reason = response.candidates[0].finish_reason if response.candidates and response.candidates[
-            0].finish_reason else 'UNKNOWN'
-        error_message = f"AI bir resim oluşturmadı. Bitiş sebebi: {finish_reason}"
-        print(f"❌ Hata: {error_message}")
-
-        # Kullanıcıya daha açıklayıcı bir mesaj gösterelim
-        return dbc.Alert(
-            f"Modelden bir resim alınamadı. Modelin yanıtı beklenmedik bir formatta veya güvenlik filtreleri tarafından engellenmiş olabilir (Bitiş Sebebi: {finish_reason}). Lütfen farklı bir tarama verisi ile veya daha sonra tekrar deneyin.",
-            color="danger"
-        )
+        finish_reason = response.candidates[0].finish_reason if response.candidates else 'UNKNOWN'
+        raise Exception(f"Model resim oluşturamadı. Bitiş Sebebi: {finish_reason}")
 
     except Exception as e:
-        logging.error(f"Gemini resim oluşturma hatası: {e}")
-        return dbc.Alert(f"Resim oluşturulurken kritik bir hata oluştu: {e}", color="danger")
+        logging.error(f"Haritadan resim oluşturma hatası: {e}")
+        return dbc.Alert(f"Haritadan resim oluşturulurken bir hata oluştu: {e}", color="danger")
 
 
 # ==============================================================================
@@ -998,9 +993,12 @@ def display_cluster_info(clickData, stored_data_json):
 @app.callback(
     [Output('ai-yorum-sonucu', 'children'), Output('ai-image', 'children')],
     [Input('ai-model-dropdown', 'value')],
+    # Bu callback'in tetiklenmesi için harita figürüne de ihtiyacımız var.
+    # Bu nedenle, update_all_graphs'tan gelen scan-map-graph'ın figürünü state olarak alıyoruz.
+    [State('scan-map-graph', 'figure')],
     prevent_initial_call=True
 )
-def yorumla_model_secimi(selected_model_value):
+def yorumla_model_secimi(selected_model_value, map_figure_dict):
     if not selected_model_value:
         return [html.Div("Yorum için bir model seçin.", className="text-center"), no_update]
 
@@ -1008,43 +1006,40 @@ def yorumla_model_secimi(selected_model_value):
     if not scan:
         return [dbc.Alert("Analiz edilecek bir tarama bulunamadı.", color="warning"), no_update]
 
+    # Metin yorumunu oluşturma veya veritabanından alma kısmı aynı kalıyor
     if scan.ai_commentary and scan.ai_commentary.strip():
-        print(f"Scan ID {scan.id} için mevcut AI metin yorumu kullanılıyor.")
         yorum_text_from_ai = scan.ai_commentary
         commentary_component = dbc.Alert(
             dcc.Markdown(yorum_text_from_ai, dangerously_allow_html=True, link_target="_blank"), color="info")
-        image_component = image_generate(yorum_text_from_ai, selected_model_value)
-        print(image_component)
-        return [commentary_component, image_component]
+    else:
+        points_qs = scan.points.all().values('derece', 'mesafe_cm')
+        if not points_qs:
+            return [dbc.Alert("Yorumlanacak tarama verisi bulunamadı.", color="warning"), no_update]
 
-    points_qs = scan.points.all().values('derece', 'mesafe_cm')
-    if not points_qs:
-        return [dbc.Alert("Yorumlanacak tarama verisi bulunamadı.", color="warning"), no_update]
+        df_data_for_ai = pd.DataFrame(list(points_qs))
+        if len(df_data_for_ai) > 500:
+            df_data_for_ai = df_data_for_ai.sample(n=500, random_state=1)
 
-    df_data_for_ai = pd.DataFrame(list(points_qs))
-    if len(df_data_for_ai) > 500:
-        print(f"AI yorumu için çok fazla nokta ({len(df_data_for_ai)}), 500'e örnekleniyor...")
-        df_data_for_ai = df_data_for_ai.sample(n=500, random_state=1)
+        yorum_text_from_ai = yorumla_tablo_verisi_gemini(df_data_for_ai, selected_model_value)
+        if "Hata:" in yorum_text_from_ai or "hata oluştu" in yorum_text_from_ai:
+            return [dbc.Alert(yorum_text_from_ai, color="danger"),
+                    "Metin yorumu alınamadığı için resim oluşturulamadı."]
 
-    print(f"Scan ID {scan.id} için yeni AI yorumu üretiliyor (Model: {selected_model_value})...")
-    yorum_text_from_ai = yorumla_tablo_verisi_gemini(df_data_for_ai, selected_model_value)
+        try:
+            scan.ai_commentary = yorum_text_from_ai
+            scan.save()
+        except Exception as e_db_save:
+            print(f"Veritabanına AI yorumu kaydedilemedi: {e_db_save}")
 
-    if "Hata:" in yorum_text_from_ai or "hata oluştu" in yorum_text_from_ai:
-        error_alert = dbc.Alert(yorum_text_from_ai, color="danger")
-        return [error_alert, "Metin yorumu alınamadığı için resim oluşturulamadı."]
+        commentary_component = dbc.Alert(
+            dcc.Markdown(yorum_text_from_ai, dangerously_allow_html=True, link_target="_blank"), color="success")
 
-    try:
-        scan.ai_commentary = yorum_text_from_ai
-        scan.save()
-        print(f"Scan ID {scan.id} için yeni AI yorumu veritabanına kaydedildi.")
-    except Exception as e_db_save:
-        print(f"Veritabanına AI yorumu kaydedilemedi: {e_db_save}")
-
-    commentary_component = dbc.Alert(
-        dcc.Markdown(yorum_text_from_ai, dangerously_allow_html=True, link_target="_blank"), color="success")
-
-    print(f"Scan ID {scan.id} için resim oluşturuluyor...")
-    image_component = image_generate(prompt_text=yorum_text_from_ai, model_name=selected_model_value)
-    print(f"Scan ID {scan.id} için resim oluşturuldu.")
+    # --- YENİ RESİM OLUŞTURMA MANTIĞI ---
+    # Gelen harita figürünü Plotly nesnesine çevir
+    if map_figure_dict:
+        map_figure = go.Figure(map_figure_dict)
+        image_component = generate_image_from_map(map_figure, selected_model_value)
+    else:
+        image_component = dbc.Alert("Resim oluşturmak için harita grafiği bulunamadı.", color="warning")
 
     return [commentary_component, image_component]
