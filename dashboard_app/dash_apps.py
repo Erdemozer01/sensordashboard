@@ -40,6 +40,7 @@ import matplotlib.pyplot as plt
 # Google Generative AI import (with error handling)
 try:
     from google import generativeai
+
     GOOGLE_GENAI_AVAILABLE = True
 except ImportError:
     print("UYARI: 'google.generativeai' kütüphanesi bulunamadı. AI yorumlama özelliği çalışmayacak.")
@@ -47,7 +48,7 @@ except ImportError:
 
 from dotenv import load_dotenv
 
-load_dotenv() # Loads environment variables from .env file
+load_dotenv()  # Loads environment variables from .env file
 google_api_key = os.getenv("GOOGLE_API_KEY")
 
 # --- CONSTANTS AND APPLICATION INITIALIZATION ---
@@ -104,9 +105,9 @@ control_panel = dbc.Card([
         html.Hr(),
         dbc.Row([
             dbc.Col(html.Button('Başlat', id='start-scan-button', n_clicks=0,
-                                 className="btn btn-success btn-lg w-100 mb-2"), width=6),
+                                className="btn btn-success btn-lg w-100 mb-2"), width=6),
             dbc.Col(html.Button('Durdur', id='stop-scan-button', n_clicks=0,
-                                 className="btn btn-danger btn-lg w-100 mb-2"), width=6)
+                                className="btn btn-danger btn-lg w-100 mb-2"), width=6)
         ]),
         html.Div(id='scan-status-message', style={'marginTop': '10px', 'minHeight': '40px', 'textAlign': 'center'},
                  className="mb-3"),
@@ -142,29 +143,37 @@ control_panel = dbc.Card([
                                       min=500, max=10000, step=1)], className="mb-2"),
             dbc.Checkbox(id="invert-motor-checkbox", label="Motor Yönünü Ters Çevir", value=DEFAULT_UI_INVERT_MOTOR,
                          className="mt-2 mb-2"),
+            dbc.InputGroup([dbc.InputGroupText("Dikey Açı (°)", style={"width": "150px"}),
+                            dcc.Slider(
+                                id='servo-angle-slider',
+                                min=0, max=180, step=1, value=90,  # Default to 90 degrees (straight ahead)
+                                marks={0: '0°', 45: '45°', 90: '90°', 135: '135°', 180: '180°'},
+                                tooltip={"placement": "bottom", "always_visible": True},
+                                className="mt-2"
+                            )], className="mb-2"),
         ])
     ])
 ])
 
 stats_panel = dbc.Card([dbc.CardHeader("Anlık Sensör Değerleri", className="bg-info text-white"), dbc.CardBody(dbc.Row(
     [dbc.Col(html.Div([html.H6("Mevcut Açı:"), html.H4(id='current-angle', children="--°")]), width=3,
-               className="text-center border-end"),
+             className="text-center border-end"),
      dbc.Col(html.Div([html.H6("Mevcut Mesafe:"), html.H4(id='current-distance', children="-- cm")]),
-               id='current-distance-col', width=3, className="text-center rounded border-end"),
+             id='current-distance-col', width=3, className="text-center rounded border-end"),
      dbc.Col(html.Div([html.H6("Anlık Hız:"), html.H4(id='current-speed', children="-- cm/s")]), width=3,
-               className="text-center border-end"),
+             className="text-center border-end"),
      dbc.Col(html.Div([html.H6("Max. Algılanan Mesafe:"), html.H4(id='max-detected-distance', children="-- cm")]),
-               width=3, className="text-center")]))], className="mb-3")
+             width=3, className="text-center")]))], className="mb-3")
 
 system_card = dbc.Card([dbc.CardHeader("Sistem Durumu", className="bg-secondary text-white"), dbc.CardBody(
     [dbc.Row([dbc.Col(html.Div([html.H6("Sensör Betiği Durumu:"), html.H5(id='script-status', children="Beklemede")]))],
              className="mb-2"),
      dbc.Row([dbc.Col(html.Div([html.H6("Pi CPU Kullanımı:"),
-                                 dbc.Progress(id='cpu-usage', value=0, color="success", style={"height": "20px"},
-                                              className="mb-1", label="0%")])),
-               dbc.Col(html.Div([html.H6("Pi RAM Kullanımı:"),
-                                 dbc.Progress(id='ram-usage', value=0, color="info", style={"height": "20px"},
-                                              className="mb-1", label="0%")]))])])], className="mb-3")
+                                dbc.Progress(id='cpu-usage', value=0, color="success", style={"height": "20px"},
+                                             className="mb-1", label="0%")])),
+              dbc.Col(html.Div([html.H6("Pi RAM Kullanımı:"),
+                                dbc.Progress(id='ram-usage', value=0, color="info", style={"height": "20px"},
+                                             className="mb-1", label="0%")]))])])], className="mb-3")
 
 export_card = dbc.Card([dbc.CardHeader("Veri Dışa Aktarma (En Son Tarama)", className="bg-light"), dbc.CardBody(
     [dbc.Button('En Son Taramayı CSV İndir', id='export-csv-button', color="primary", className="w-100 mb-2"),
@@ -332,6 +341,7 @@ app.layout = html.Div(
     ]
 )
 
+
 # --- HELPER FUNCTIONS ---
 
 def is_process_running(pid):
@@ -340,6 +350,7 @@ def is_process_running(pid):
         return psutil.pid_exists(pid)
     except Exception:
         return False
+
 
 def get_latest_scan():
     if not DJANGO_MODELS_AVAILABLE: return None
@@ -351,6 +362,7 @@ def get_latest_scan():
         print(f"DB Hatası (get_latest_scan): {e}");
         return None
 
+
 def add_scan_rays(fig, df):
     if df.empty or not all(col in df.columns for col in ['x_cm', 'y_cm']): return
     x_lines, y_lines = [], []
@@ -361,6 +373,7 @@ def add_scan_rays(fig, df):
         go.Scatter(x=x_lines, y=y_lines, mode='lines', line=dict(color='rgba(255,100,100,0.4)', dash='dash', width=1),
                    showlegend=False))
 
+
 def add_sector_area(fig, df):
     if df.empty or not all(col in df.columns for col in ['x_cm', 'y_cm']): return
     poly_x, poly_y = df['y_cm'].tolist(), df['x_cm'].tolist()
@@ -368,15 +381,18 @@ def add_sector_area(fig, df):
                              fillcolor='rgba(255,0,0,0.15)', line=dict(color='rgba(255,0,0,0.4)'),
                              name='Taranan Sektör'))
 
+
 def add_sensor_position(fig):
     fig.add_trace(
         go.Scatter(x=[0], y=[0], mode='markers', marker=dict(size=12, symbol='circle', color='red'), name='Sensör'))
+
 
 def update_polar_graph(fig, df):
     if df.empty or not all(col in df.columns for col in ['mesafe_cm', 'derece']): return
     fig.add_trace(go.Scatterpolar(r=df['mesafe_cm'], theta=df['derece'], mode='lines+markers', name='Mesafe'))
     fig.update_layout(polar=dict(radialaxis=dict(visible=True, range=[0, 250]),
                                  angularaxis=dict(direction="clockwise", period=360, thetaunit="degrees")))
+
 
 def update_time_series_graph(fig, df):
     if df.empty or 'timestamp' not in df.columns or 'mesafe_cm' not in df.columns:
@@ -423,9 +439,10 @@ def update_time_series_graph(fig, df):
         logging.error(f"Zaman serisi grafiği oluşturulurken HATA: {e}")
         fig.add_trace(go.Scatter(x=[], y=[], mode='lines', name='Grafik Hatası'))
 
+
 def find_clearest_path(df_valid):
     if df_valid.empty or not all(
-        col in df_valid.columns for col in ['mesafe_cm', 'derece']): return "En açık yol için veri yok."
+            col in df_valid.columns for col in ['mesafe_cm', 'derece']): return "En açık yol için veri yok."
     try:
         df_filtered = df_valid[df_valid['mesafe_cm'] > 0]
         if df_filtered.empty: return "Geçerli pozitif mesafe bulunamadı."
@@ -435,10 +452,11 @@ def find_clearest_path(df_valid):
         print(f"En açık yol hesaplama hatası: {e}");
         return "En açık yol hesaplanamadı."
 
+
 def analyze_polar_regression(df_valid):
     if len(df_valid) < 5 or not all(
-        col in df_valid.columns for col in
-        ['mesafe_cm', 'derece']): return None, "Polar regresyon için yetersiz veri."
+            col in df_valid.columns for col in
+            ['mesafe_cm', 'derece']): return None, "Polar regresyon için yetersiz veri."
     X, y = df_valid[['derece']].values, df_valid['mesafe_cm'].values
     try:
         ransac = RANSACRegressor(random_state=42);
@@ -451,6 +469,7 @@ def analyze_polar_regression(df_valid):
     except Exception as e:
         print(f"Polar regresyon hatası: {e}");
         return None, "Polar regresyon hatası."
+
 
 def analyze_environment_shape(fig, df_valid_input):
     df_valid = df_valid_input.copy()
@@ -487,10 +506,11 @@ def analyze_environment_shape(fig, df_valid_input):
                                  customdata=[k_label] * len(cluster_points_np)))
     return desc, df_valid
 
+
 def estimate_geometric_shape(df_input):
     df = df_input.copy()
     if len(df) < 15 or not all(
-        col in df.columns for col in ['x_cm', 'y_cm']): return "Şekil tahmini için yetersiz nokta."
+            col in df.columns for col in ['x_cm', 'y_cm']): return "Şekil tahmini için yetersiz nokta."
     try:
         points = df[['x_cm', 'y_cm']].values
         hull = ConvexHull(points)
@@ -504,13 +524,14 @@ def estimate_geometric_shape(df_input):
         fill_factor = hull_area / bbox_area if bbox_area > 0 else 0
         if depth > 150 and width < 50 and fill_factor < 0.3: return "Tahmin: Dar ve derin bir boşluk (Koridor)."
         if fill_factor > 0.7 and (
-            0.8 < (width / depth if depth > 0 else 0) < 1.2): return "Tahmin: Dolgun, kutu/dairesel bir nesne."
+                0.8 < (width / depth if depth > 0 else 0) < 1.2): return "Tahmin: Dolgun, kutu/dairesel bir nesne."
         if fill_factor > 0.6 and width > depth * 2.5: return "Tahmin: Geniş bir yüzey (Duvar)."
         if fill_factor < 0.4: return "Tahmin: İçbükey bir yapı veya dağınık nesneler."
         return "Tahmin: Düzensiz veya karmaşık bir yapı."
     except Exception as e:
         print(f"Geometrik analiz hatası: {e}");
         return "Geometrik analiz hatası."
+
 
 def yorumla_tablo_verisi_gemini(df, model_name):
     if not GOOGLE_GENAI_AVAILABLE: return "Hata: Google GenerativeAI kütüphanesi yüklenemedi."
@@ -529,6 +550,7 @@ def yorumla_tablo_verisi_gemini(df, model_name):
         return response.text
     except Exception as e:
         return f"Gemini'den yanıt alınırken bir hata oluştu: {e}"
+
 
 def summarize_analysis_for_image_prompt(analysis_text, model_name):
     """
@@ -564,6 +586,7 @@ def summarize_analysis_for_image_prompt(analysis_text, model_name):
         print(f"Görüntü istemi özetlenirken hata oluştu: {e}")
         return f"Şu analize dayanan bir şema: {analysis_text[:500]}"
 
+
 def generate_image_from_text(analysis_text, model_name="gemini-2.0-flash-exp-image-generation"):
     """
     Generates an image by directly interpreting the provided detailed text analysis.
@@ -582,7 +605,7 @@ def generate_image_from_text(analysis_text, model_name="gemini-2.0-flash-exp-ima
 
         # NEW: Configuration setting to allow more output space for the model
         generation_config = genai.types.GenerationConfig(
-            max_output_tokens=4096 # Higher value (default is usually lower)
+            max_output_tokens=4096  # Higher value (default is usually lower)
         )
 
         final_prompt = (
@@ -617,6 +640,7 @@ def generate_image_from_text(analysis_text, model_name="gemini-2.0-flash-exp-ima
 
     except Exception as e:
         return dbc.Alert(f"Doğrudan analizden resim oluşturulurken bir hata oluştu: {e}", color="danger")
+
 
 # --- CALLBACK FUNCTIONS ---
 
@@ -1023,7 +1047,7 @@ def update_all_graphs(n):
 
 
 @app.callback(
-    Output('container-map-graph-3d', 'style'), # NEW
+    Output('container-map-graph-3d', 'style'),  # NEW
     Output('container-map-graph', 'style'),
     Output('container-regression-graph', 'style'),
     Output('container-polar-graph', 'style'),
@@ -1035,10 +1059,10 @@ def update_graph_visibility(selected_graph):
     style_regression = {'display': 'none'}
     style_polar = {'display': 'none'}
     style_time = {'display': 'none'}
-    style_3d = {'display': 'none'} # Initialize
-    if selected_graph == '3D Harita': # NEW condition
+    style_3d = {'display': 'none'}  # Initialize
+    if selected_graph == '3D Harita':  # NEW condition
         style_3d = {'display': 'block'}
-    elif selected_graph == 'map': # This is likely your 2D map
+    elif selected_graph == 'map':  # This is likely your 2D map
         style_map = {'display': 'block'}
     elif selected_graph == 'regression':
         style_regression = {'display': 'block'}
