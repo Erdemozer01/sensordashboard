@@ -567,15 +567,13 @@ def generate_image_from_text(analysis_text, model_name):
 
         # Modele, gelen metnin bir analiz olduğunu ve buna göre bir resim oluşturması gerektiğini açıkça belirten komut istemi.
         final_prompt = (
-            "Aşağıda bir ultrasonik sensör taramasının metin tabanlı analizi yer almaktadır. "
-            "Bu analizi temel alarak, taranan ortamın yukarıdan (top-down) görünümlü bir şematik haritasını veya "
-            "gerçekçi bir tasvirini oluştur. Analizde bahsedilen duvarları, boşlukları, koridorları ve olası nesneleri "
-            "görselleştir. Senin görevin bu metni bir resme dönüştürmek. Sonuç sadece resim olmalıdır.\n\n"
-            f"--- ANALİZ METNİ ---\n{analysis_text}"
+            f"{analysis_text} verilerine dayaranak resim oluştur."
         )
 
         print(">> Doğrudan metin analizinden resim isteniyor...")
         response = model.generate_content(final_prompt)
+
+        print(response)
 
         # Yanıtı işleme kısmı aynı kalabilir
         if response.candidates and response.candidates[0].content.parts:
