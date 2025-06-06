@@ -131,8 +131,11 @@ control_panel = dbc.Card([
             html.H6("Dikey Açı Ayarı (Servo)", className="mt-3"),
             dcc.Slider(
                 id='servo-angle-slider',
-                min=-90, max=90, step=5, value=DEFAULT_UI_SERVO_ANGLE,
-                marks={i: f'{i}°' for i in range(-90, 91, 30)},
+                min=0,  # DEĞİŞTİ
+                max=180,  # DEĞİŞTİ
+                step=5,
+                value=90,  # DEĞİŞTİ (Başlangıçta ortada dursun)
+                marks={i: f'{i}°' for i in range(0, 181, 30)},  # DEĞİŞTİ
                 tooltip={"placement": "bottom", "always_visible": True}
             ),
         ])

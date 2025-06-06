@@ -60,7 +60,7 @@ DEFAULT_SCAN_STEP_ANGLE = 10.0
 DEFAULT_BUZZER_DISTANCE = 10
 DEFAULT_INVERT_MOTOR_DIRECTION = False
 DEFAULT_STEPS_PER_REVOLUTION = 4096
-DEFAULT_SERVO_ANGLE = 0.0
+DEFAULT_SERVO_ANGLE = 90
 STEP_MOTOR_INTER_STEP_DELAY, STEP_MOTOR_SETTLE_TIME, LOOP_TARGET_INTERVAL_S = 0.0015, 0.05, 0.6
 
 # ==============================================================================
@@ -85,8 +85,18 @@ SERVO_ANGLE_PARAM = DEFAULT_SERVO_ANGLE
 # --- Donanım ve Yardımcı Fonksiyonlar ---
 # ==============================================================================
 def degree_to_servo_value(angle_deg):
-    clamped_angle = max(-90, min(90, angle_deg))
-    return clamped_angle / 90.0
+    """
+    0-180 derece aralığındaki bir açıyı, gpiozero kütüphanesinin kullandığı
+    -1.0 (0 derece) ile 1.0 (180 derece) aralığına çevirir.
+    """
+    # Gelen değeri 0-180 arasında sınırla
+    clamped_angle = max(0, min(180, angle_deg))
+
+    # Lineer haritalama yap:
+    # 0 derece -> -1.0
+    # 90 derece -> 0.0
+    # 180 derece -> 1.0
+    return (clamped_angle / 90.0) - 1.0
 
 
 def init_hardware():
