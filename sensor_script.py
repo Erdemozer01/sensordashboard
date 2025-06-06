@@ -14,7 +14,7 @@ import math
 try:
     # Betiğin çalıştığı dizini ve proje ana dizinini Python yoluna ekle
     sys.path.append(os.getcwd())
-    os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'dream_pi_project.settings')
+    os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'sensordashboard.settings')
     import django
     django.setup()
     from django.utils import timezone
