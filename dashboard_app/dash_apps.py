@@ -549,8 +549,9 @@ def yorumla_tablo_verisi_gemini(df, model_name='gemini-1.5-flash-latest'):
 
 def image_generate(prompt_text, model_name):
     """
-    Verilen metin istemini (prompt) kullanarak Gemini'den bir resim oluşturur
-    veya metin tabanlı bir cevap döndürürse onu gösterir.
+    Uses a two-step process to generate an image. First, it asks for the image.
+    If the AI returns a refined text prompt instead, it uses that new prompt
+    to make a second, more accurate attempt.
     """
     if not GOOGLE_GENAI_AVAILABLE:
         return dbc.Alert("Hata: Google GenerativeAI kütüphanesi yüklenemedi.", color="danger")
@@ -563,34 +564,59 @@ def image_generate(prompt_text, model_name):
         generativeai.configure(api_key=google_api_key)
         model = generativeai.GenerativeModel(model_name=model_name)
 
-        final_prompt = (
+        # --- ATTEMPT 1: Initial Prompt ---
+        print(">> Resim için 1. deneme yapılıyor...")
+        initial_prompt = (
             "Create a photorealistic, top-down schematic view of an environment based on the "
             f"following analysis from an ultrasonic sensor scan: '{prompt_text}'. "
             "The image should clearly visualize the detected shapes, walls, and objects like corridors or boxes."
         )
+        first_response = model.generate_content(initial_prompt)
 
-        response = model.generate_content(final_prompt)
-        print(response)  # Keep this for debugging
+        if not first_response.candidates or not first_response.candidates[0].content.parts:
+            return dbc.Alert("Yapay zeka ilk denemede boş bir yanıt döndürdü.", color="warning")
 
-        if response.candidates and response.candidates[0].content.parts:
-            part = response.candidates[0].content.parts[0]
+        first_part = first_response.candidates[0].content.parts[0]
 
-            # CHECK 1: Is it an image file? (Ideal case)
-            if hasattr(part, 'file_data') and hasattr(part.file_data, 'file_uri'):
-                image_uri = part.file_data.file_uri
-                print(f"Başarılı: Resim URI'si bulundu: {image_uri}")
+        # --- CASE A: Image was generated on the first try ---
+        if hasattr(first_part, 'file_data') and first_part.file_data.file_uri:
+            print(f"✅ Başarılı (1. Deneme): Resim URI'si bulundu: {first_part.file_data.file_uri}")
+            return html.Img(
+                src=first_part.file_data.file_uri,
+                style={'maxWidth': '100%', 'height': 'auto', 'borderRadius': '10px', 'marginTop': '10px'}
+            )
+
+        # --- CASE B: Text was returned, use it for a second attempt ---
+        elif hasattr(first_part, 'text'):
+            print(">> Model metin döndürdü. Bu metin yeni prompt olarak kullanılarak 2. deneme yapılıyor...")
+            refined_prompt = first_part.text
+
+            # --- ATTEMPT 2: Refined Prompt ---
+            second_response = model.generate_content(refined_prompt)
+
+            if not second_response.candidates or not second_response.candidates[0].content.parts:
+                return dbc.Alert("Yapay zeka ikinci denemede boş bir yanıt döndürdü.", color="danger")
+
+            second_part = second_response.candidates[0].content.parts[0]
+
+            if hasattr(second_part, 'file_data') and second_part.file_data.file_uri:
+                print(f"✅ Başarılı (2. Deneme): Resim URI'si bulundu: {second_part.file_data.file_uri}")
                 return html.Img(
-                    src=image_uri,
+                    src=second_part.file_data.file_uri,
                     style={'maxWidth': '100%', 'height': 'auto', 'borderRadius': '10px', 'marginTop': '10px'}
                 )
+            else:
+                # If the second attempt also fails, show the refined prompt text
+                print("❌ Hata: İkinci denemede de resim oluşturulamadı. Modelin metin yanıtı gösteriliyor.")
+                return dbc.Alert([
+                    html.Strong("AI, resim yerine bir metin açıklaması üretti:"),
+                    dcc.Markdown(refined_prompt, className="text-monospace bg-light p-3 border rounded mt-2")
+                ], color="warning")
 
-            # CHECK 2: Is it a text response? (Fallback for models like Gemma)
-            elif hasattr(part, 'text'):
-                print("Uyarı: Model resim yerine metin döndürdü. Metin gösteriliyor.")
-                return dcc.Markdown(part.text, className="text-monospace bg-light p-3 border rounded")
+        else:
+            return dbc.Alert("Model ne resim ne de metin içeren beklenmedik bir formatta yanıt döndürdü.",
+                             color="danger")
 
-        # If no valid part is found
-        return dbc.Alert("Yapay zeka bir resim veya metin döndürmedi.", color="warning")
 
     except Exception as e:
         logging.error(f"Gemini resim/içerik oluşturma hatası: {e}")
