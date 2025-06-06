@@ -40,7 +40,6 @@ import matplotlib.pyplot as plt
 # Google Generative AI import (with error handling)
 try:
     from google import generativeai
-
     GOOGLE_GENAI_AVAILABLE = True
 except ImportError:
     print("UYARI: 'google.generativeai' kütüphanesi bulunamadı. AI yorumlama özelliği çalışmayacak.")
@@ -48,7 +47,7 @@ except ImportError:
 
 from dotenv import load_dotenv
 
-load_dotenv()  # Loads environment variables from .env file
+load_dotenv() # Loads environment variables from .env file
 google_api_key = os.getenv("GOOGLE_API_KEY")
 
 # --- CONSTANTS AND APPLICATION INITIALIZATION ---
