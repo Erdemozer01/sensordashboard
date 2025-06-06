@@ -4,44 +4,39 @@ from django.db import models
 from django.utils import timezone
 
 
-class Scan(models.Model):
-    class Status(models.TextChoices):
-        RUNNING = 'RUNNING', 'Çalışıyor'
-        COMPLETED = 'COMPLETED', 'Tamamlandı'
-        ERROR = 'ERROR', 'Hata'
-        INTERRUPTED = 'INTERRUPTED', 'Kesildi'
-        INSUFFICIENT_POINTS = 'INSUFFICIENT_POINTS', 'Yetersiz Nokta'
-
-    start_time = models.DateTimeField(default=timezone.now)
-    end_time = models.DateTimeField(null=True, blank=True)
-    status = models.CharField(max_length=20, choices=Status.choices, default=Status.RUNNING)
-
+class Scan(models.Model): # <-- THIS CLASS MUST EXIST!
+    # Your fields for the Scan model
     start_angle_setting = models.FloatField(default=0.0)
-    end_angle_setting = models.FloatField(default=270.0)
+    end_angle_setting = models.FloatField(default=0.0)
     step_angle_setting = models.FloatField(default=10.0)
     buzzer_distance_setting = models.IntegerField(default=10)
     invert_motor_direction_setting = models.BooleanField(default=False)
-
+    start_time = models.DateTimeField(auto_now_add=True)
+    end_time = models.DateTimeField(null=True, blank=True)
     calculated_area_cm2 = models.FloatField(null=True, blank=True)
     perimeter_cm = models.FloatField(null=True, blank=True)
     max_width_cm = models.FloatField(null=True, blank=True)
     max_depth_cm = models.FloatField(null=True, blank=True)
-
     ai_commentary = models.TextField(blank=True, null=True)
 
-    def save(self, *args, **kwargs):
-        if not self.pk:
-            self.start_time = timezone.now()
-        if self.status != self.Status.RUNNING:
-            self.end_time = timezone.now()
-        super().save(*args, **kwargs)
+    class Status(models.TextChoices):
+        RUNNING = 'RUN', 'Running'
+        COMPLETED = 'CMP', 'Completed'
+        INTERRUPTED = 'INT', 'Interrupted'
+        ERROR = 'ERR', 'Error'
+        INSUFFICIENT_POINTS = 'ISP', 'Insufficient Points'
+
+    status = models.CharField(max_length=3, choices=Status.choices, default=Status.RUNNING)
+
 
     def __str__(self):
-        return f"Scan #{self.id} - {self.start_time.strftime('%Y-%m-%d %H:%M:%S')}"
+        return f"Scan {self.id} ({self.status}) - {self.start_time.strftime('%Y-%m-%d %H:%M')}"
 
 
 class ScanPoint(models.Model):
-    scan = models.ForeignKey(Scan, on_delete=models.CASCADE, related_name='points')
+    scan = models.ForeignKey(Scan, on_delete=models.CASCADE,
+                             related_name='points')  # Foreign key should reference the Scan model
+
     derece = models.FloatField() # Or models.DecimalField
     mesafe_cm = models.FloatField() # <--- THIS MUST BE HERE
     x_cm = models.FloatField()

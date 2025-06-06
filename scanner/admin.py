@@ -1,7 +1,7 @@
 # scanner/admin.py
 
 from django.contrib import admin
-from .models import Scan, ScanPoint
+from scanner.models import Scan, ScanPoint
 
 class ScanPointInline(admin.TabularInline):
     """Scan detay sayfasında ilişkili noktaları göstermek için kullanılır."""
