@@ -1030,33 +1030,6 @@ def update_all_graphs(n):
 
 
 @app.callback(
-    Output('container-map-graph', 'style'),
-    Output('container-regression-graph', 'style'),
-    Output('container-polar-graph', 'style'),
-    Output('container-time-series-graph', 'style'),
-    Input('graph-selector-dropdown', 'value')
-)
-def update_graph_visibility(selected_graph):
-    # Başlangıçta tüm grafikleri gizle
-    style_map = {'display': 'none'}
-    style_regression = {'display': 'none'}
-    style_polar = {'display': 'none'}
-    style_time = {'display': 'none'}
-
-    # Seçilen grafiği görünür yap
-    if selected_graph == 'map':
-        style_map = {'display': 'block'}
-    elif selected_graph == 'regression':
-        style_regression = {'display': 'block'}
-    elif selected_graph == 'polar':
-        style_polar = {'display': 'block'}
-    elif selected_graph == 'time':
-        style_time = {'display': 'block'}
-
-    return style_map, style_regression, style_polar, style_time
-
-
-@app.callback(
     [Output("cluster-info-modal", "is_open"), Output("modal-title", "children"), Output("modal-body", "children")],
     [Input("scan-map-graph", "clickData")], [State("clustered-data-store", "data")], prevent_initial_call=True)
 def display_cluster_info(clickData, stored_data_json):
