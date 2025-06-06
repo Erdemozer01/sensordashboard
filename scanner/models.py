@@ -3,74 +3,61 @@
 from django.db import models
 from django.utils import timezone
 
+
 class Scan(models.Model):
-    """
-    Her bir tarama işleminin genel bilgilerini ve sonuçlarını tutar.
-    Mevcut 'servo_scans' tablosunun yerine geçer.
-    """
     class Status(models.TextChoices):
-        RUNNING = 'running', 'Çalışıyor'
-        COMPLETED = 'completed_analysis', 'Tamamlandı (Analiz Edildi)'
-        INSUFFICIENT_POINTS = 'completed_insufficient_points', 'Tamamlandı (Yetersiz Nokta)'
-        INTERRUPTED = 'interrupted_ctrl_c', 'Durduruldu (Ctrl+C)'
-        ERROR = 'error_in_loop', 'Hata Oluştu'
+        RUNNING = 'RUNNING', 'Çalışıyor'
+        COMPLETED = 'COMPLETED', 'Tamamlandı'
+        ERROR = 'ERROR', 'Hata'
+        INTERRUPTED = 'INTERRUPTED', 'Kesildi'
+        INSUFFICIENT_POINTS = 'INSUFFICIENT_POINTS', 'Yetersiz Nokta'
 
-    # Temel Bilgiler
-    start_time = models.DateTimeField(default=timezone.now, verbose_name="Başlangıç Zamanı")
-    status = models.CharField(
-        max_length=50,
-        choices=Status.choices,
-        default=Status.RUNNING,
-        verbose_name="Tarama Durumu"
-    )
+    start_time = models.DateTimeField(default=timezone.now)
+    end_time = models.DateTimeField(null=True, blank=True)
+    status = models.CharField(max_length=20, choices=Status.choices, default=Status.RUNNING)
 
-    # Tarama Ayarları
-    start_angle_setting = models.FloatField(verbose_name="Ayar: Başlangıç Açısı")
-    end_angle_setting = models.FloatField(verbose_name="Ayar: Bitiş Açısı")
-    step_angle_setting = models.FloatField(verbose_name="Ayar: Adım Açısı")
-    buzzer_distance_setting = models.IntegerField(verbose_name="Ayar: Uyarı Mesafesi (cm)")
-    invert_motor_direction_setting = models.BooleanField(default=False, verbose_name="Ayar: Motor Yönü Ters")
+    start_angle_setting = models.FloatField(default=0.0)
+    end_angle_setting = models.FloatField(default=270.0)
+    step_angle_setting = models.FloatField(default=10.0)
+    buzzer_distance_setting = models.IntegerField(default=10)
+    invert_motor_direction_setting = models.BooleanField(default=False)
 
-    # Analiz Sonuçları
-    calculated_area_cm2 = models.FloatField(null=True, blank=True, verbose_name="Hesaplanan Alan (cm²)")
-    perimeter_cm = models.FloatField(null=True, blank=True, verbose_name="Çevre (cm)")
-    max_width_cm = models.FloatField(null=True, blank=True, verbose_name="Maksimum Genişlik (cm)")
-    max_depth_cm = models.FloatField(null=True, blank=True, verbose_name="Maksimum Derinlik (cm)")
+    calculated_area_cm2 = models.FloatField(null=True, blank=True)
+    perimeter_cm = models.FloatField(null=True, blank=True)
+    max_width_cm = models.FloatField(null=True, blank=True)
+    max_depth_cm = models.FloatField(null=True, blank=True)
 
-    # Yapay Zeka Yorumu
-    ai_commentary = models.TextField(blank=True, null=True, verbose_name="Yapay Zeka Yorumu")
+    ai_commentary = models.TextField(blank=True, null=True)
 
-    class Meta:
-        verbose_name = "Tarama Kaydı"
-        verbose_name_plural = "Tarama Kayıtları"
-        ordering = ['-start_time'] # En yeniden eskiye sırala
+    def save(self, *args, **kwargs):
+        if not self.pk:
+            self.start_time = timezone.now()
+        if self.status != self.Status.RUNNING:
+            self.end_time = timezone.now()
+        super().save(*args, **kwargs)
 
     def __str__(self):
-        return f"Tarama #{self.id} - {self.start_time.strftime('%d-%m-%Y %H:%M')}"
+        return f"Scan #{self.id} - {self.start_time.strftime('%Y-%m-%d %H:%M:%S')}"
 
 
 class ScanPoint(models.Model):
-    """
-    Bir tarama içindeki her bir ölçüm noktasını temsil eder.
-    Mevcut 'scan_points' tablosunun yerine geçer.
-    """
-    scan = models.ForeignKey(
-        Scan,
-        on_delete=models.CASCADE,
-        related_name='points',
-        verbose_name="Ait Olduğu Tarama"
-    )
-    derece = models.FloatField(verbose_name="Açı (°)")
-    mesafe_cm = models.FloatField(verbose_name="Mesafe (cm)")
-    hiz_cm_s = models.FloatField(default=0, verbose_name="Hız (cm/s)")
-    timestamp = models.DateTimeField(verbose_name="Zaman Damgası")
-    x_cm = models.FloatField(verbose_name="X Koordinatı (cm)")
-    y_cm = models.FloatField(verbose_name="Y Koordinatı (cm)")
+    scan = models.ForeignKey(Scan, related_name='points', on_delete=models.CASCADE)
+    timestamp = models.DateTimeField(default=timezone.now)
 
-    class Meta:
-        verbose_name = "Tarama Noktası"
-        verbose_name_plural = "Tarama Noktaları"
-        ordering = ['timestamp']
+    derece = models.FloatField(help_text="Step motorun yatay açısı (pan)")
+    mesafe_cm = models.FloatField(help_text="Ana sensörün mesafesi (cm)")
+
+    # Servo ve ikinci sensör için yeni alanlar
+    dikey_aci = models.FloatField(default=0.0, help_text="Servonun dikey açısı (tilt)")
+    mesafe_cm_2 = models.FloatField(null=True, blank=True, help_text="İkinci ultrasonik sensörün mesafesi (cm)")
+
+    # 3D koordinatlar
+    x_cm = models.FloatField(null=True, blank=True)
+    y_cm = models.FloatField(null=True, blank=True)
+    z_cm = models.FloatField(null=True, blank=True)
+
+    # İsteğe bağlı
+    hiz_cm_s = models.FloatField(null=True, blank=True)
 
     def __str__(self):
-        return f"Nokta: {self.derece}° - {self.mesafe_cm:.1f} cm"
+        return f"Point at Pan:{self.derece}°/Tilt:{self.dikey_aci}° -> {self.mesafe_cm} cm"
