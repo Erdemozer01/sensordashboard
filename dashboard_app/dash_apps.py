@@ -231,6 +231,8 @@ visualization_tabs = dbc.Tabs(
                 ),
                 html.Div(
                     [
+                        html.Div(dcc.Graph(id='scan-map-graph-3d', style={'height': '75vh'}),
+                                 id='container-map-graph-3d'),  # NEW
                         html.Div(dcc.Graph(id='scan-map-graph', style={'height': '75vh'}), id='container-map-graph'),
                         html.Div(dcc.Graph(id='polar-regression-graph', style={'height': '75vh'}),
                                  id='container-regression-graph'),
