@@ -122,8 +122,8 @@ control_panel = dbc.Card([
             dcc.Dropdown(
                 id='ai-model-dropdown',
                 options=[
-                    {'label': 'Gemini Flash (Hızlı)', 'value': 'gemini-1.5-flash-latest'},
-                    {'label': 'Gemini Pro (Gelişmiş)', 'value': 'gemini-1.5-pro-latest'},
+                    {'label': 'Gemini Flash (Hızlı)', 'value': 'gemini-2.5-flash-preview-05-20'},
+                    {'label': 'Gemini Pro (Gelişmiş)', 'value': 'gemini-2.5-pro-exp-03-25'},
                 ],
                 placeholder="Yorumlama için bir metin modeli seçin...",
                 clearable=True,
@@ -564,7 +564,7 @@ def image_generate(prompt_text):
         # === DEĞİŞİKLİK BURADA ===
         # 'imagen-3.0-latest' yerine, resim oluşturmayı da destekleyen daha yaygın
         # bir Gemini modeli kullanıyoruz.
-        model = generativeai.GenerativeModel(model_name="gemini-1.5-flash-latest")
+        model = generativeai.GenerativeModel(model_name="gemini-2.5-pro-exp-03-25")
 
         # Gelen yorumdan zengin bir resim istemi oluşturuluyor
         final_prompt = (
