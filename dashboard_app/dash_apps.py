@@ -125,7 +125,7 @@ control_panel = dbc.Card([
                 id='ai-model-dropdown',
                 options=[
                     {'label': 'Gemini Flash (Hızlı)', 'value': 'gemini-2.5-flash-preview-05-20'},
-                    {'label': 'Gemini Pro (Gelişmiş)', 'value': 'gemini-2.5-pro-exp-03-25'},
+                    {'label': 'Gemini Pro (Gelişmiş)', 'value': 'gemini-2.5-pro-preview-06-05'},
                     {'label': 'Gemma', 'value': 'gemma-3n-e4b-it'},
                 ],
                 placeholder="Yorumlama için bir metin modeli seçin...",
@@ -583,7 +583,7 @@ def summarize_analysis_for_image_prompt(analysis_text, model_name):
         print(f"Görüntü istemi özetlenirken hata oluştu: {e}")
         return f"Şu analize dayanan bir şema: {analysis_text[:500]}"
 
-def generate_image_from_text(analysis_text, model_name):
+def generate_image_from_text(analysis_text, model_name="gemini-2.0-flash-exp-image-generation"):
     """
     Verilen detaylı metin analizini doğrudan yorumlayarak bir resim oluşturur.
     MAX_TOKENS hatasını engellemek için çıktı token limiti artırılmıştır.
