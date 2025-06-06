@@ -1010,6 +1010,7 @@ def yorumla_model_secimi(selected_model_value):
         commentary_component = dbc.Alert(
             dcc.Markdown(yorum_text_from_ai, dangerously_allow_html=True, link_target="_blank"), color="info")
         image_component = image_generate(yorum_text_from_ai, selected_model_value)
+        print(image_component)
         return [commentary_component, image_component]
 
     points_qs = scan.points.all().values('derece', 'mesafe_cm')
