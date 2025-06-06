@@ -15,23 +15,21 @@ SERVO_PIN = 12
 
 # --- GEREKLİ KONTROLLER ---
 try:
-    # GPIO Zero'nun pin fabrikasının doğru ayarlandığından emin olalım.
-    # Bu, uzak bir bilgisayardan çalıştırırken veya bazı özel durumlarda
-    # 'pigpio' gibi farklı bir kütüphane kullanmak için gerekebilir.
-    # Genellikle varsayılan ayarlar yeterlidir.
-    from gpiozero.pins.pigpio import PiGPIOFactory
+    # Raspberry Pi 5 için LGPIOFactory kullanıyoruz.
+    # Bu, yeni GPIO donanımını destekler.
+    from gpiozero.pins.lgpio import LGPIOFactory
     from gpiozero import Device
 
-    Device.pin_factory = PiGPIOFactory()
-    print("Pin fabrikası 'pigpio' olarak ayarlandı.")
+    Device.pin_factory = LGPIOFactory()
+    print("Pin fabrikası 'lgpio' olarak ayarlandı.")
 except ImportError:
-    print("UYARI: 'pigpio' kütüphanesi bulunamadı. Varsayılan pin fabrikası kullanılacak.")
-    print("Eğer servo titreme (jitter) yaparsa, 'sudo apt-get install pigpio' komutuyla kurun.")
+    print("UYARI: 'lgpio' kütüphanesi bulunamadı.")
+    print("Lütfen sanal ortamınız aktifken 'pip install lgpio' komutunu çalıştırın.")
+    sys.exit(1)
 except Exception as e:
-    # Bu genellikle 'pigpiod' servisi çalışmadığında olur.
-    # 'sudo systemctl start pigpiod' komutuyla başlatabilirsiniz.
+    # Bu, lgpio ile ilgili diğer sorunları veya kurulum hatalarını yakalar.
     print(f"Pin fabrikası ayarlanırken bir hata oluştu: {e}")
-    print("Lütfen 'sudo systemctl start pigpiod' komutunu çalıştırıp tekrar deneyin.")
+    print("lgpio kütüphanesinin yüklü ve Raspberry Pi OS'in güncel olduğundan emin olun.")
     sys.exit(1)
 
 
