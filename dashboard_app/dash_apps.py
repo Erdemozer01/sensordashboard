@@ -549,76 +549,47 @@ def yorumla_tablo_verisi_gemini(df, model_name='gemini-1.5-flash-latest'):
         return f"Gemini'den yanıt alınırken bir hata oluştu: {e}"
 
 
-def generate_image_from_map(map_figure, model_name):
+def generate_image_from_text(analysis_text, model_name):
     """
-    Verilen Plotly figürünü Matplotlib kullanarak bir resme dönüştürür ve
-    bu resmi kullanarak yapay zekadan yeni bir fotogerçekçi resim oluşturmasını ister.
-    Bu fonksiyon Kaleido'ya bağımlı DEĞİLDİR.
+    Verilen metin analizine dayanarak, yapay zekadan bir resim oluşturmasını ister.
     """
-    if not GOOGLE_GENAI_AVAILABLE or not map_figure:
-        return dbc.Alert("AI için gerekli kütüphane veya harita verisi eksik.", color="warning")
+    if not GOOGLE_GENAI_AVAILABLE:
+        return dbc.Alert("Hata: Google GenerativeAI kütüphanesi yüklenemedi.", color="danger")
+    if not google_api_key:
+        return dbc.Alert("Hata: `GOOGLE_API_KEY` ayarlanmamış.", color="danger")
+    if not analysis_text or "Hata:" in analysis_text:
+        return dbc.Alert("Resim oluşturmak için geçerli bir metin analizi gerekli.", color="warning")
 
     try:
-        # --- Adım 1: Plotly Figürünü Matplotlib ile Resme Çevirme ---
-        print(">> Matplotlib ile harita figürü resme dönüştürülüyor...")
-
-        # Yeni bir Matplotlib figürü oluştur
-        fig, ax = plt.subplots(figsize=(8, 6))
-
-        # Plotly figüründeki her bir "trace" (çizim katmanı) için döngü kur
-        for trace in map_figure.get('data', []):
-            if trace.get('mode') == 'markers':
-                ax.scatter(trace.get('x', []), trace.get('y', []), s=15, alpha=0.7)
-            elif trace.get('mode') == 'lines':
-                ax.plot(trace.get('x', []), trace.get('y', []), alpha=0.5)
-
-        ax.set_xlabel("Yatay Mesafe (cm)")
-        ax.set_ylabel("Dikey Mesafe (cm)")
-        ax.set_title("Sensör Verisi 2D Haritası")
-        ax.grid(True, linestyle='--', alpha=0.6)
-        ax.set_aspect('equal', adjustable='box')  # Eksenleri eşit ölçekle
-
-        # Figürü hafızada bir byte tamponuna kaydet
-        buf = io.BytesIO()
-        fig.savefig(buf, format='png', dpi=150)
-        plt.close(fig)  # Figürü hafızadan temizle
-        buf.seek(0)
-
-        img_bytes = buf.read()
-        buf.close()
-        print(">> Harita resmi Matplotlib ile başarıyla oluşturuldu.")
-
-        # --- Adım 2: Resmi Yapay Zekaya Gönderme ---
-        map_image = Image.open(io.BytesIO(img_bytes))
-
         generativeai.configure(api_key=google_api_key)
         model = generativeai.GenerativeModel(model_name=model_name)
 
-        prompt = [
-            "You are an expert interior designer. Analyze the attached 2D schematic from a sensor scan. "
-            "Based on the shapes in this schematic, create a single, clean, photorealistic top-down rendering of what this room might look like.",
-            map_image,
-        ]
+        # Modeli doğrudan resim üretmeye yönlendiren net bir prompt
+        final_prompt = (
+            "IMPORTANT: Your only task is to generate and output a single image file based on the following text analysis. "
+            "Do not respond with more text, JSON, or any other format. "
+            "The analysis describes an environment scanned by a sensor. Create a clean, photorealistic, top-down view of this environment. "
+            f"Here is the analysis to use: '{analysis_text}'"
+        )
 
-        print(">> Harita resmi ve yeni prompt ile AI'dan resim isteniyor...")
-        response = model.generate_content(prompt)
+        print(">> Metin analizine dayanarak resim isteniyor...")
+        response = model.generate_content(final_prompt)
 
-        # ... (fonksiyonun geri kalanı aynı) ...
         if response.candidates and response.candidates[0].content.parts:
             part = response.candidates[0].content.parts[0]
             if hasattr(part, 'file_data') and hasattr(part.file_data, 'file_uri') and part.file_data.file_uri:
-                print(f"✅ Başarılı: Resim URI'si harita üzerinden bulundu: {part.file_data.file_uri}")
+                print(f"✅ Başarılı: Resim URI'si metin analizinden bulundu: {part.file_data.file_uri}")
                 return html.Img(
                     src=part.file_data.file_uri,
                     style={'maxWidth': '100%', 'height': 'auto', 'borderRadius': '10px', 'marginTop': '10px'}
                 )
 
         finish_reason = response.candidates[0].finish_reason if response.candidates else 'UNKNOWN'
-        raise Exception(f"Model resim oluşturamadı. Bitiş Sebebi: {finish_reason}")
+        raise Exception(f"Model metin analizinden resim oluşturamadı. Bitiş Sebebi: {finish_reason}")
 
     except Exception as e:
-        logging.error(f"Haritadan resim oluşturma hatası: {e}")
-        return dbc.Alert(f"Haritadan resim oluşturulurken bir hata oluştu: {e}", color="danger")
+        logging.error(f"Metinden resim oluşturma hatası: {e}")
+        return dbc.Alert(f"Metin analizinden resim oluşturulurken bir hata oluştu: {e}", color="danger")
 
 
 # ==============================================================================
