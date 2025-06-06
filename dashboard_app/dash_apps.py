@@ -549,10 +549,10 @@ def yorumla_tablo_verisi_gemini(df, model_name='gemini-1.5-flash-latest'):
         return f"Gemini'den yanıt alınırken bir hata oluştu: {e}"
 
 
-
 def generate_image_from_text(analysis_text, model_name):
     """
     Verilen detaylı metin analizini doğrudan yorumlayarak bir resim oluşturur.
+    MAX_TOKENS hatasını engellemek için çıktı token limiti artırılmıştır.
     """
     if not GOOGLE_GENAI_AVAILABLE:
         return dbc.Alert("Hata: Google GenerativeAI kütüphanesi yüklenemedi.", color="danger")
@@ -562,23 +562,28 @@ def generate_image_from_text(analysis_text, model_name):
         return dbc.Alert("Resim oluşturmak için geçerli bir metin analizi gerekli.", color="warning")
 
     try:
-        generativeai.configure(api_key=google_api_key)
-        model = generativeai.GenerativeModel(model_name=model_name)
+        genai.configure(api_key=google_api_key)
+        model = genai.GenerativeModel(model_name=model_name)
 
-        # Modele, gelen metnin bir analiz olduğunu ve buna göre bir resim oluşturması gerektiğini açıkça belirten komut istemi.
-        final_prompt = (
-            f"{analysis_text} verilerine dayaranak resim oluştur."
+        # YENİ: Modele daha fazla çıktı alanı vermek için konfigürasyon ayarı
+        generation_config = genai.types.GenerationConfig(
+            max_output_tokens=4096  # Daha yüksek bir değer (varsayılan genellikle daha düşüktür)
         )
 
-        print(">> Doğrudan metin analizinden resim isteniyor...")
-        response = model.generate_content(final_prompt)
+        final_prompt = (
+            "Aşağıda bir ultrasonik sensör taramasının metin tabanlı analizi yer almaktadır. "
+            "Bu analizi temel alarak, taranan ortamın yukarıdan (top-down) görünümlü bir şematik haritasını veya "
+            "gerçekçi bir tasvirini oluştur. Analizde bahsedilen duvarları, boşlukları, koridorları ve olası nesneleri "
+            "görselleştir. Senin görevin bu metni bir resme dönüştürmek. Sonuç sadece resim olmalıdır.\n\n"
+            f"--- ANALİZ METNİ ---\n{analysis_text}"
+        )
 
-        print(response)
+        print(">> Doğrudan metin analizinden resim isteniyor (Artırılmış Token Limiti ile)...")
+        # YENİ: generation_config parametresi eklendi
+        response = model.generate_content(final_prompt, generation_config=generation_config)
 
-        # Yanıtı işleme kısmı aynı kalabilir
         if response.candidates and response.candidates[0].content.parts:
             part = response.candidates[0].content.parts[0]
-            # Yanıtta dosya verisi (resim) olup olmadığını kontrol et
             if hasattr(part, 'file_data') and hasattr(part.file_data, 'file_uri') and part.file_data.file_uri:
                 print(f"✅ Başarılı: Resim URI'si bulundu: {part.file_data.file_uri}")
                 return html.Img(
@@ -586,8 +591,15 @@ def generate_image_from_text(analysis_text, model_name):
                     style={'maxWidth': '100%', 'height': 'auto', 'borderRadius': '10px', 'marginTop': '10px'}
                 )
 
-        finish_reason = response.candidates[0].finish_reason if response.candidates else 'UNKNOWN'
-        raise Exception(f"Model, analiz metninden bir resim oluşturamadı. Bitiş Sebebi: {finish_reason}")
+        # Hata mesajına finish_reason'ı da ekleyerek daha bilgilendirici hale getirelim
+        finish_reason = response.candidates[0].finish_reason if response.candidates else 'Bilinmiyor'
+        safety_ratings = response.candidates[0].safety_ratings if response.candidates else 'Yok'
+
+        error_message = (f"Model, analiz metninden bir resim oluşturamadı. "
+                         f"Bitiş Sebebi: {finish_reason}. Güvenlik Derecelendirmeleri: {safety_ratings}")
+
+        raise Exception(error_message)
+
 
     except Exception as e:
         return dbc.Alert(f"Doğrudan analizden resim oluşturulurken bir hata oluştu: {e}", color="danger")
