@@ -96,15 +96,14 @@ title_card = dbc.Row(
 control_panel = dbc.Card([
     dbc.CardHeader("Kontrol ve Ayarlar", className="bg-primary text-white"),
     dbc.CardBody([
-        # DEĞİŞTİRİLDİ: Mod seçimi Dropdown yerine RadioItems ile yapıldı
         html.H6("Çalışma Modu:", className="mt-1"),
         dbc.RadioItems(
-            id='mode-selection-radios',  # ID güncellendi
+            id='mode-selection-radios',
             options=[
                 {'label': 'Mesafe Ölçümü ve Haritalama', 'value': 'scan_and_map'},
                 {'label': 'Serbest Hareket (Gözcü)', 'value': 'free_movement'},
             ],
-            value='scan_and_map',  # Varsayılan mod
+            value='scan_and_map',
             inline=False,
             className="mb-3",
         ),
@@ -123,10 +122,10 @@ control_panel = dbc.Card([
             dcc.Dropdown(
                 id='ai-model-dropdown',
                 options=[
-                    {'label': 'Gemini Flash (Hızlı)', 'value': 'gemini-2.0-flash'},
-                    {'label': 'Gemini Pro (Gelişmiş)', 'value': 'gemini-2.5-pro-preview-05-06'},
+                    {'label': 'Gemini Flash (Hızlı)', 'value': 'gemini-1.5-flash-latest'},
+                    {'label': 'Gemini Pro (Gelişmiş)', 'value': 'gemini-1.5-pro-latest'},
                 ],
-                placeholder="Yorumlama için bir model seçin...",
+                placeholder="Yorumlama için bir metin modeli seçin...",
                 clearable=True,
                 className="mb-3"
             ),
@@ -209,13 +208,10 @@ estimation_card = dbc.Card(
     ]
 )
 
-# Yeni sekmeli yapı
 visualization_tabs = dbc.Tabs(
     [
-        # === 1. GRAFİKLER SEKMESİ ===
         dbc.Tab(
             [
-                # Grafik seçimi için Dropdown menüsü
                 dbc.Row(
                     [
                         dbc.Col(
@@ -227,21 +223,18 @@ visualization_tabs = dbc.Tabs(
                                     {'label': 'Polar Grafik', 'value': 'polar'},
                                     {'label': 'Zaman Serisi (Mesafe)', 'value': 'time'},
                                 ],
-                                value='map',  # Başlangıçta seçili olan grafik
+                                value='map',
                                 clearable=False,
                                 style={'marginTop': '10px'}
                             ),
-                            width=6,  # Dropdown genişliği
+                            width=6,
                         )
                     ],
                     justify="center",
                     className="mb-3"
                 ),
-
-                # Grafiklerin gösterileceği alan
                 html.Div(
                     [
-                        # Her grafik kendi Div'i içinde, böylece görünürlüğünü kontrol edebiliriz
                         html.Div(dcc.Graph(id='scan-map-graph', style={'height': '75vh'}), id='container-map-graph'),
                         html.Div(dcc.Graph(id='polar-regression-graph', style={'height': '75vh'}),
                                  id='container-regression-graph'),
@@ -251,20 +244,17 @@ visualization_tabs = dbc.Tabs(
                     ]
                 )
             ],
-            label="Grafikler",  # Ana sekme başlığı
+            label="Grafikler",
             tab_id="tab-graphics"
         ),
-
-        # === 2. VERİ TABLOSU SEKMESİ ===
         dbc.Tab(
             dcc.Loading(id="loading-datatable", children=[html.Div(id='tab-content-datatable')]),
-
-            label="Veri Tablosu",  # Ana sekme başlığı
+            label="Veri Tablosu",
             tab_id="tab-datatable"
         )
     ],
     id="visualization-tabs-main",
-    active_tab="tab-graphics"  # Başlangıçta aktif olan sekme
+    active_tab="tab-graphics"
 )
 
 app.layout = html.Div(
@@ -312,7 +302,6 @@ app.layout = html.Div(
                                                             html.P(
                                                                 "Yorum almak için yukarıdan bir yapay zeka modeli seçin."),
                                                         ], className="text-center mt-2"),
-
                                                         html.Div(id='ai-image', children=[
                                                             html.P(
                                                                 "Ortamın görüntüsünü oluşturmak için model seçin"),
@@ -347,10 +336,7 @@ app.layout = html.Div(
 
 
 # ==============================================================================
-
-# ==============================================================================
 # --- YARDIMCI FONKSİYONLAR ---
-# (Değişiklik yok)
 # ==============================================================================
 def is_process_running(pid):
     if pid is None: return False
@@ -402,76 +388,37 @@ def update_polar_graph(fig, df):
                                  angularaxis=dict(direction="clockwise", period=360, thetaunit="degrees")))
 
 
-# ==========================================================
-# --- BU YARDIMCI FONKSİYONU AŞAĞIDAKİ İLE GÜNCELLEYİN ---
-# ==========================================================
 def update_time_series_graph(fig, df):
-    """
-    Verilen figure nesnesine zaman serisi grafiğini ekler.
-    Grafiğin zaman aralığını, sadece mevcut taramanın zaman damgalarına göre
-    dinamik olarak ayarlar ve otomatik olarak o bölgeye odaklar.
-    """
-    # Gelen verinin veya gerekli sütunların boş olup olmadığını kontrol et
     if df.empty or 'timestamp' not in df.columns or 'mesafe_cm' not in df.columns:
         fig.add_trace(go.Scatter(x=[], y=[], mode='lines', name='Veri Yok'))
         return
-
     try:
         df_s = df.copy()
-
-        # Zaman damgası sütununu pandas'ın standart datetime nesnesine dönüştür
         df_s['timestamp'] = pd.to_datetime(df_s['timestamp'], errors='coerce')
-
-        # Hatalı veya boş tarihleri temizle
         df_s.dropna(subset=['timestamp'], inplace=True)
-
-        # Bir aralık belirlemek için en az 2 veri noktası gerekir
         if len(df_s) < 2:
             fig.add_trace(go.Scatter(x=[], y=[], mode='lines', name='Yetersiz Veri'))
             return
-
-        # Tarihe göre sırala
         df_s = df_s.sort_values(by='timestamp')
-
-        # --- YENİ DİNAMİK ZAMAN ARALIĞI MANTIĞI ---
-        # 1. Verideki en son ve en ilk geçerli zamanı bul
         min_time = df_s['timestamp'].min()
         max_time = df_s['timestamp'].max()
-
-        # 2. Grafiğin kenarlarında küçük bir boşluk bırakmak için dolgu (padding) hesapla
-        #    Toplam sürenin %5'i kadar boşluk bırak, en az 2 saniye olsun.
         padding = pd.Timedelta(seconds=(max_time - min_time).total_seconds() * 0.05)
         if padding.total_seconds() < 2:
             padding = pd.Timedelta(seconds=2)
-
-            # 3. Grafiğin x-ekseni için başlangıç ve bitiş aralığını belirle
         x_range_start = min_time - padding
         x_range_end = max_time + padding
-        # ---------------------------------------------
-
-        # Grafiğe asıl veriyi ekle
         fig.add_trace(go.Scatter(
             x=df_s['timestamp'],
             y=df_s['mesafe_cm'],
             mode='lines+markers',
             name='Mesafe'
         ))
-
-        # Grafiğe gelişmiş formatlama ve interaktif özellikler ekle
         fig.update_layout(
-            # Eksen tipini 'date' olarak zorunlu kıl
             xaxis_type='date',
-
-            # --- ANAHTAR DEĞİŞİKLİK: Eksen aralığını dinamik olarak ayarla ---
             xaxis_range=[x_range_start, x_range_end],
-
             xaxis_title="Zaman",
             yaxis_title="Mesafe (cm)",
-
-            # Eksen etiket formatı
             xaxis_tickformat='%d %b %Y<br>%H:%M:%S',
-
-            # Hızlı zaman aralığı seçimi için butonlar (isteğe bağlı)
             xaxis_rangeselector=dict(
                 buttons=list([
                     dict(count=1, label="1dk", step="minute", stepmode="backward"),
@@ -480,18 +427,11 @@ def update_time_series_graph(fig, df):
                     dict(step="all", label="Tümü")
                 ])
             ),
-
-            # Altta çıkan zaman kaydırma çubuğu (isteğe bağlı)
             xaxis_rangeslider_visible=True
         )
-
     except Exception as e:
-        # Kodda bir hata oluşursa, bunu logla ve grafikte hata mesajı göster
         logging.error(f"Zaman serisi grafiği oluşturulurken HATA: {e}")
         fig.add_trace(go.Scatter(x=[], y=[], mode='lines', name='Grafik Hatası'))
-
-
-# ==========================================================
 
 
 def find_clearest_path(df_valid):
@@ -547,9 +487,7 @@ def analyze_environment_shape(fig, df_valid_input):
         if k_label == -2: continue
         cluster_points_df = df_valid[df_valid['cluster'] == k_label]
         if cluster_points_df.empty: continue
-        cluster_points_np = cluster_points_df[
-            ['y_cm', 'x_cm']].to_numpy()
-
+        cluster_points_np = cluster_points_df[['y_cm', 'x_cm']].to_numpy()
         if k_label == -1:
             color_val, point_size, name_val = 'rgba(128,128,128,0.3)', 5, 'Gürültü/Diğer'
         else:
@@ -578,7 +516,6 @@ def estimate_geometric_shape(df_input):
         if width < 1 or depth < 1: return "Algılanan şekil çok küçük."
         bbox_area = depth * width
         fill_factor = hull_area / bbox_area if bbox_area > 0 else 0
-
         if depth > 150 and width < 50 and fill_factor < 0.3: return "Tahmin: Dar ve derin bir boşluk (Koridor)."
         if fill_factor > 0.7 and (
                 0.8 < (width / depth if depth > 0 else 0) < 1.2): return "Tahmin: Dolgun, kutu/dairesel bir nesne."
@@ -590,22 +527,19 @@ def estimate_geometric_shape(df_input):
         return "Geometrik analiz hatası."
 
 
-def yorumla_tablo_verisi_gemini(df, model_name='models/gemini-2.0-flash'):
+def yorumla_tablo_verisi_gemini(df, model_name='gemini-1.5-flash-latest'):
     if not GOOGLE_GENAI_AVAILABLE: return "Hata: Google GenerativeAI kütüphanesi yüklenemedi."
     if not google_api_key: return "Hata: `GOOGLE_API_KEY` ayarlanmamış."
     if df is None or df.empty: return "Yorumlanacak tablo verisi bulunamadı."
     try:
         generativeai.configure(api_key=google_api_key)
         model = generativeai.GenerativeModel(model_name=model_name)
-
         prompt_text = (
             f"Aşağıdaki tablo, bir ultrasonik sensörün yaptığı taramadan elde edilen verileri içermektedir: "
             f"\n\n{df.to_string(index=False)}\n\n"
             "Bu verilere dayanarak, ortamın olası yapısını (örneğin: 'geniş bir oda', 'dar bir koridor', 'köşeye yerleştirilmiş nesne') analiz et ve alanını , çevresini ortamın geometrik şeklini tahmin etmeye çalış "
-            "Verilerdeki desenlere göre potansiyel nesneleri (duvar, köşe, sandalye bacağı, kutu, insan vb.) tahmin etmeye çalış. "
-
+            "Verilerdeki desenlere göre potansiyel nesneleri (duvar, köşe, sandalye bacağı, kutu, insan vb.) tahmin etmeye çalış. Cevabını Markdown formatında, başlıklar ve listeler kullanarak düzenli bir şekilde sun."
         )
-
         response = model.generate_content(contents=prompt_text)
         return response.text
     except Exception as e:
@@ -613,49 +547,30 @@ def yorumla_tablo_verisi_gemini(df, model_name='models/gemini-2.0-flash'):
 
 
 def image_generate(prompt_text):
-    """
-    Verilen metin istemini (prompt) kullanarak Gemini'den bir resim oluşturur
-    ve Dash'te gösterilebilecek bir html.Img bileşeni döndürür.
-    """
     if not GOOGLE_GENAI_AVAILABLE:
         return dbc.Alert("Hata: Google GenerativeAI kütüphanesi yüklenemedi.", color="danger")
     if not google_api_key:
         return dbc.Alert("Hata: `GOOGLE_API_KEY` ayarlanmamış.", color="danger")
     if not prompt_text or "Hata:" in prompt_text:
         return dbc.Alert("Resim oluşturmak için geçerli bir metin yorumu gerekli.", color="warning")
-
     try:
-        # Gemini API'yi yapılandır
         generativeai.configure(api_key=google_api_key)
-
-        # Resim oluşturma için en güncel ve uygun modellerden birini kullan
-        # Model adları zamanla değişebilir, en güncel adlar için Google AI dokümanlarını kontrol edin.
-        model = generativeai.GenerativeModel(model_name="gemini-2.0-flash-preview-image-generation")
-
-        # Gelen yorumu daha zengin bir resim istemine dönüştür
+        model = generativeai.GenerativeModel(model_name="imagen-3.0-latest")
         final_prompt = (
             "Create a photorealistic, top-down schematic view of an environment based on the "
             f"following analysis from an ultrasonic sensor scan: '{prompt_text}'. "
             "The image should clearly visualize the detected shapes, walls, and objects like corridors or boxes."
         )
-
-        # Resmi oluştur
         response = model.generate_content(final_prompt)
-
-        # API'den gelen cevaptan resim verisini (URI) ayıkla
-        # Not: response yapısı modele göre değişebilir. Bu yapı 'imagen-3.0-latest' için yaygındır.
         if response.candidates and response.candidates[0].content.parts:
             image_uri = response.candidates[0].content.parts[0].file_data.file_uri
-            # Dash'te gösterilecek bir resim bileşeni döndür
             return html.Img(
                 src=image_uri,
                 style={'maxWidth': '100%', 'height': 'auto', 'borderRadius': '10px', 'marginTop': '10px'}
             )
         else:
             return dbc.Alert("Yapay zeka bir resim döndürmedi. Lütfen tekrar deneyin.", color="warning")
-
     except Exception as e:
-        # Hata durumunda kullanıcıya bilgilendirici bir mesaj göster
         logging.error(f"Gemini resim oluşturma hatası: {e}")
         return dbc.Alert(f"Resim oluşturulurken bir hata oluştu: {e}", color="danger")
 
@@ -664,23 +579,21 @@ def image_generate(prompt_text):
 # --- CALLBACK FONKSİYONLARI ---
 # ==============================================================================
 
-# DEĞİŞTİRİLDİ: Callback artık RadioItems'a göre çalışıyor
 @app.callback(
     Output('scan-parameters-wrapper', 'style'),
-    Input('mode-selection-radios', 'value')  # ID güncellendi
+    Input('mode-selection-radios', 'value')
 )
 def toggle_parameter_visibility(selected_mode):
     if selected_mode == 'scan_and_map':
-        return {'display': 'block'}  # Göster
+        return {'display': 'block'}
     else:
-        return {'display': 'none'}  # Gizle
+        return {'display': 'none'}
 
 
-# DEĞİŞTİRİLDİ: Callback artık RadioItems'a göre çalışıyor
 @app.callback(
     Output('scan-status-message', 'children'),
     [Input('start-scan-button', 'n_clicks')],
-    [State('mode-selection-radios', 'value'),  # ID güncellendi
+    [State('mode-selection-radios', 'value'),
      State('scan-duration-angle-input', 'value'), State('step-angle-input', 'value'),
      State('buzzer-distance-input', 'value'), State('invert-motor-checkbox', 'value'),
      State('steps-per-rev-input', 'value')],
@@ -689,7 +602,6 @@ def toggle_parameter_visibility(selected_mode):
 def handle_start_scan_script(n_clicks, selected_mode, duration, step, buzzer_dist, invert, steps_rev):
     if n_clicks == 0:
         return no_update
-
     if os.path.exists(SENSOR_SCRIPT_PID_FILE):
         try:
             with open(SENSOR_SCRIPT_PID_FILE, 'r') as pf:
@@ -698,17 +610,14 @@ def handle_start_scan_script(n_clicks, selected_mode, duration, step, buzzer_dis
                 return dbc.Alert(f"Bir betik zaten çalışıyor (PID:{pid}). Önce durdurun.", color="warning")
         except:
             pass
-
     for fp_lock_pid in [SENSOR_SCRIPT_LOCK_FILE, SENSOR_SCRIPT_PID_FILE]:
         if os.path.exists(fp_lock_pid):
             try:
                 os.remove(fp_lock_pid)
             except OSError as e_rm:
                 print(f"Eski dosya silinemedi ({fp_lock_pid}): {e_rm}")
-
     py_exec = sys.executable
     cmd = []
-
     if selected_mode == 'scan_and_map':
         if not (isinstance(duration, (int, float)) and 10 <= duration <= 720): return dbc.Alert(
             "Tarama Açısı 10-720 derece arasında olmalı!", color="danger", duration=4000)
@@ -718,21 +627,16 @@ def handle_start_scan_script(n_clicks, selected_mode, duration, step, buzzer_dis
             "Uyarı mesafesi 0-200 cm arasında olmalı!", color="danger", duration=4000)
         if not (isinstance(steps_rev, (int, float)) and 500 <= steps_rev <= 10000): return dbc.Alert(
             "Motor Adım/Tur 500-10000 arasında olmalı!", color="danger", duration=4000)
-
         cmd = [py_exec, SENSOR_SCRIPT_PATH, "--scan_duration_angle", str(duration), "--step_angle", str(step),
                "--buzzer_distance", str(buzzer_dist), "--invert_motor_direction", str(invert), "--steps_per_rev",
                str(steps_rev)]
-
     elif selected_mode == 'free_movement':
         cmd = [py_exec, FREE_MOVEMENT_SCRIPT_PATH]
-
     else:
         return dbc.Alert("Geçersiz mod seçildi!", color="danger")
-
     try:
         if not os.path.exists(cmd[1]):
             return dbc.Alert(f"HATA: Betik dosyası bulunamadı: {cmd[1]}", color="danger")
-
         subprocess.Popen(cmd, start_new_session=True)
         max_wait_time, check_interval, start_time_wait = 7, 0.25, time.time()
         pid_file_found = False
@@ -741,7 +645,6 @@ def handle_start_scan_script(n_clicks, selected_mode, duration, step, buzzer_dis
                 pid_file_found = True
                 break
             time.sleep(check_interval)
-
         if pid_file_found:
             with open(SENSOR_SCRIPT_PID_FILE, 'r') as pf:
                 new_pid = pf.read().strip()
@@ -781,11 +684,9 @@ def handle_stop_scan_script(n_clicks):
                 message = f"Betik (PID:{pid_to_kill}) durdurulamadı!";
                 color = "danger"
         except ProcessLookupError:
-            message = f"Betik (PID:{pid_to_kill}) zaten çalışmıyordu.";
-            color = "warning"
+            message = f"Betik (PID:{pid_to_kill}) zaten çalışmıyordu."; color = "warning"
         except Exception as e:
-            message = f"Durdurma hatası: {e}";
-            color = "danger"
+            message = f"Durdurma hatası: {e}"; color = "danger"
     else:
         message = "Çalışan betik bulunamadı."
     for fp_lock_pid_stop in [SENSOR_SCRIPT_PID_FILE, SENSOR_SCRIPT_LOCK_FILE]:
@@ -920,9 +821,6 @@ def render_and_update_data_table(active_tab, n):
                                     {'if': {'row_index': 'odd'}, 'backgroundColor': 'rgb(248, 248, 248)'}])
 
 
-# ==============================================================================
-# --- ANA GRAFİK GÜNCELLEYİCİ CALLBACK ---
-# ==============================================================================
 @app.callback(
     [
         Output('scan-map-graph', 'figure'),
@@ -935,99 +833,58 @@ def render_and_update_data_table(active_tab, n):
     Input('interval-component-main', 'n_intervals')
 )
 def update_all_graphs(n):
-    """
-    Tüm grafikleri ve analizleri periyodik olarak güncelleyen ana callback.
-    Bu fonksiyon, uygulamanın görsel kalbidir.
-    """
-    # Django modellerini, sadece bu fonksiyon çalıştığında import ederek
-    # uygulamanın başlangıç hatalarını önlüyoruz.
     from scanner.models import ScanPoint
-
-    # Her döngü için başlangıç değerlerini ayarla
     figs = [go.Figure() for _ in range(4)]
     est_text = html.Div([html.P("Tarama başlatın veya verinin gelmesini bekleyin...")])
     store_data = None
     scan_id_for_revision = 'initial_load'
-
-    # Veritabanından en son tarama verisini al
     scan = get_latest_scan()
-
     if scan:
         scan_id_for_revision = str(scan.id)
         points_qs = ScanPoint.objects.filter(scan=scan).values('x_cm', 'y_cm', 'derece', 'mesafe_cm', 'timestamp')
-
         if points_qs:
             df_pts = pd.DataFrame(list(points_qs))
-            # Sadece geçerli ve makul aralıktaki verileri kullan
             df_val = df_pts[(df_pts['mesafe_cm'] > 0.1) & (df_pts['mesafe_cm'] < 300.0)].copy()
-
-            if len(df_val) >= 5:  # Analizler için en az 5 nokta olsun
-
-                # --- Her Grafik ve Analiz için İlgili Yardımcı Fonksiyonları Çağır ---
-
-                # 1. 2D Harita ve Kümeleme Analizi
+            if len(df_val) >= 5:
                 est_cart, df_clus = analyze_environment_shape(figs[0], df_val.copy())
-                store_data = df_clus.to_json(orient='split')  # Kümelenmiş veriyi sonraki tıklamalar için sakla
+                store_data = df_clus.to_json(orient='split')
                 add_scan_rays(figs[0], df_val)
                 add_sector_area(figs[0], df_val)
-
-                # 2. Regresyon Analizi
                 line_data, est_polar = analyze_polar_regression(df_val)
                 figs[1].add_trace(
                     go.Scatter(x=df_val['derece'], y=df_val['mesafe_cm'], mode='markers', name='Noktalar'))
-                if line_data:
-                    figs[1].add_trace(
-                        go.Scatter(x=line_data['x'], y=line_data['y'], mode='lines', name='Regresyon Çizgisi',
-                                   line=dict(color='red', width=3)))
-
-                # 3. Polar Grafik
+                if line_data: figs[1].add_trace(
+                    go.Scatter(x=line_data['x'], y=line_data['y'], mode='lines', name='Regresyon Çizgisi',
+                               line=dict(color='red', width=3)))
                 update_polar_graph(figs[2], df_val)
-
-                # 4. Zaman Serisi Grafiği (Düzeltilmiş versiyon)
                 update_time_series_graph(figs[3], df_val)
-
-                # 5. Metin Analizleri
                 clear_path = find_clearest_path(df_val)
                 shape_estimation = estimate_geometric_shape(df_val)
-
-                # Analiz sonuçlarını bir araya getirerek göster
                 est_text = html.Div([
                     html.P(shape_estimation, className="fw-bold"), html.Hr(),
                     html.P(clear_path, className="fw-bold text-primary"), html.Hr(),
                     html.P(f"Kümeleme: {est_cart}"), html.Hr(),
                     html.P(f"Regresyon: {est_polar}")
                 ])
-
             else:
                 est_text = html.Div([html.P("Analiz için yeterli sayıda geçerli nokta bulunamadı.")])
         else:
             est_text = html.Div([html.P(f"Tarama ID #{scan.id} için nokta verisi bulunamadı.")])
-
-    # --- Tüm Grafiklere Ortak Ayarları Uygula ---
-
-    # Tüm grafiklere sensörün merkez konumunu ekle
-    for fig in figs:
-        add_sensor_position(fig)
-
+    for fig in figs: add_sensor_position(fig)
     titles = ['Ortamın 2D Haritası', 'Açıya Göre Mesafe Regresyonu', 'Polar Grafik', 'Zaman Serisi - Mesafe']
     common_legend = dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
-
     for i, fig in enumerate(figs):
-        fig.update_layout(
-            title_text=titles[i],
-            uirevision=scan_id_for_revision,  # Kullanıcı zoom'unu korumak için
-            legend=common_legend,
-            margin=dict(l=40, r=40, t=80, b=40)  # Başlık için üstte boşluk
-        )
-        # Her grafiğe özel eksen başlıkları
+        fig.update_layout(title_text=titles[i], uirevision=scan_id_for_revision, legend=common_legend,
+                          margin=dict(l=40, r=40, t=80, b=40))
         if i == 0:
             fig.update_layout(xaxis_title="Yatay Mesafe (cm)", yaxis_title="Dikey Mesafe (cm)", yaxis_scaleanchor="x",
                               yaxis_scaleratio=1)
         elif i == 1:
             fig.update_layout(xaxis_title="Tarama Açısı (Derece)", yaxis_title="Mesafe (cm)")
-
     return figs[0], figs[1], figs[2], figs[3], est_text, store_data
 
+
+# EKSİK OLAN VE GERİ EKLENEN CALLBACK
 @app.callback(
     Output('container-map-graph', 'style'),
     Output('container-regression-graph', 'style'),
@@ -1036,13 +893,10 @@ def update_all_graphs(n):
     Input('graph-selector-dropdown', 'value')
 )
 def update_graph_visibility(selected_graph):
-    # Başlangıçta tüm grafikleri gizle
     style_map = {'display': 'none'}
     style_regression = {'display': 'none'}
     style_polar = {'display': 'none'}
     style_time = {'display': 'none'}
-
-    # Seçilen grafiği görünür yap
     if selected_graph == 'map':
         style_map = {'display': 'block'}
     elif selected_graph == 'regression':
@@ -1051,7 +905,6 @@ def update_graph_visibility(selected_graph):
         style_polar = {'display': 'block'}
     elif selected_graph == 'time':
         style_time = {'display': 'block'}
-
     return style_map, style_regression, style_polar, style_time
 
 
@@ -1090,37 +943,54 @@ def display_cluster_info(clickData, stored_data_json):
         return True, "Hata", f"Küme bilgisi gösterilemedi: {e}"
 
 
-@app.callback([Output('ai-yorum-sonucu', 'children'), Output('ai-image', 'children')],[Input('ai-model-dropdown', 'value')], prevent_initial_call=True)
+@app.callback(
+    [Output('ai-yorum-sonucu', 'children'), Output('ai-image', 'children')],
+    [Input('ai-model-dropdown', 'value')],
+    prevent_initial_call=True
+)
 def yorumla_model_secimi(selected_model_value):
-    if not selected_model_value: return html.Div("Yorum için bir model seçin.", className="text-center")
+    if not selected_model_value:
+        return [html.Div("Yorum için bir model seçin.", className="text-center"), no_update]
+
     scan = get_latest_scan()
-    if not scan: return dbc.Alert("Analiz edilecek bir tarama bulunamadı.", color="warning", duration=4000)
-    if scan.ai_commentary:
-        print(f"Scan ID {scan.id} için mevcut AI yorumu kullanılıyor.")
-        return dbc.Alert(dcc.Markdown(scan.ai_commentary, dangerously_allow_html=True, link_target="_blank"),
-                         color="info")
+    if not scan:
+        return [dbc.Alert("Analiz edilecek bir tarama bulunamadı.", color="warning"), no_update]
+
+    if scan.ai_commentary and scan.ai_commentary.strip():
+        print(f"Scan ID {scan.id} için mevcut AI metin yorumu kullanılıyor.")
+        yorum_text_from_ai = scan.ai_commentary
+        commentary_component = dbc.Alert(
+            dcc.Markdown(yorum_text_from_ai, dangerously_allow_html=True, link_target="_blank"), color="info")
+        image_component = image_generate(yorum_text_from_ai)
+        return [commentary_component, image_component]
+
     points_qs = scan.points.all().values('derece', 'mesafe_cm')
-    if not points_qs: return dbc.Alert("Yorumlanacak tarama verisi bulunamadı.", color="warning", duration=4000)
+    if not points_qs:
+        return [dbc.Alert("Yorumlanacak tarama verisi bulunamadı.", color="warning"), no_update]
+
     df_data_for_ai = pd.DataFrame(list(points_qs))
     if len(df_data_for_ai) > 500:
         print(f"AI yorumu için çok fazla nokta ({len(df_data_for_ai)}), 500'e örnekleniyor...")
         df_data_for_ai = df_data_for_ai.sample(n=500, random_state=1)
+
     print(f"Scan ID {scan.id} için yeni AI yorumu üretiliyor (Model: {selected_model_value})...")
     yorum_text_from_ai = yorumla_tablo_verisi_gemini(df_data_for_ai, selected_model_value)
-    image_ai = image_generate(df_data_for_ai)
+
     if "Hata:" in yorum_text_from_ai or "hata oluştu" in yorum_text_from_ai:
-        return dbc.Alert(yorum_text_from_ai, color="danger")
+        error_alert = dbc.Alert(yorum_text_from_ai, color="danger")
+        return [error_alert, "Metin yorumu alınamadığı için resim oluşturulamadı."]
+
     try:
-        scan.ai_commentary = yorum_text_from_ai;
+        scan.ai_commentary = yorum_text_from_ai
         scan.save()
         print(f"Scan ID {scan.id} için yeni AI yorumu veritabanına kaydedildi.")
     except Exception as e_db_save:
-        return dbc.Alert([html.H6("Yorum kaydedilemedi:"), html.P(f"{e_db_save}"), html.Hr(),
-                          dcc.Markdown(yorum_text_from_ai, dangerously_allow_html=True, link_target="_blank")],
-                         color="warning")
-    return [
-        dbc.Alert(dcc.Markdown(yorum_text_from_ai, dangerously_allow_html=True, link_target="_blank"),
-                     color="success"),
-        dbc.Alert(dcc.Markdown(image_ai, dangerously_allow_html=True, link_target="_blank"),
-                     color="success")
-    ]
+        print(f"Veritabanına AI yorumu kaydedilemedi: {e_db_save}")
+
+    commentary_component = dbc.Alert(
+        dcc.Markdown(yorum_text_from_ai, dangerously_allow_html=True, link_target="_blank"), color="success")
+
+    print(f"Scan ID {scan.id} için resim oluşturuluyor...")
+    image_component = image_generate(yorum_text_from_ai)
+
+    return [commentary_component, image_component]
