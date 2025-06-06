@@ -547,7 +547,7 @@ def yorumla_tablo_verisi_gemini(df, model_name='gemini-1.5-flash-latest'):
         return f"Gemini'den yanıt alınırken bir hata oluştu: {e}"
 
 
-def image_generate(prompt_text):
+def image_generate(prompt_text, model_name):
     """
     Verilen metin istemini (prompt) kullanarak Gemini'den bir resim oluşturur
     ve Dash'te gösterilebilecek bir html.Img bileşeni döndürür.
@@ -565,7 +565,7 @@ def image_generate(prompt_text):
         # === DEĞİŞİKLİK BURADA ===
         # 'imagen-3.0-latest' yerine, resim oluşturmayı da destekleyen daha yaygın
         # bir Gemini modeli kullanıyoruz.
-        model = generativeai.GenerativeModel(model_name="gemini-2.5-pro-exp-03-25")
+        model = generativeai.GenerativeModel(model_name=model_name)
 
         # Gelen yorumdan zengin bir resim istemi oluşturuluyor
         final_prompt = (
@@ -1039,6 +1039,7 @@ def yorumla_model_secimi(selected_model_value):
         dcc.Markdown(yorum_text_from_ai, dangerously_allow_html=True, link_target="_blank"), color="success")
 
     print(f"Scan ID {scan.id} için resim oluşturuluyor...")
-    image_component = image_generate(yorum_text_from_ai)
+    image_component = image_generate(yorum_text_from_ai, selected_model_value)
+    print(f"Scan ID {scan.id} için resim oluşturuldu.")
 
     return [commentary_component, image_component]
