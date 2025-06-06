@@ -124,6 +124,7 @@ control_panel = dbc.Card([
                 options=[
                     {'label': 'Gemini Flash (Hızlı)', 'value': 'gemini-2.5-flash-preview-05-20'},
                     {'label': 'Gemini Pro (Gelişmiş)', 'value': 'gemini-2.5-pro-exp-03-25'},
+                    {'label': 'Gemma', 'value': 'gemma-3n-e4b-it'},
                 ],
                 placeholder="Yorumlama için bir metin modeli seçin...",
                 clearable=True,
