@@ -332,74 +332,52 @@ app.layout = html.Div(
 )
 
 # --- HELPER FUNCTIONS ---
+# --- HELPER FUNCTIONS ---
 def is_process_running(pid):
-    """
-    Verilen bir Process ID'nin (PID) sistemde çalışıp çalışmadığını kontrol eder.
-    """
-    if pid is None:
-        return False
+    if pid is None: return False
     try:
-        return psutil.pid_exists(int(pid))
-    except (ValueError, TypeError):
-        return False
-    except Exception as e:
-        print(f"is_process_running hatası (PID: {pid}): {e}")
+        return psutil.pid_exists(pid)
+    except Exception:
         return False
 
 def get_latest_scan():
-    """
-    Veritabanından en son tarama nesnesini alır.
-    Öncelikle 'Çalışıyor' durumundaki en son taramayı arar.
-    Bulamazsa, başlangıç zamanına göre en son taranmış olanı döndürür.
-    """
-    if not DJANGO_MODELS_AVAILABLE:
-        return None
+    if not DJANGO_MODELS_AVAILABLE: return None
     try:
         running_scan = Scan.objects.filter(status=Scan.Status.RUNNING).order_by('-start_time').first()
-        if running_scan:
-            return running_scan
+        if running_scan: return running_scan
         return Scan.objects.order_by('-start_time').first()
     except Exception as e:
-        print(f"DB Hatası (get_latest_scan): {e}")
+        print(f"DB Hatası (get_latest_scan): {e}");
         return None
 
 def add_scan_rays(fig, df):
-    """2D haritaya sensörden noktalara giden ışınları çizer."""
-    if df.empty or not all(col in df.columns for col in ['x_cm', 'y_cm']):
-        return
+    if df.empty or not all(col in df.columns for col in ['x_cm', 'y_cm']): return
     x_lines, y_lines = [], []
     for _, row in df.iterrows():
         x_lines.extend([0, row['y_cm'], None])
         y_lines.extend([0, row['x_cm'], None])
     fig.add_trace(
-        go.Scatter(x=x_lines, y=y_lines, mode='lines', line=dict(color='rgba(255,100,100,0.4)', dash='dash', width=1), showlegend=False)
-    )
+        go.Scatter(x=x_lines, y=y_lines, mode='lines', line=dict(color='rgba(255,100,100,0.4)', dash='dash', width=1),
+                   showlegend=False))
 
 def add_sector_area(fig, df):
-    """2D haritada taranan alanı bir sektör olarak doldurur."""
-    if df.empty or not all(col in df.columns for col in ['x_cm', 'y_cm']):
-        return
+    if df.empty or not all(col in df.columns for col in ['x_cm', 'y_cm']): return
     poly_x, poly_y = df['y_cm'].tolist(), df['x_cm'].tolist()
     fig.add_trace(go.Scatter(x=[0] + poly_x + [0], y=[0] + poly_y + [0], mode='lines', fill='toself',
                              fillcolor='rgba(255,0,0,0.15)', line=dict(color='rgba(255,0,0,0.4)'),
                              name='Taranan Sektör'))
 
 def add_sensor_position(fig):
-    """Grafiğe sensörün merkez konumunu (0,0) ekler."""
     fig.add_trace(
-        go.Scatter(x=[0], y=[0], mode='markers', marker=dict(size=12, symbol='circle', color='red'), name='Sensör')
-    )
+        go.Scatter(x=[0], y=[0], mode='markers', marker=dict(size=12, symbol='circle', color='red'), name='Sensör'))
 
 def update_polar_graph(fig, df):
-    """Verilen dataya göre polar grafiği günceller."""
-    if df.empty or not all(col in df.columns for col in ['mesafe_cm', 'derece']):
-        return
+    if df.empty or not all(col in df.columns for col in ['mesafe_cm', 'derece']): return
     fig.add_trace(go.Scatterpolar(r=df['mesafe_cm'], theta=df['derece'], mode='lines+markers', name='Mesafe'))
     fig.update_layout(polar=dict(radialaxis=dict(visible=True, range=[0, 250]),
                                  angularaxis=dict(direction="clockwise", period=360, thetaunit="degrees")))
 
 def update_time_series_graph(fig, df):
-    """Verilen dataya göre zaman serisi grafiğini günceller."""
     if df.empty or 'timestamp' not in df.columns or 'mesafe_cm' not in df.columns:
         fig.add_trace(go.Scatter(x=[], y=[], mode='lines', name='Veri Yok'))
         return
@@ -411,40 +389,69 @@ def update_time_series_graph(fig, df):
             fig.add_trace(go.Scatter(x=[], y=[], mode='lines', name='Yetersiz Veri'))
             return
         df_s = df_s.sort_values(by='timestamp')
-        fig.add_trace(go.Scatter(x=df_s['timestamp'], y=df_s['mesafe_cm'], mode='lines+markers', name='Mesafe'))
-        fig.update_layout(xaxis_type='date', xaxis_title="Zaman", yaxis_title="Mesafe (cm)")
+        min_time = df_s['timestamp'].min()
+        max_time = df_s['timestamp'].max()
+        padding = pd.Timedelta(seconds=(max_time - min_time).total_seconds() * 0.05)
+        if padding.total_seconds() < 2:
+            padding = pd.Timedelta(seconds=2)
+        x_range_start = min_time - padding
+        x_range_end = max_time + padding
+        fig.add_trace(go.Scatter(
+            x=df_s['timestamp'],
+            y=df_s['mesafe_cm'],
+            mode='lines+markers',
+            name='Mesafe'
+        ))
+        fig.update_layout(
+            xaxis_type='date',
+            xaxis_range=[x_range_start, x_range_end],
+            xaxis_title="Zaman",
+            yaxis_title="Mesafe (cm)",
+            xaxis_tickformat='%d %b %Y<br>%H:%M:%S',
+            xaxis_rangeselector=dict(
+                buttons=list([
+                    dict(count=1, label="1dk", step="minute", stepmode="backward"),
+                    dict(count=5, label="5dk", step="minute", stepmode="backward"),
+                    dict(count=15, label="15dk", step="minute", stepmode="backward"),
+                    dict(step="all", label="Tümü")
+                ])
+            ),
+            xaxis_rangeslider_visible=True
+        )
     except Exception as e:
         logging.error(f"Zaman serisi grafiği oluşturulurken HATA: {e}")
         fig.add_trace(go.Scatter(x=[], y=[], mode='lines', name='Grafik Hatası'))
 
 def find_clearest_path(df_valid):
-    """En uzak mesafenin ölçüldüğü yönü bulur."""
-    if df_valid.empty or 'mesafe_cm' not in df_valid.columns:
-        return "En açık yol için veri yok."
+    if df_valid.empty or not all(
+        col in df_valid.columns for col in ['mesafe_cm', 'derece']): return "En açık yol için veri yok."
     try:
-        cp = df_valid.loc[df_valid['mesafe_cm'].idxmax()]
+        df_filtered = df_valid[df_valid['mesafe_cm'] > 0]
+        if df_filtered.empty: return "Geçerli pozitif mesafe bulunamadı."
+        cp = df_filtered.loc[df_filtered['mesafe_cm'].idxmax()]
         return f"En Açık Yol: {cp['derece']:.1f}° yönünde, {cp['mesafe_cm']:.1f} cm."
     except Exception as e:
-        return f"En açık yol hesaplanamadı: {e}"
+        print(f"En açık yol hesaplama hatası: {e}");
+        return "En açık yol hesaplanamadı."
 
 def analyze_polar_regression(df_valid):
-    """Noktalara RANSAC regresyonu uygulayarak yüzeyin eğilimi hakkında bilgi verir."""
-    if len(df_valid) < 5:
-        return None, "Polar regresyon için yetersiz veri."
+    if len(df_valid) < 5 or not all(
+        col in df_valid.columns for col in
+        ['mesafe_cm', 'derece']): return None, "Polar regresyon için yetersiz veri."
     X, y = df_valid[['derece']].values, df_valid['mesafe_cm'].values
     try:
-        ransac = RANSACRegressor(random_state=42)
+        ransac = RANSACRegressor(random_state=42);
         ransac.fit(X, y)
         slope = ransac.estimator_.coef_[0]
-        inf = f"Yüzey dairesel/paralel (Eğim:{slope:.3f})" if abs(slope) < 0.1 else \
-              (f"Yüzey açı arttıkça uzaklaşıyor (Eğim:{slope:.3f})" if slope > 0 else f"Yüzey açı arttıkça yaklaşıyor (Eğim:{slope:.3f})")
+        inf = f"Yüzey dairesel/paralel (Eğim:{slope:.3f})" if abs(slope) < 0.1 else (
+            f"Yüzey açı arttıkça uzaklaşıyor (Eğim:{slope:.3f})" if slope > 0 else f"Yüzey açı arttıkça yaklaşıyor (Eğim:{slope:.3f})")
         xr = np.array([df_valid['derece'].min(), df_valid['derece'].max()]).reshape(-1, 1)
         return {'x': xr.flatten(), 'y': ransac.predict(xr)}, "Polar Regresyon: " + inf
     except Exception as e:
-        return None, f"Polar regresyon hatası: {e}"
+        print(f"Polar regresyon hatası: {e}");
+        return None, "Polar regresyon hatası."
 
 def analyze_environment_shape(fig, df_valid_input):
-    """Verilen 2D noktaları DBSCAN kullanarak kümelere ayırır ve grafiğe çizer."""
     df_valid = df_valid_input.copy()
     if len(df_valid) < 10 or not all(col in df_valid.columns for col in ['y_cm', 'x_cm']):
         df_valid.loc[:, 'cluster'] = -2
@@ -454,12 +461,12 @@ def analyze_environment_shape(fig, df_valid_input):
         db = DBSCAN(eps=15, min_samples=3).fit(points_all)
         df_valid.loc[:, 'cluster'] = db.labels_
     except Exception as e:
-        print(f"DBSCAN hatası: {e}")
+        print(f"DBSCAN hatası: {e}");
         df_valid.loc[:, 'cluster'] = -2
         return "DBSCAN kümeleme hatası.", df_valid
     unique_clusters = set(df_valid['cluster'].unique())
     num_actual_clusters = len(unique_clusters - {-1, -2})
-    desc = f"{num_actual_clusters} potansiyel nesne kümesi bulundu." if num_actual_clusters > 0 else "Belirgin bir nesne kümesi bulunamadı."
+    desc = f"{num_actual_clusters} potansiyel nesne kümesi bulundu." if num_actual_clusters > 0 else "Belirgin bir nesne kümesi bulunamadı (DBSCAN)."
     cmap_len = num_actual_clusters
     colors = plt.cm.get_cmap('viridis', cmap_len if cmap_len > 0 else 1)
     for k_label in unique_clusters:
@@ -480,29 +487,31 @@ def analyze_environment_shape(fig, df_valid_input):
     return desc, df_valid
 
 def estimate_geometric_shape(df_input):
-    """Noktaların dağılımına bakarak ortamın geometrik şekli hakkında basit bir tahminde bulunur."""
     df = df_input.copy()
-    if len(df) < 15:
-        return "Şekil tahmini için yetersiz nokta."
+    if len(df) < 15 or not all(
+        col in df.columns for col in ['x_cm', 'y_cm']): return "Şekil tahmini için yetersiz nokta."
     try:
         points = df[['x_cm', 'y_cm']].values
         hull = ConvexHull(points)
         hull_area = hull.area
-        width = df['y_cm'].max() - df['y_cm'].min()
-        depth = df['x_cm'].max()
+        min_x_val, max_x_val = df['x_cm'].min(), df['x_cm'].max()
+        min_y_val, max_y_val = df['y_cm'].min(), df['y_cm'].max()
+        width = max_y_val - min_y_val
+        depth = max_x_val
         if width < 1 or depth < 1: return "Algılanan şekil çok küçük."
         bbox_area = depth * width
         fill_factor = hull_area / bbox_area if bbox_area > 0 else 0
         if depth > 150 and width < 50 and fill_factor < 0.3: return "Tahmin: Dar ve derin bir boşluk (Koridor)."
-        if fill_factor > 0.7 and (0.8 < (width / depth if depth > 0 else 0) < 1.2): return "Tahmin: Dolgun, kutu/dairesel bir nesne."
+        if fill_factor > 0.7 and (
+            0.8 < (width / depth if depth > 0 else 0) < 1.2): return "Tahmin: Dolgun, kutu/dairesel bir nesne."
         if fill_factor > 0.6 and width > depth * 2.5: return "Tahmin: Geniş bir yüzey (Duvar)."
         if fill_factor < 0.4: return "Tahmin: İçbükey bir yapı veya dağınık nesneler."
         return "Tahmin: Düzensiz veya karmaşık bir yapı."
     except Exception as e:
-        return f"Geometrik analiz hatası: {e}"
+        print(f"Geometrik analiz hatası: {e}");
+        return "Geometrik analiz hatası."
 
 def yorumla_tablo_verisi_gemini(df, model_name):
-    """Verilen DataFrame'i kullanarak Gemini AI ile ortam analizi yapar."""
     if not GOOGLE_GENAI_AVAILABLE: return "Hata: Google GenerativeAI kütüphanesi yüklenemedi."
     if not google_api_key: return "Hata: `GOOGLE_API_KEY` ayarlanmamış."
     if df is None or df.empty: return "Yorumlanacak tablo verisi bulunamadı."
@@ -510,11 +519,10 @@ def yorumla_tablo_verisi_gemini(df, model_name):
         generativeai.configure(api_key=google_api_key)
         model = generativeai.GenerativeModel(model_name=model_name)
         prompt_text = (
-            "Aşağıdaki tablo, bir step motor (yatay dönüş) ve bir servo motor (dikey eğim) ile kontrol edilen ultrasonik sensörlerin yaptığı 3D tarama verilerini içermektedir. "
-            "'derece' yatay açıyı (pan), 'dikey_aci' dikey eğimi (tilt), 'mesafe_cm' ise bu kombinasyondaki ana sensör mesafesini temsil eder.\n\n"
-            f"{df.to_string(index=False)}\n\n"
-            "Bu 3D verilere dayanarak, ortamın olası üç boyutlu yapısını (örneğin: 'geniş bir oda', 'dar bir koridor', 'tavan veya zemin', 'karşıda duran bir kutu') analiz et. "
-            "Verilerdeki desenlere göre potansiyel nesneleri (duvar, köşe, sandalye, insan vb.) tahmin etmeye çalış. Cevabını Markdown formatında, başlıklar ve listeler kullanarak düzenli bir şekilde sun."
+            f"Aşağıdaki tablo, bir ultrasonik sensörün yaptığı taramadan elde edilen verileri içermektedir: "
+            f"\n\n{df.to_string(index=False)}\n\n"
+            "Bu verilere dayanarak, ortamın olası yapısını (örneğin: 'geniş bir oda', 'dar bir koridor', 'köşeye yerleştirilmiş nesne') analiz et ve alanını , çevresini ortamın geometrik şeklini tahmin etmeye çalış "
+            "Verilerdeki desenlere göre potansiyel nesneleri (duvar, köşe, sandalye bacağı, kutu, insan vb.) tahmin etmeye çalış. Cevabını Markdown formatında, başlıklar ve listeler kullanarak düzenli bir şekilde sun."
         )
         response = model.generate_content(contents=prompt_text)
         return response.text
@@ -522,14 +530,18 @@ def yorumla_tablo_verisi_gemini(df, model_name):
         return f"Gemini'den yanıt alınırken bir hata oluştu: {e}"
 
 def summarize_analysis_for_image_prompt(analysis_text, model_name):
-    """AI analiz metnini, bir resim üretim modeline verilecek kısa bir komuta dönüştürür."""
+    """
+    Converts detailed text analysis into a short, visual prompt for an image generation model.
+    """
     if not GOOGLE_GENAI_AVAILABLE or not google_api_key:
         return "Özetleme için AI modeline erişilemiyor."
     if not analysis_text or "Hata:" in analysis_text:
         return "Geçersiz analiz metni özetlenemez."
+
     try:
         generativeai.configure(api_key=google_api_key)
         model = generativeai.GenerativeModel(model_name=model_name)
+
         summarization_prompt = (
             "Aşağıdaki teknik sensör verisi analizini temel alarak, taranan ortamı betimleyen "
             "kısa, canlı ve görsel bir paragraf oluştur. Bu paragraf, bir yapay zeka resim üreticisi "
@@ -538,21 +550,40 @@ def summarize_analysis_for_image_prompt(analysis_text, model_name):
             "Sanki ortama bakıyormuşsun gibi betimle. İşte analiz metni:\n\n"
             f"{analysis_text}"
         )
-        response = model.generate_content(contents=summarization_prompt)
-        return response.text if response.text else f"Şu analize dayanan teknik bir çizim: {analysis_text[:500]}"
-    except Exception as e:
-        return f"Görüntü istemi özetlenirken hata oluştu: {e}"
 
-def generate_image_from_text(analysis_text, model_name="gemini-1.5-flash-latest"):
-    """Verilen metin analizini yorumlayarak bir resim oluşturur."""
-    if not GOOGLE_GENAI_AVAILABLE or not google_api_key:
+        response = model.generate_content(contents=summarization_prompt)
+
+        if response.text and len(response.text) > 10:
+            print(f"✅ Görüntü için özet prompt oluşturuldu: {response.text}")
+            return response.text
+        else:
+            return f"Şu analize dayanan teknik bir çizim: {analysis_text[:500]}"
+
+    except Exception as e:
+        print(f"Görüntü istemi özetlenirken hata oluştu: {e}")
+        return f"Şu analize dayanan bir şema: {analysis_text[:500]}"
+
+def generate_image_from_text(analysis_text, model_name="gemini-2.0-flash-exp-image-generation"):
+    """
+    Generates an image by directly interpreting the provided detailed text analysis.
+    Increased output token limit to prevent MAX_TOKENS error.
+    """
+    if not GOOGLE_GENAI_AVAILABLE:
         return dbc.Alert("Hata: Google GenerativeAI kütüphanesi yüklenemedi.", color="danger")
+    if not google_api_key:
+        return dbc.Alert("Hata: `GOOGLE_API_KEY` ayarlanmamış.", color="danger")
     if not analysis_text or "Hata:" in analysis_text:
         return dbc.Alert("Resim oluşturmak için geçerli bir metin analizi gerekli.", color="warning")
+
     try:
         genai.configure(api_key=google_api_key)
         model = genai.GenerativeModel(model_name=model_name)
-        generation_config = genai.types.GenerationConfig(max_output_tokens=4096)
+
+        # NEW: Configuration setting to allow more output space for the model
+        generation_config = genai.types.GenerationConfig(
+            max_output_tokens=4096 # Higher value (default is usually lower)
+        )
+
         final_prompt = (
             "Aşağıda bir ultrasonik sensör taramasının metin tabanlı analizi yer almaktadır. "
             "Bu analizi temel alarak, taranan ortamın yukarıdan (top-down) görünümlü bir şematik haritasını veya "
@@ -560,14 +591,33 @@ def generate_image_from_text(analysis_text, model_name="gemini-1.5-flash-latest"
             "görselleştir. Senin görevin bu metni bir resme dönüştürmek. Sonuç sadece resim olmalıdır.\n\n"
             f"--- ANALİZ METNİ ---\n{analysis_text}"
         )
-        # Gemini 1.5 gibi modeller doğrudan resim üretmez. Resim üretebilen bir modele yönlendirme gerekir.
-        # Bu fonksiyonun konsepti, gelecekteki text-to-image modelleri için bir placeholder'dır.
-        # Şimdilik, analizi metin olarak döndürelim ve bir uyarı ekleyelim.
-        # Gerçek bir resim üretme API'si (örn: Imagen) burada kullanılmalıdır.
-        return dbc.Alert(f"Resim Üretim Modeli Entegrasyonu Gerekli. Analizden üretilen prompt: '{summarize_analysis_for_image_prompt(analysis_text, model_name)}'", color="info")
+
+        print(">> Doğrudan metin analizinden resim isteniyor (Artırılmış Token Limiti ile)...")
+        # NEW: generation_config parameter added
+        response = model.generate_content(final_prompt, generation_config=generation_config)
+
+        if response.candidates and response.candidates[0].content.parts:
+            part = response.candidates[0].content.parts[0]
+            if hasattr(part, 'file_data') and hasattr(part.file_data, 'file_uri') and part.file_data.file_uri:
+                print(f"✅ Başarılı: Resim URI'si bulundu: {part.file_data.file_uri}")
+                return html.Img(
+                    src=part.file_data.file_uri,
+                    style={'maxWidth': '100%', 'height': 'auto', 'borderRadius': '10px', 'marginTop': '10px'}
+                )
+
+        # Let's make the error message more informative by including finish_reason
+        finish_reason = response.candidates[0].finish_reason if response.candidates else 'Bilinmiyor'
+        safety_ratings = response.candidates[0].safety_ratings if response.candidates else 'Yok'
+
+        error_message = (f"Model, analiz metninden bir resim oluşturamadı. "
+                         f"Bitiş Sebebi: {finish_reason}. Güvenlik Derecelendirmeleri: {safety_ratings}")
+
+        raise Exception(error_message)
 
     except Exception as e:
-        return dbc.Alert(f"Resim oluşturulurken konsept bir hata oluştu: {e}", color="danger")
+        return dbc.Alert(f"Doğrudan analizden resim oluşturulurken bir hata oluştu: {e}", color="danger")
+
+# --- CALLBACK FUNCTIONS ---
 
 # --- CALLBACK FUNCTIONS ---
 
@@ -582,17 +632,16 @@ def toggle_parameter_visibility(selected_mode):
     else:
         return {'display': 'none'}
 
-
 @app.callback(
     Output('scan-status-message', 'children'),
     [Input('start-scan-button', 'n_clicks')],
     [State('mode-selection-radios', 'value'),
      State('scan-duration-angle-input', 'value'), State('step-angle-input', 'value'),
      State('buzzer-distance-input', 'value'), State('invert-motor-checkbox', 'value'),
-     State('steps-per-rev-input', 'value'), State('servo-angle-slider', 'value')],  # YENİ State],
+     State('steps-per-rev-input', 'value')],
     prevent_initial_call=True
 )
-def handle_start_scan_script(n_clicks, selected_mode, duration, step, buzzer_dist, invert, steps_rev, servo_angle):
+def handle_start_scan_script(n_clicks, selected_mode, duration, step, buzzer_dist, invert, steps_rev):
     """Handles starting the sensor script based on selected mode and parameters."""
     if n_clicks == 0:
         return no_update
@@ -621,13 +670,9 @@ def handle_start_scan_script(n_clicks, selected_mode, duration, step, buzzer_dis
             "Uyarı mesafesi 0-200 cm arasında olmalı!", color="danger", duration=4000)
         if not (isinstance(steps_rev, (int, float)) and 500 <= steps_rev <= 10000): return dbc.Alert(
             "Motor Adım/Tur 500-10000 arasında olmalı!", color="danger", duration=4000)
-        cmd = [py_exec, SENSOR_SCRIPT_PATH,
-               "--scan_duration_angle", str(duration),
-               "--step_angle", str(step),
-               "--buzzer_distance", str(buzzer_dist),
-               "--invert_motor_direction", str(invert),
-               "--steps_per_rev", str(steps_rev),
-               "--servo_angle", str(servo_angle)]  # YENİ
+        cmd = [py_exec, SENSOR_SCRIPT_PATH, "--scan_duration_angle", str(duration), "--step_angle", str(step),
+               "--buzzer_distance", str(buzzer_dist), "--invert_motor_direction", str(invert), "--steps_per_rev",
+               str(steps_rev)]
     elif selected_mode == 'free_movement':
         cmd = [py_exec, FREE_MOVEMENT_SCRIPT_PATH]
     else:
@@ -652,7 +697,6 @@ def handle_start_scan_script(n_clicks, selected_mode, duration, step, buzzer_dis
             return dbc.Alert(f"Başlatılamadı. PID dosyası {max_wait_time} saniye içinde oluşmadı.", color="danger")
     except Exception as e:
         return dbc.Alert(f"Betik başlatma hatası: {e}", color="danger")
-
 
 @app.callback(
     Output('scan-status-message', 'children', allow_duplicate=True),
@@ -683,11 +727,9 @@ def handle_stop_scan_script(n_clicks):
                 message = f"Betik (PID:{pid_to_kill}) durdurulamadı!"
                 color = "danger"
         except ProcessLookupError:
-            message = f"Betik (PID:{pid_to_kill}) zaten çalışmıyordu.";
-            color = "warning"
+            message = f"Betik (PID:{pid_to_kill}) zaten çalışmıyordu."; color = "warning"
         except Exception as e:
-            message = f"Durdurma hatası: {e}";
-            color = "danger"
+            message = f"Durdurma hatası: {e}"; color = "danger"
     else:
         message = "Çalışan betik bulunamadı."
     for fp_lock_pid_stop in [SENSOR_SCRIPT_PID_FILE, SENSOR_SCRIPT_LOCK_FILE]:
@@ -697,7 +739,6 @@ def handle_stop_scan_script(n_clicks):
             except OSError:
                 pass
     return dbc.Alert(message, color=color)
-
 
 @app.callback(
     [Output('script-status', 'children'), Output('script-status', 'className'), Output('cpu-usage', 'value'),
@@ -721,7 +762,6 @@ def update_system_card(n):
     ram = psutil.virtual_memory().percent
     return status_text, status_class, cpu, f"{cpu:.1f}%", ram, f"{ram:.1f}%"
 
-
 @app.callback(
     [Output('current-angle', 'children'), Output('current-distance', 'children'), Output('current-speed', 'children'),
      Output('current-distance-col', 'style'), Output('max-detected-distance', 'children')],
@@ -741,12 +781,10 @@ def update_realtime_values(n):
             buzzer_threshold = scan.buzzer_distance_setting
             if buzzer_threshold is not None and pd.notnull(point.mesafe_cm) and 0 < point.mesafe_cm <= buzzer_threshold:
                 dist_style.update({'backgroundColor': '#d9534f', 'color': 'white'})
-            max_dist_agg = scan.points.filter(mesafe_cm__lt=2500, mesafe_cm__gt=0).aggregate(
-                max_dist_val=Max('mesafe_cm'))
+            max_dist_agg = scan.points.filter(mesafe_cm__lt=2500, mesafe_cm__gt=0).aggregate(max_dist_val=Max('mesafe_cm'))
             if max_dist_agg and max_dist_agg.get('max_dist_val') is not None:
                 max_dist_s = f"{max_dist_agg['max_dist_val']:.1f} cm"
     return angle_s, dist_s, speed_s, dist_style, max_dist_s
-
 
 @app.callback(
     [Output('calculated-area', 'children'), Output('perimeter-length', 'children'), Output('max-width', 'children'),
@@ -764,7 +802,6 @@ def update_analysis_panel(n):
         depth_s = f"{scan.max_depth_cm:.2f} cm" if pd.notnull(scan.max_depth_cm) else "N/A"
     return area_s, perim_s, width_s, depth_s
 
-
 @app.callback(Output('download-csv', 'data'), Input('export-csv-button', 'n_clicks'), prevent_initial_call=True)
 def export_csv_callback(n_clicks_csv):
     """Exports the latest scan data to a CSV file."""
@@ -773,10 +810,9 @@ def export_csv_callback(n_clicks_csv):
     if not scan: return dcc.send_data_frame(pd.DataFrame().to_csv, "tarama_yok.csv", index=False)
     points_qs = scan.points.all().values()
     if not points_qs: return dcc.send_data_frame(pd.DataFrame().to_csv, f"tarama_id_{scan.id}_nokta_yok.csv",
-                                                 index=False)
+                                                  index=False)
     df = pd.DataFrame(list(points_qs))
     return dcc.send_data_frame(df.to_csv, f"tarama_id_{scan.id}_noktalar.csv", index=False)
-
 
 @app.callback(Output('download-excel', 'data'), Input('export-excel-button', 'n_clicks'), prevent_initial_call=True)
 def export_excel_callback(n_clicks_excel):
@@ -804,7 +840,6 @@ def export_excel_callback(n_clicks_excel):
             pd.DataFrame([{"Hata": str(e_excel_write)}]).to_excel(writer, sheet_name='Hata', index=False)
         return dcc.send_bytes(buf.getvalue(), f"tarama_detaylari_id_{scan.id if scan else 'yok'}.xlsx")
 
-
 @app.callback(Output('tab-content-datatable', 'children'),
               [Input('visualization-tabs-main', 'active_tab'), Input('interval-component-main', 'n_intervals')])
 def render_and_update_data_table(active_tab, n):
@@ -828,10 +863,8 @@ def render_and_update_data_table(active_tab, n):
                                 style_data_conditional=[
                                     {'if': {'row_index': 'odd'}, 'backgroundColor': 'rgb(248, 248, 248)'}])
 
-
 @app.callback(
     [
-        Output('scan-map-graph-3d', 'figure'),  # YENİ
         Output('scan-map-graph', 'figure'),
         Output('polar-regression-graph', 'figure'),
         Output('polar-graph', 'figure'),
@@ -848,7 +881,7 @@ def update_all_graphs(n):
     """
     # --- DEBUGGING CODE START ---
     print("\n--- Grafik güncelleme tetiklendi ---")
-    from scanner.models import Scan, ScanPoint  # Local import for safety
+    from scanner.models import Scan, ScanPoint # Local import for safety
 
     scan = get_latest_scan()
     if not scan:
@@ -858,36 +891,14 @@ def update_all_graphs(n):
         print(f">> DATA_DEBUG: Son tarama bulundu. Scan ID: {scan.id}, Durum: {scan.status}")
     # --- DEBUGGING CODE END ---
 
-    figs = [go.Figure() for _ in range(5)]
+    figs = [go.Figure() for _ in range(4)]
     est_text = html.Div([html.P("Tarama başlatın veya verinin gelmesini bekleyin...")])
     store_data = None
     scan_id_for_revision = 'initial_load'
 
     if scan:
         scan_id_for_revision = str(scan.id)
-        points_qs = ScanPoint.objects.filter(scan=scan).values('x_cm', 'y_cm', 'z_cm', 'derece', 'mesafe_cm',
-                                                               'timestamp')
-
-        df_pts = pd.DataFrame(list(points_qs))
-        df_val = df_pts[(df_pts['mesafe_cm'] > 0.1) & (df_pts['mesafe_cm'] < 300.0)].copy()
-
-        # --- YENİ: 3D Scatter Plot ---
-        if not df_val.empty and all(k in df_val for k in ['x_cm', 'y_cm', 'z_cm']):
-            figs[0].add_trace(go.Scatter3d(
-                x=df_val['y_cm'],  # Harita görünümü için X/Y'yi çevirebiliriz
-                y=df_val['x_cm'],
-                z=df_val['z_cm'],
-                mode='markers',
-                marker=dict(
-                    size=3,
-                    color=df_val['z_cm'],  # Yüksekliğe göre renklendir
-                    colorscale='Viridis',
-                    showscale=True,
-                    colorbar_title='Yükseklik (cm)'
-                ),
-                name='3D Noktalar'
-            ))
-        # ---------------------------
+        points_qs = ScanPoint.objects.filter(scan=scan).values('x_cm', 'y_cm', 'derece', 'mesafe_cm', 'timestamp')
 
         # --- DEBUGGING CODE START ---
         print(f">> DATA_DEBUG: Tarama #{scan.id} için {len(points_qs)} adet nokta bulundu.")
@@ -905,14 +916,12 @@ def update_all_graphs(n):
                 add_scan_rays(figs[0], df_val)
                 add_sector_area(figs[0], df_val)
                 line_data, est_polar = analyze_polar_regression(df_val)
-                figs[2].add_trace(
+                figs[1].add_trace(
                     go.Scatter(x=df_val['derece'], y=df_val['mesafe_cm'], mode='markers', name='Noktalar'))
                 if line_data:
-                    figs[2].add_trace(
+                    figs[1].add_trace(
                         go.Scatter(x=line_data['x'], y=line_data['y'], mode='lines', name='Regresyon Çizgisi',
                                    line=dict(color='red', width=3)))
-
-                update_time_series_graph(figs[4], df_val)
                 update_polar_graph(figs[2], df_val)
                 update_time_series_graph(figs[3], df_val)
                 clear_path = find_clearest_path(df_val)
@@ -929,30 +938,20 @@ def update_all_graphs(n):
             est_text = html.Div([html.P(f"Tarama ID #{scan.id} için nokta verisi bulunamadı.")])
 
     for fig in figs: add_sensor_position(fig)
-    titles = ['Ortamın 3D Haritası', '2D Harita (Projeksiyon)', 'Açıya Göre Mesafe Regresyonu', 'Polar Grafik',
-              'Zaman Serisi - Mesafe']
+    titles = ['Ortamın 2D Haritası', 'Açıya Göre Mesafe Regresyonu', 'Polar Grafik', 'Zaman Serisi - Mesafe']
     common_legend = dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
     for i, fig in enumerate(figs):
         fig.update_layout(title_text=titles[i], uirevision=scan_id_for_revision, legend=common_legend,
                           margin=dict(l=40, r=40, t=80, b=40))
-        if i == 0:  # 3D Harita Düzeni
-            fig.update_layout(scene=dict(
-                xaxis_title='Y Ekseni (cm)',
-                yaxis_title='X Ekseni (cm)',
-                zaxis_title='Z Ekseni (cm)',
-                aspectratio=dict(x=1, y=1, z=0.5)  # Görünümü ayarla
-            ))
-        elif i == 1:  # 2D Harita Düzeni
+        if i == 0:
             fig.update_layout(xaxis_title="Yatay Mesafe (cm)", yaxis_title="Dikey Mesafe (cm)", yaxis_scaleanchor="x",
                               yaxis_scaleratio=1)
-        elif i == 2:  # Regresyon
+        elif i == 1:
             fig.update_layout(xaxis_title="Tarama Açısı (Derece)", yaxis_title="Mesafe (cm)")
 
-    return figs[0], figs[1], figs[2], figs[3], figs[4], est_text, store_data  # DEĞİŞTİ: bir figür daha döndür
-
+    return figs[0], figs[1], figs[2], figs[3], est_text, store_data
 
 @app.callback(
-    Output('container-map-graph-3d', 'style'),  # YENİ
     Output('container-map-graph', 'style'),
     Output('container-regression-graph', 'style'),
     Output('container-polar-graph', 'style'),
@@ -965,7 +964,6 @@ def update_graph_visibility(selected_graph):
     style_regression = {'display': 'none'}
     style_polar = {'display': 'none'}
     style_time = {'display': 'none'}
-    style_3d = {'display': 'none'}
     if selected_graph == 'map':
         style_map = {'display': 'block'}
     elif selected_graph == 'regression':
@@ -974,8 +972,7 @@ def update_graph_visibility(selected_graph):
         style_polar = {'display': 'block'}
     elif selected_graph == 'time':
         style_time = {'display': 'block'}
-    return style_3d, style_map, style_regression, style_polar, style_time
-
+    return style_map, style_regression, style_polar, style_time
 
 @app.callback(
     [Output("cluster-info-modal", "is_open"), Output("modal-title", "children"), Output("modal-body", "children")],
@@ -1002,16 +999,15 @@ def display_cluster_info(clickData, stored_data_json):
             n_pts = len(cl_df_points)
             w_cl, d_cl = 0, 0
             if n_pts > 0: w_cl = cl_df_points['y_cm'].max() - cl_df_points['y_cm'].min(); d_cl = cl_df_points[
-                                                                                                     'x_cm'].max() - \
-                                                                                                 cl_df_points[
-                                                                                                     'x_cm'].min()
+                'x_cm'].max() - \
+                                 cl_df_points[
+                                     'x_cm'].min()
             title = f"Küme #{int(cl_label)} Detayları"
             body = html.Div([html.P(f"Nokta Sayısı: {n_pts}"), html.P(f"Yaklaşık Genişlik (Y): {w_cl:.1f} cm"),
                              html.P(f"Yaklaşık Derinlik (X): {d_cl:.1f} cm")])
         return True, title, body
     except Exception as e:
         return True, "Hata", f"Küme bilgisi gösterilemedi: {e}"
-
 
 @app.callback(
     [Output('ai-yorum-sonucu', 'children'), Output('ai-image', 'children')],
