@@ -530,7 +530,7 @@ def estimate_geometric_shape(df_input):
         return "Geometrik analiz hatası."
 
 
-def yorumla_tablo_verisi_gemini(df, model_name='gemini-1.5-flash-latest'):
+def yorumla_tablo_verisi_gemini(df, model_name):
     if not GOOGLE_GENAI_AVAILABLE: return "Hata: Google GenerativeAI kütüphanesi yüklenemedi."
     if not google_api_key: return "Hata: `GOOGLE_API_KEY` ayarlanmamış."
     if df is None or df.empty: return "Yorumlanacak tablo verisi bulunamadı."
@@ -548,6 +548,40 @@ def yorumla_tablo_verisi_gemini(df, model_name='gemini-1.5-flash-latest'):
     except Exception as e:
         return f"Gemini'den yanıt alınırken bir hata oluştu: {e}"
 
+def summarize_analysis_for_image_prompt(analysis_text, model_name):
+    """
+    Detaylı metin analizini, bir resim üretim modeline verilecek kısa ve görsel
+    bir komut istemine (prompt) dönüştürür.
+    """
+    if not GOOGLE_GENAI_AVAILABLE or not google_api_key:
+        return "Özetleme için AI modeline erişilemiyor."
+    if not analysis_text or "Hata:" in analysis_text:
+        return "Geçersiz analiz metni özetlenemez."
+
+    try:
+        generativeai.configure(api_key=google_api_key)
+        model = generativeai.GenerativeModel(model_name=model_name)
+
+        summarization_prompt = (
+            "Aşağıdaki teknik sensör verisi analizini temel alarak, taranan ortamı betimleyen "
+            "kısa, canlı ve görsel bir paragraf oluştur. Bu paragraf, bir yapay zeka resim üreticisi "
+            "için komut olarak kullanılacak. Ana geometrik şekillere, tahmin edilen nesnelere (duvar, koridor, kutu gibi) "
+            "ve ortamın genel atmosferine odaklan. Sayısal değerler veya teknik jargon kullanma. "
+            "Sanki ortama bakıyormuşsun gibi betimle. İşte analiz metni:\n\n"
+            f"{analysis_text}"
+        )
+
+        response = model.generate_content(contents=summarization_prompt)
+
+        if response.text and len(response.text) > 10:
+            print(f"✅ Görüntü için özet prompt oluşturuldu: {response.text}")
+            return response.text
+        else:
+            return f"Şu analize dayanan teknik bir çizim: {analysis_text[:500]}"
+
+    except Exception as e:
+        print(f"Görüntü istemi özetlenirken hata oluştu: {e}")
+        return f"Şu analize dayanan bir şema: {analysis_text[:500]}"
 
 def generate_image_from_text(analysis_text, model_name):
     """
@@ -940,7 +974,6 @@ def update_all_graphs(n):
     return figs[0], figs[1], figs[2], figs[3], est_text, store_data
 
 
-# EKSİK OLAN VE GERİ EKLENEN CALLBACK
 @app.callback(
     Output('container-map-graph', 'style'),
     Output('container-regression-graph', 'style'),
