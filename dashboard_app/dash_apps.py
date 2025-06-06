@@ -917,8 +917,7 @@ def update_all_graphs(n):
     scan = get_latest_scan()
     if not scan:
         print(">> DATA_DEBUG: get_latest_scan() fonksiyonu 'None' döndürdü. Veritabanında gösterilecek tarama yok.")
-        # If no scan, return empty figures and default text
-        # Ensure the number of returned values matches the Outputs
+
         empty_figs = [go.Figure() for _ in range(5)] # 5 empty figures
         empty_text = html.Div([html.P("Tarama başlatın veya verinin gelmesini bekleyin...")])
         return empty_figs[0], empty_figs[1], empty_figs[2], empty_figs[3], empty_figs[4], empty_text, None
