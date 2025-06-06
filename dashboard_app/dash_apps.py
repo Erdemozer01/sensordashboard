@@ -552,7 +552,7 @@ def yorumla_tablo_verisi_gemini(df, model_name='gemini-1.5-flash-latest'):
 
 def generate_image_from_text(analysis_text, model_name):
     """
-    Verilen metin analizine dayanarak, yapay zekadan bir resim oluşturmasını ister.
+    Verilen detaylı metin analizini doğrudan yorumlayarak bir resim oluşturur.
     """
     if not GOOGLE_GENAI_AVAILABLE:
         return dbc.Alert("Hata: Google GenerativeAI kütüphanesi yüklenemedi.", color="danger")
@@ -565,28 +565,34 @@ def generate_image_from_text(analysis_text, model_name):
         generativeai.configure(api_key=google_api_key)
         model = generativeai.GenerativeModel(model_name=model_name)
 
+        # Modele, gelen metnin bir analiz olduğunu ve buna göre bir resim oluşturması gerektiğini açıkça belirten komut istemi.
         final_prompt = (
-            f"{analysis_text} bilgilerine göre resim oluştur."
+            "Aşağıda bir ultrasonik sensör taramasının metin tabanlı analizi yer almaktadır. "
+            "Bu analizi temel alarak, taranan ortamın yukarıdan (top-down) görünümlü bir şematik haritasını veya "
+            "gerçekçi bir tasvirini oluştur. Analizde bahsedilen duvarları, boşlukları, koridorları ve olası nesneleri "
+            "görselleştir. Senin görevin bu metni bir resme dönüştürmek. Sonuç sadece resim olmalıdır.\n\n"
+            f"--- ANALİZ METNİ ---\n{analysis_text}"
         )
 
-        print(">> Metin analizine dayanarak resim isteniyor...")
+        print(">> Doğrudan metin analizinden resim isteniyor...")
         response = model.generate_content(final_prompt)
 
+        # Yanıtı işleme kısmı aynı kalabilir
         if response.candidates and response.candidates[0].content.parts:
             part = response.candidates[0].content.parts[0]
+            # Yanıtta dosya verisi (resim) olup olmadığını kontrol et
             if hasattr(part, 'file_data') and hasattr(part.file_data, 'file_uri') and part.file_data.file_uri:
-                print(f"✅ Başarılı: Resim URI'si metin analizinden bulundu: {part.file_data.file_uri}")
+                print(f"✅ Başarılı: Resim URI'si bulundu: {part.file_data.file_uri}")
                 return html.Img(
                     src=part.file_data.file_uri,
                     style={'maxWidth': '100%', 'height': 'auto', 'borderRadius': '10px', 'marginTop': '10px'}
                 )
 
         finish_reason = response.candidates[0].finish_reason if response.candidates else 'UNKNOWN'
-        raise Exception(f"Model metin analizinden resim oluşturamadı. Bitiş Sebebi: {finish_reason}")
+        raise Exception(f"Model, analiz metninden bir resim oluşturamadı. Bitiş Sebebi: {finish_reason}")
 
     except Exception as e:
-        # logging.error(f"Metinden resim oluşturma hatası: {e}")
-        return dbc.Alert(f"Metin analizinden resim oluşturulurken bir hata oluştu: {e}", color="danger")
+        return dbc.Alert(f"Doğrudan analizden resim oluşturulurken bir hata oluştu: {e}", color="danger")
 
 
 # ==============================================================================
@@ -1002,17 +1008,17 @@ def yorumla_model_secimi(selected_model_value):
         commentary_component = dbc.Alert(
             dcc.Markdown(yorum_text_from_ai, dangerously_allow_html=True, link_target="_blank"), color="info")
     else:
-        # ... (veri çekme, AI'a gönderme ve kaydetme kısımları tamamen aynı)
         points_qs = scan.points.all().values('derece', 'mesafe_cm')
         if not points_qs:
             return [dbc.Alert("Yorumlanacak tarama verisi bulunamadı.", color="warning"), no_update]
         df_data_for_ai = pd.DataFrame(list(points_qs))
         if len(df_data_for_ai) > 500:
             df_data_for_ai = df_data_for_ai.sample(n=500, random_state=1)
+
         yorum_text_from_ai = yorumla_tablo_verisi_gemini(df_data_for_ai, selected_model_value)
         if "Hata:" in yorum_text_from_ai:
             return [dbc.Alert(yorum_text_from_ai, color="danger"),
-                    "Metin yorumu alınamadığı için resim oluşturulamadı."]
+                    dbc.Alert("Metin yorumu alınamadığı için resim oluşturulamadı.", color="warning")]
         try:
             scan.ai_commentary = yorum_text_from_ai
             scan.save()
@@ -1021,12 +1027,8 @@ def yorumla_model_secimi(selected_model_value):
         commentary_component = dbc.Alert(
             dcc.Markdown(yorum_text_from_ai, dangerously_allow_html=True, link_target="_blank"), color="success")
 
-    # --- YENİ MANTIK ---
-    # Adım 2: Analizi, resim için kısa bir özete çevir
-    image_prompt_summary = summarize_analysis_for_image_prompt(yorum_text_from_ai, selected_model_value)
-
-    # Adım 3: Bu kısa özeti kullanarak resmi üret
-    # (Bu generate_image_from_text fonksiyonu bir önceki adımdaki haliyle kalmalı)
-    image_component = generate_image_from_text(image_prompt_summary, selected_model_value)
+    # --- DEĞİŞİKLİK ---
+    # Adım 2: Özetleme adımı kaldırıldı. Alınan analiz metni doğrudan resim üretmek için kullanılır.
+    image_component = generate_image_from_text(yorum_text_from_ai, selected_model_value)
 
     return [commentary_component, image_component]
