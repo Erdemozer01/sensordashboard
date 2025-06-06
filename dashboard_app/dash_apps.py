@@ -564,7 +564,7 @@ def image_generate(prompt_text):
         # === DEĞİŞİKLİK BURADA ===
         # 'imagen-3.0-latest' yerine, resim oluşturmayı da destekleyen daha yaygın
         # bir Gemini modeli kullanıyoruz.
-        model = generativeai.GenerativeModel(model_name="gemini-1.5-flash-latest")
+        model = generativeai.GenerativeModel(model_name="gemini-pro-vision")
 
         # Gelen yorumdan zengin bir resim istemi oluşturuluyor
         final_prompt = (
