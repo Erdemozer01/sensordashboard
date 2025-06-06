@@ -1039,7 +1039,7 @@ def yorumla_model_secimi(selected_model_value):
         dcc.Markdown(yorum_text_from_ai, dangerously_allow_html=True, link_target="_blank"), color="success")
 
     print(f"Scan ID {scan.id} için resim oluşturuluyor...")
-    image_component = image_generate(yorum_text_from_ai, selected_model_value)
+    image_component = image_generate(prompt_text=yorum_text_from_ai, model_name=selected_model_value)
     print(f"Scan ID {scan.id} için resim oluşturuldu.")
 
     return [commentary_component, image_component]
