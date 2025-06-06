@@ -820,18 +820,6 @@ def render_and_update_data_table(active_tab, n):
                                 style_data_conditional=[
                                     {'if': {'row_index': 'odd'}, 'backgroundColor': 'rgb(248, 248, 248)'}])
 
-
-@app.callback(
-    [
-        Output('scan-map-graph', 'figure'),
-        Output('polar-regression-graph', 'figure'),
-        Output('polar-graph', 'figure'),
-        Output('time-series-graph', 'figure'),
-        Output('environment-estimation-text', 'children'),
-        Output('clustered-data-store', 'data')
-    ],
-    Input('interval-component-main', 'n_intervals')
-)
 @app.callback(
     [
         Output('scan-map-graph', 'figure'),
