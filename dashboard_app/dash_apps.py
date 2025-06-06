@@ -612,34 +612,52 @@ def yorumla_tablo_verisi_gemini(df, model_name='models/gemini-2.0-flash'):
         return f"Gemini'den yanıt alınırken bir hata oluştu: {e}"
 
 
-def image_generate(df):
-    if not GOOGLE_GENAI_AVAILABLE: return "Hata: Google GenerativeAI kütüphanesi yüklenemedi."
-    if not google_api_key: return "Hata: `GOOGLE_API_KEY` ayarlanmamış."
-    if df is None or df.empty: return "Yorumlanacak tablo verisi bulunamadı."
-
-    text = yorumla_tablo_verisi_gemini(df, model_name='gemini-2.0-flash-preview-image-generation')
-
-    from google import genai
-    from google.genai import types
+def image_generate(prompt_text):
+    """
+    Verilen metin istemini (prompt) kullanarak Gemini'den bir resim oluşturur
+    ve Dash'te gösterilebilecek bir html.Img bileşeni döndürür.
+    """
+    if not GOOGLE_GENAI_AVAILABLE:
+        return dbc.Alert("Hata: Google GenerativeAI kütüphanesi yüklenemedi.", color="danger")
+    if not google_api_key:
+        return dbc.Alert("Hata: `GOOGLE_API_KEY` ayarlanmamış.", color="danger")
+    if not prompt_text or "Hata:" in prompt_text:
+        return dbc.Alert("Resim oluşturmak için geçerli bir metin yorumu gerekli.", color="warning")
 
     try:
+        # Gemini API'yi yapılandır
+        generativeai.configure(api_key=google_api_key)
 
-        client = genai.Client(api_key=google_api_key)
+        # Resim oluşturma için en güncel ve uygun modellerden birini kullan
+        # Model adları zamanla değişebilir, en güncel adlar için Google AI dokümanlarını kontrol edin.
+        model = generativeai.GenerativeModel(model_name="gemini-2.0-flash-preview-image-generation")
 
-        prompt = f'{text} yorumu değerlendir. Resim oluştur'
-
-        response = client.models.generate_images(
-            model="imagen-3.0-generate-002",
-            prompt=prompt,
-            config=types.GenerateContentConfig(
-                response_modalities=['TEXT', 'IMAGE']
-            )
+        # Gelen yorumu daha zengin bir resim istemine dönüştür
+        final_prompt = (
+            "Create a photorealistic, top-down schematic view of an environment based on the "
+            f"following analysis from an ultrasonic sensor scan: '{prompt_text}'. "
+            "The image should clearly visualize the detected shapes, walls, and objects like corridors or boxes."
         )
 
-        return response.generated_images
+        # Resmi oluştur
+        response = model.generate_content(final_prompt)
+
+        # API'den gelen cevaptan resim verisini (URI) ayıkla
+        # Not: response yapısı modele göre değişebilir. Bu yapı 'imagen-3.0-latest' için yaygındır.
+        if response.candidates and response.candidates[0].content.parts:
+            image_uri = response.candidates[0].content.parts[0].file_data.file_uri
+            # Dash'te gösterilecek bir resim bileşeni döndür
+            return html.Img(
+                src=image_uri,
+                style={'maxWidth': '100%', 'height': 'auto', 'borderRadius': '10px', 'marginTop': '10px'}
+            )
+        else:
+            return dbc.Alert("Yapay zeka bir resim döndürmedi. Lütfen tekrar deneyin.", color="warning")
 
     except Exception as e:
-        return f"Gemini'den yanıt alınırken bir hata oluştu: {e}"
+        # Hata durumunda kullanıcıya bilgilendirici bir mesaj göster
+        logging.error(f"Gemini resim oluşturma hatası: {e}")
+        return dbc.Alert(f"Resim oluşturulurken bir hata oluştu: {e}", color="danger")
 
 
 # ==============================================================================
