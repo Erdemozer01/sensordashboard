@@ -34,8 +34,7 @@ class Scan(models.Model): # <-- THIS CLASS MUST EXIST!
 
 
 class ScanPoint(models.Model):
-    scan = models.ForeignKey(Scan, on_delete=models.CASCADE,
-                             related_name='points')  # Foreign key should reference the Scan model
+    scan = models.ForeignKey(Scan, on_delete=models.CASCADE, related_name='points')
 
     derece = models.FloatField() # Or models.DecimalField
     mesafe_cm = models.FloatField() # <--- THIS MUST BE HERE
