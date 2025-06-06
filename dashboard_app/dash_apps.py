@@ -549,17 +549,30 @@ def yorumla_tablo_verisi_gemini(df, model_name='gemini-1.5-flash-latest'):
         return f"Gemini'den yanıt alınırken bir hata oluştu: {e}"
 
 
+import plotly.io as pio  # Bu satırı fonksiyonun hemen üstüne veya dosyanın en başına ekleyin
+from PIL import Image
+import io  # Bu import'un da olduğundan emin olun
+
+
 def generate_image_from_map(map_figure, model_name):
     """
     Verilen Plotly harita figürünü resme çevirir ve bu resmi kullanarak
     yapay zekadan yeni bir fotogerçekçi resim oluşturmasını ister.
+    (Sandbox devre dışı bırakıldı)
     """
+    # --- YENİ EKLENEN SATIRLAR ---
+    # Kaleido'nun sandbox modunu devre dışı bırakarak uyumluluk sorununu aşmayı dene
+    pio.kaleido.scope.chromium_args = ("--disable-sandbox", "--no-sandbox")
+    # ---------------------------
+
     if not GOOGLE_GENAI_AVAILABLE or not map_figure:
         return dbc.Alert("AI için gerekli kütüphane veya harita verisi eksik.", color="warning")
 
     try:
         # Figürü PNG formatında bir byte dizisine çevir
+        print(">> Kaleido ile harita figürü resme dönüştürülüyor (sandbox kapalı)...")
         img_bytes = map_figure.to_image(format="png", width=800, height=600, scale=2)
+        print(">> Harita resmi başarıyla oluşturuldu.")
 
         # Byte dizisinden bir resim nesnesi oluştur
         map_image = Image.open(io.BytesIO(img_bytes))
@@ -576,9 +589,10 @@ def generate_image_from_map(map_figure, model_name):
             map_image,
         ]
 
-        print(">> Harita resmi ve yeni prompt ile resim isteniyor...")
+        print(">> Harita resmi ve yeni prompt ile AI'dan resim isteniyor...")
         response = model.generate_content(prompt)
 
+        # ... fonksiyonun geri kalanı aynı ...
         if response.candidates and response.candidates[0].content.parts:
             part = response.candidates[0].content.parts[0]
             if hasattr(part, 'file_data') and hasattr(part.file_data, 'file_uri') and part.file_data.file_uri:
