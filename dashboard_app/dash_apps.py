@@ -564,7 +564,6 @@ def generate_image_from_text(analysis_text, model_name):
         generativeai.configure(api_key=google_api_key)
         model = generativeai.GenerativeModel(model_name=model_name)
 
-        # Modeli doğrudan resim üretmeye yönlendiren net bir prompt
         final_prompt = (
             "IMPORTANT: Your only task is to generate and output a single image file based on the following text analysis. "
             "Do not respond with more text, JSON, or any other format. "
@@ -588,7 +587,7 @@ def generate_image_from_text(analysis_text, model_name):
         raise Exception(f"Model metin analizinden resim oluşturamadı. Bitiş Sebebi: {finish_reason}")
 
     except Exception as e:
-        logging.error(f"Metinden resim oluşturma hatası: {e}")
+        # logging.error(f"Metinden resim oluşturma hatası: {e}")
         return dbc.Alert(f"Metin analizinden resim oluşturulurken bir hata oluştu: {e}", color="danger")
 
 
@@ -989,12 +988,9 @@ def display_cluster_info(clickData, stored_data_json):
 @app.callback(
     [Output('ai-yorum-sonucu', 'children'), Output('ai-image', 'children')],
     [Input('ai-model-dropdown', 'value')],
-    # Bu callback'in tetiklenmesi için harita figürüne de ihtiyacımız var.
-    # Bu nedenle, update_all_graphs'tan gelen scan-map-graph'ın figürünü state olarak alıyoruz.
-    [State('scan-map-graph', 'figure')],
     prevent_initial_call=True
 )
-def yorumla_model_secimi(selected_model_value, map_figure_dict):
+def yorumla_model_secimi(selected_model_value):
     if not selected_model_value:
         return [html.Div("Yorum için bir model seçin.", className="text-center"), no_update]
 
@@ -1002,7 +998,7 @@ def yorumla_model_secimi(selected_model_value, map_figure_dict):
     if not scan:
         return [dbc.Alert("Analiz edilecek bir tarama bulunamadı.", color="warning"), no_update]
 
-    # Metin yorumunu oluşturma veya veritabanından alma kısmı aynı kalıyor
+    # Get the text analysis (this part is the same)
     if scan.ai_commentary and scan.ai_commentary.strip():
         yorum_text_from_ai = scan.ai_commentary
         commentary_component = dbc.Alert(
@@ -1030,12 +1026,7 @@ def yorumla_model_secimi(selected_model_value, map_figure_dict):
         commentary_component = dbc.Alert(
             dcc.Markdown(yorum_text_from_ai, dangerously_allow_html=True, link_target="_blank"), color="success")
 
-    # --- YENİ RESİM OLUŞTURMA MANTIĞI ---
-    # Gelen harita figürünü Plotly nesnesine çevir
-    if map_figure_dict:
-        map_figure = go.Figure(map_figure_dict)
-        image_component = generate_image_from_map(map_figure, selected_model_value)
-    else:
-        image_component = dbc.Alert("Resim oluşturmak için harita grafiği bulunamadı.", color="warning")
+    # CORRECTED PART: Call the correct function
+    image_component = generate_image_from_text(yorum_text_from_ai, selected_model_value)
 
     return [commentary_component, image_component]
