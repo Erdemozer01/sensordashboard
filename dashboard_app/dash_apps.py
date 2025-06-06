@@ -343,13 +343,23 @@ def is_process_running(pid):
 
 
 def get_latest_scan():
-    if not DJANGO_MODELS_AVAILABLE: return None
+    """
+    Veritabanından en son tarama nesnesini alır.
+    Öncelikle 'Çalışıyor' durumundaki en son taramayı arar.
+    Bulamazsa, başlangıç zamanına göre en son taranmış olanı döndürür.
+    """
+    if not DJANGO_MODELS_AVAILABLE:
+        return None
     try:
+        # Önce, aktif olarak çalışan bir tarama var mı diye kontrol et
         running_scan = Scan.objects.filter(status=Scan.Status.RUNNING).order_by('-start_time').first()
-        if running_scan: return running_scan
+        if running_scan:
+            return running_scan
+
+        # Çalışan tarama yoksa, herhangi bir durumdaki en son taramayı al
         return Scan.objects.order_by('-start_time').first()
     except Exception as e:
-        print(f"DB Hatası (get_latest_scan): {e}");
+        print(f"DB Hatası (get_latest_scan): {e}")
         return None
 
 
