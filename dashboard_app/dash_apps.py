@@ -549,33 +549,6 @@ def yorumla_tablo_verisi_gemini(df, model_name='gemini-1.5-flash-latest'):
         return f"Gemini'den yanıt alınırken bir hata oluştu: {e}"
 
 
-def summarize_analysis_for_image_prompt(analysis_text, model_name):
-    """
-    Verilen uzun metin analizini, resim oluşturma prompt'u için kısa ve
-    etkili bir özete dönüştürür.
-    """
-    try:
-        generativeai.configure(api_key=google_api_key)
-        model = generativeai.GenerativeModel(model_name=model_name)
-
-        # AI'a özetleme görevini veren prompt
-        summarizer_prompt = (
-            "Read the following environment analysis from a sensor. Summarize it into a simple, descriptive phrase of 5-10 words "
-            "suitable for a text-to-image prompt. Describe the main shape of the room and any key objects. "
-            "Example output: 'An L-shaped corridor with a box in the corner.' "
-            f"Here is the text to summarize: '{analysis_text}'"
-        )
-
-        print(">> Uzun analiz, resim prompt'u için özetleniyor...")
-        response = model.generate_content(summarizer_prompt)
-
-        summary = response.text.strip().replace('"', '')
-        print(f">> Oluşturulan özet prompt: {summary}")
-        return summary
-
-    except Exception as e:
-        print(f"Analiz özetlenirken hata oluştu: {e}")
-        return "A top-down view of a room with some objects"  # Hata durumunda varsayılan prompt
 
 def generate_image_from_text(analysis_text, model_name):
     """
@@ -593,10 +566,7 @@ def generate_image_from_text(analysis_text, model_name):
         model = generativeai.GenerativeModel(model_name=model_name)
 
         final_prompt = (
-            "IMPORTANT: Your only task is to generate and output a single image file based on the following text analysis. "
-            "Do not respond with more text, JSON, or any other format. "
-            "The analysis describes an environment scanned by a sensor. Create a clean, photorealistic, top-down view of this environment. "
-            f"Here is the analysis to use: '{analysis_text}'"
+            f"{analysis_text} bilgilerine göre resim oluştur."
         )
 
         print(">> Metin analizine dayanarak resim isteniyor...")
