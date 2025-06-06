@@ -619,8 +619,6 @@ def generate_image_from_text(analysis_text, model_name="gemini-2.0-flash-exp-ima
 
 # --- CALLBACK FUNCTIONS ---
 
-# --- CALLBACK FUNCTIONS ---
-
 @app.callback(
     Output('scan-parameters-wrapper', 'style'),
     Input('mode-selection-radios', 'value')
@@ -631,6 +629,78 @@ def toggle_parameter_visibility(selected_mode):
         return {'display': 'block'}
     else:
         return {'display': 'none'}
+
+
+@app.callback(
+    Output('scan-status-message', 'children'),
+    [Input('start-scan-button', 'n_clicks')],
+    [State('mode-selection-radios', 'value'),
+     State('scan-duration-angle-input', 'value'), State('step-angle-input', 'value'),
+     State('buzzer-distance-input', 'value'), State('invert-motor-checkbox', 'value'),
+     State('steps-per-rev-input', 'value'), State('servo-angle-slider', 'value')],  # YENİ State],
+    prevent_initial_call=True
+)
+def handle_start_scan_script(n_clicks, selected_mode, duration, step, buzzer_dist, invert, steps_rev, servo_angle):
+    """Handles starting the sensor script based on selected mode and parameters."""
+    if n_clicks == 0:
+        return no_update
+    if os.path.exists(SENSOR_SCRIPT_PID_FILE):
+        try:
+            with open(SENSOR_SCRIPT_PID_FILE, 'r') as pf:
+                pid = int(pf.read().strip())
+            if is_process_running(pid):
+                return dbc.Alert(f"Bir betik zaten çalışıyor (PID:{pid}). Önce durdurun.", color="warning")
+        except:
+            pass
+    for fp_lock_pid in [SENSOR_SCRIPT_LOCK_FILE, SENSOR_SCRIPT_PID_FILE]:
+        if os.path.exists(fp_lock_pid):
+            try:
+                os.remove(fp_lock_pid)
+            except OSError as e_rm:
+                print(f"Eski dosya silinemedi ({fp_lock_pid}): {e_rm}")
+    py_exec = sys.executable
+    cmd = []
+    if selected_mode == 'scan_and_map':
+        if not (isinstance(duration, (int, float)) and 10 <= duration <= 720): return dbc.Alert(
+            "Tarama Açısı 10-720 derece arasında olmalı!", color="danger", duration=4000)
+        if not (isinstance(step, (int, float)) and 0.1 <= abs(step) <= 45): return dbc.Alert(
+            "Adım açısı 0.1-45 arasında olmalı!", color="danger", duration=4000)
+        if not (isinstance(buzzer_dist, (int, float)) and 0 <= buzzer_dist <= 200): return dbc.Alert(
+            "Uyarı mesafesi 0-200 cm arasında olmalı!", color="danger", duration=4000)
+        if not (isinstance(steps_rev, (int, float)) and 500 <= steps_rev <= 10000): return dbc.Alert(
+            "Motor Adım/Tur 500-10000 arasında olmalı!", color="danger", duration=4000)
+        cmd = [py_exec, SENSOR_SCRIPT_PATH,
+               "--scan_duration_angle", str(duration),
+               "--step_angle", str(step),
+               "--buzzer_distance", str(buzzer_dist),
+               "--invert_motor_direction", str(invert),
+               "--steps_per_rev", str(steps_rev),
+               "--servo_angle", str(servo_angle)]  # YENİ
+    elif selected_mode == 'free_movement':
+        cmd = [py_exec, FREE_MOVEMENT_SCRIPT_PATH]
+    else:
+        return dbc.Alert("Geçersiz mod seçildi!", color="danger")
+    try:
+        if not os.path.exists(cmd[1]):
+            return dbc.Alert(f"HATA: Betik dosyası bulunamadı: {cmd[1]}", color="danger")
+        subprocess.Popen(cmd, start_new_session=True)
+        max_wait_time, check_interval, start_time_wait = 7, 0.25, time.time()
+        pid_file_found = False
+        while time.time() - start_time_wait < max_wait_time:
+            if os.path.exists(SENSOR_SCRIPT_PID_FILE):
+                pid_file_found = True
+                break
+            time.sleep(check_interval)
+        if pid_file_found:
+            with open(SENSOR_SCRIPT_PID_FILE, 'r') as pf:
+                new_pid = pf.read().strip()
+            mode_name = "Mesafe Ölçüm Modu" if selected_mode == 'scan_and_map' else "Serbest Hareket Modu"
+            return dbc.Alert(f"{mode_name} başlatıldı (PID:{new_pid}).", color="success")
+        else:
+            return dbc.Alert(f"Başlatılamadı. PID dosyası {max_wait_time} saniye içinde oluşmadı.", color="danger")
+    except Exception as e:
+        return dbc.Alert(f"Betik başlatma hatası: {e}", color="danger")
+
 
 @app.callback(
     Output('scan-status-message', 'children'),
@@ -698,47 +768,6 @@ def handle_start_scan_script(n_clicks, selected_mode, duration, step, buzzer_dis
     except Exception as e:
         return dbc.Alert(f"Betik başlatma hatası: {e}", color="danger")
 
-@app.callback(
-    Output('scan-status-message', 'children', allow_duplicate=True),
-    [Input('stop-scan-button', 'n_clicks')],
-    prevent_initial_call=True
-)
-def handle_stop_scan_script(n_clicks):
-    """Handles stopping the running sensor script."""
-    if n_clicks == 0: return no_update
-    pid_to_kill = None
-    message = ""
-    color = "warning"
-    if os.path.exists(SENSOR_SCRIPT_PID_FILE):
-        try:
-            with open(SENSOR_SCRIPT_PID_FILE, 'r') as pf:
-                pid_to_kill = int(pf.read().strip())
-        except (IOError, ValueError):
-            pass
-    if pid_to_kill and is_process_running(pid_to_kill):
-        try:
-            os.kill(pid_to_kill, signal.SIGTERM)
-            time.sleep(1)
-            if is_process_running(pid_to_kill): os.kill(pid_to_kill, signal.SIGKILL); time.sleep(0.5)
-            if not is_process_running(pid_to_kill):
-                message = f"Çalışan betik (PID:{pid_to_kill}) durduruldu."
-                color = "info"
-            else:
-                message = f"Betik (PID:{pid_to_kill}) durdurulamadı!"
-                color = "danger"
-        except ProcessLookupError:
-            message = f"Betik (PID:{pid_to_kill}) zaten çalışmıyordu."; color = "warning"
-        except Exception as e:
-            message = f"Durdurma hatası: {e}"; color = "danger"
-    else:
-        message = "Çalışan betik bulunamadı."
-    for fp_lock_pid_stop in [SENSOR_SCRIPT_PID_FILE, SENSOR_SCRIPT_LOCK_FILE]:
-        if os.path.exists(fp_lock_pid_stop):
-            try:
-                os.remove(fp_lock_pid_stop)
-            except OSError:
-                pass
-    return dbc.Alert(message, color=color)
 
 @app.callback(
     [Output('script-status', 'children'), Output('script-status', 'className'), Output('cpu-usage', 'value'),
@@ -762,6 +791,7 @@ def update_system_card(n):
     ram = psutil.virtual_memory().percent
     return status_text, status_class, cpu, f"{cpu:.1f}%", ram, f"{ram:.1f}%"
 
+
 @app.callback(
     [Output('current-angle', 'children'), Output('current-distance', 'children'), Output('current-speed', 'children'),
      Output('current-distance-col', 'style'), Output('max-detected-distance', 'children')],
@@ -781,10 +811,12 @@ def update_realtime_values(n):
             buzzer_threshold = scan.buzzer_distance_setting
             if buzzer_threshold is not None and pd.notnull(point.mesafe_cm) and 0 < point.mesafe_cm <= buzzer_threshold:
                 dist_style.update({'backgroundColor': '#d9534f', 'color': 'white'})
-            max_dist_agg = scan.points.filter(mesafe_cm__lt=2500, mesafe_cm__gt=0).aggregate(max_dist_val=Max('mesafe_cm'))
+            max_dist_agg = scan.points.filter(mesafe_cm__lt=2500, mesafe_cm__gt=0).aggregate(
+                max_dist_val=Max('mesafe_cm'))
             if max_dist_agg and max_dist_agg.get('max_dist_val') is not None:
                 max_dist_s = f"{max_dist_agg['max_dist_val']:.1f} cm"
     return angle_s, dist_s, speed_s, dist_style, max_dist_s
+
 
 @app.callback(
     [Output('calculated-area', 'children'), Output('perimeter-length', 'children'), Output('max-width', 'children'),
@@ -802,6 +834,7 @@ def update_analysis_panel(n):
         depth_s = f"{scan.max_depth_cm:.2f} cm" if pd.notnull(scan.max_depth_cm) else "N/A"
     return area_s, perim_s, width_s, depth_s
 
+
 @app.callback(Output('download-csv', 'data'), Input('export-csv-button', 'n_clicks'), prevent_initial_call=True)
 def export_csv_callback(n_clicks_csv):
     """Exports the latest scan data to a CSV file."""
@@ -810,9 +843,10 @@ def export_csv_callback(n_clicks_csv):
     if not scan: return dcc.send_data_frame(pd.DataFrame().to_csv, "tarama_yok.csv", index=False)
     points_qs = scan.points.all().values()
     if not points_qs: return dcc.send_data_frame(pd.DataFrame().to_csv, f"tarama_id_{scan.id}_nokta_yok.csv",
-                                                  index=False)
+                                                 index=False)
     df = pd.DataFrame(list(points_qs))
     return dcc.send_data_frame(df.to_csv, f"tarama_id_{scan.id}_noktalar.csv", index=False)
+
 
 @app.callback(Output('download-excel', 'data'), Input('export-excel-button', 'n_clicks'), prevent_initial_call=True)
 def export_excel_callback(n_clicks_excel):
@@ -840,6 +874,7 @@ def export_excel_callback(n_clicks_excel):
             pd.DataFrame([{"Hata": str(e_excel_write)}]).to_excel(writer, sheet_name='Hata', index=False)
         return dcc.send_bytes(buf.getvalue(), f"tarama_detaylari_id_{scan.id if scan else 'yok'}.xlsx")
 
+
 @app.callback(Output('tab-content-datatable', 'children'),
               [Input('visualization-tabs-main', 'active_tab'), Input('interval-component-main', 'n_intervals')])
 def render_and_update_data_table(active_tab, n):
@@ -863,8 +898,10 @@ def render_and_update_data_table(active_tab, n):
                                 style_data_conditional=[
                                     {'if': {'row_index': 'odd'}, 'backgroundColor': 'rgb(248, 248, 248)'}])
 
+
 @app.callback(
     [
+        Output('scan-map-graph-3d', 'figure'),  # YENİ
         Output('scan-map-graph', 'figure'),
         Output('polar-regression-graph', 'figure'),
         Output('polar-graph', 'figure'),
@@ -881,7 +918,7 @@ def update_all_graphs(n):
     """
     # --- DEBUGGING CODE START ---
     print("\n--- Grafik güncelleme tetiklendi ---")
-    from scanner.models import Scan, ScanPoint # Local import for safety
+    from scanner.models import Scan, ScanPoint  # Local import for safety
 
     scan = get_latest_scan()
     if not scan:
@@ -891,14 +928,36 @@ def update_all_graphs(n):
         print(f">> DATA_DEBUG: Son tarama bulundu. Scan ID: {scan.id}, Durum: {scan.status}")
     # --- DEBUGGING CODE END ---
 
-    figs = [go.Figure() for _ in range(4)]
+    figs = [go.Figure() for _ in range(5)]
     est_text = html.Div([html.P("Tarama başlatın veya verinin gelmesini bekleyin...")])
     store_data = None
     scan_id_for_revision = 'initial_load'
 
     if scan:
         scan_id_for_revision = str(scan.id)
-        points_qs = ScanPoint.objects.filter(scan=scan).values('x_cm', 'y_cm', 'derece', 'mesafe_cm', 'timestamp')
+        points_qs = ScanPoint.objects.filter(scan=scan).values('x_cm', 'y_cm', 'z_cm', 'derece', 'mesafe_cm',
+                                                               'timestamp')
+
+        df_pts = pd.DataFrame(list(points_qs))
+        df_val = df_pts[(df_pts['mesafe_cm'] > 0.1) & (df_pts['mesafe_cm'] < 300.0)].copy()
+
+        # --- YENİ: 3D Scatter Plot ---
+        if not df_val.empty and all(k in df_val for k in ['x_cm', 'y_cm', 'z_cm']):
+            figs[0].add_trace(go.Scatter3d(
+                x=df_val['y_cm'],  # Harita görünümü için X/Y'yi çevirebiliriz
+                y=df_val['x_cm'],
+                z=df_val['z_cm'],
+                mode='markers',
+                marker=dict(
+                    size=3,
+                    color=df_val['z_cm'],  # Yüksekliğe göre renklendir
+                    colorscale='Viridis',
+                    showscale=True,
+                    colorbar_title='Yükseklik (cm)'
+                ),
+                name='3D Noktalar'
+            ))
+        # ---------------------------
 
         # --- DEBUGGING CODE START ---
         print(f">> DATA_DEBUG: Tarama #{scan.id} için {len(points_qs)} adet nokta bulundu.")
@@ -916,12 +975,14 @@ def update_all_graphs(n):
                 add_scan_rays(figs[0], df_val)
                 add_sector_area(figs[0], df_val)
                 line_data, est_polar = analyze_polar_regression(df_val)
-                figs[1].add_trace(
+                figs[2].add_trace(
                     go.Scatter(x=df_val['derece'], y=df_val['mesafe_cm'], mode='markers', name='Noktalar'))
                 if line_data:
-                    figs[1].add_trace(
+                    figs[2].add_trace(
                         go.Scatter(x=line_data['x'], y=line_data['y'], mode='lines', name='Regresyon Çizgisi',
                                    line=dict(color='red', width=3)))
+
+                update_time_series_graph(figs[4], df_val)
                 update_polar_graph(figs[2], df_val)
                 update_time_series_graph(figs[3], df_val)
                 clear_path = find_clearest_path(df_val)
@@ -938,20 +999,30 @@ def update_all_graphs(n):
             est_text = html.Div([html.P(f"Tarama ID #{scan.id} için nokta verisi bulunamadı.")])
 
     for fig in figs: add_sensor_position(fig)
-    titles = ['Ortamın 2D Haritası', 'Açıya Göre Mesafe Regresyonu', 'Polar Grafik', 'Zaman Serisi - Mesafe']
+    titles = ['Ortamın 3D Haritası', '2D Harita (Projeksiyon)', 'Açıya Göre Mesafe Regresyonu', 'Polar Grafik',
+              'Zaman Serisi - Mesafe']
     common_legend = dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
     for i, fig in enumerate(figs):
         fig.update_layout(title_text=titles[i], uirevision=scan_id_for_revision, legend=common_legend,
                           margin=dict(l=40, r=40, t=80, b=40))
-        if i == 0:
+        if i == 0:  # 3D Harita Düzeni
+            fig.update_layout(scene=dict(
+                xaxis_title='Y Ekseni (cm)',
+                yaxis_title='X Ekseni (cm)',
+                zaxis_title='Z Ekseni (cm)',
+                aspectratio=dict(x=1, y=1, z=0.5)  # Görünümü ayarla
+            ))
+        elif i == 1:  # 2D Harita Düzeni
             fig.update_layout(xaxis_title="Yatay Mesafe (cm)", yaxis_title="Dikey Mesafe (cm)", yaxis_scaleanchor="x",
                               yaxis_scaleratio=1)
-        elif i == 1:
+        elif i == 2:  # Regresyon
             fig.update_layout(xaxis_title="Tarama Açısı (Derece)", yaxis_title="Mesafe (cm)")
 
-    return figs[0], figs[1], figs[2], figs[3], est_text, store_data
+    return figs[0], figs[1], figs[2], figs[3], figs[4], est_text, store_data  # DEĞİŞTİ: bir figür daha döndür
+
 
 @app.callback(
+    Output('container-map-graph-3d', 'style'),  # YENİ
     Output('container-map-graph', 'style'),
     Output('container-regression-graph', 'style'),
     Output('container-polar-graph', 'style'),
@@ -964,6 +1035,7 @@ def update_graph_visibility(selected_graph):
     style_regression = {'display': 'none'}
     style_polar = {'display': 'none'}
     style_time = {'display': 'none'}
+    style_3d = {'display': 'none'}
     if selected_graph == 'map':
         style_map = {'display': 'block'}
     elif selected_graph == 'regression':
@@ -972,7 +1044,8 @@ def update_graph_visibility(selected_graph):
         style_polar = {'display': 'block'}
     elif selected_graph == 'time':
         style_time = {'display': 'block'}
-    return style_map, style_regression, style_polar, style_time
+    return style_3d, style_map, style_regression, style_polar, style_time
+
 
 @app.callback(
     [Output("cluster-info-modal", "is_open"), Output("modal-title", "children"), Output("modal-body", "children")],
@@ -999,15 +1072,16 @@ def display_cluster_info(clickData, stored_data_json):
             n_pts = len(cl_df_points)
             w_cl, d_cl = 0, 0
             if n_pts > 0: w_cl = cl_df_points['y_cm'].max() - cl_df_points['y_cm'].min(); d_cl = cl_df_points[
-                'x_cm'].max() - \
-                                 cl_df_points[
-                                     'x_cm'].min()
+                                                                                                     'x_cm'].max() - \
+                                                                                                 cl_df_points[
+                                                                                                     'x_cm'].min()
             title = f"Küme #{int(cl_label)} Detayları"
             body = html.Div([html.P(f"Nokta Sayısı: {n_pts}"), html.P(f"Yaklaşık Genişlik (Y): {w_cl:.1f} cm"),
                              html.P(f"Yaklaşık Derinlik (X): {d_cl:.1f} cm")])
         return True, title, body
     except Exception as e:
         return True, "Hata", f"Küme bilgisi gösterilemedi: {e}"
+
 
 @app.callback(
     [Output('ai-yorum-sonucu', 'children'), Output('ai-image', 'children')],
