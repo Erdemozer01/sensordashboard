@@ -935,8 +935,8 @@ def update_all_graphs(n):
     if scan:
         scan_id_for_revision = str(scan.id)
         # Fetch all necessary columns, including z_cm for 3D plot
-        points_qs = ScanPoint.objects.filter(scan=scan).values('x_cm', 'y_cm', 'z_cm', 'derece', 'mesafe_cm', 'timestamp')
-
+        points_qs = ScanPoint.objects.filter(scan=scan).values('x_cm', 'y_cm', 'z_cm', 'derece', 'mesafe_cm',
+                                                               'timestamp')
         df_pts = pd.DataFrame(list(points_qs))
         # Filter out invalid distance readings for analysis
         df_val = df_pts[(df_pts['mesafe_cm'] > 0.1) & (df_pts['mesafe_cm'] < 300.0)].copy()

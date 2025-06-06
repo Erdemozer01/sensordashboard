@@ -40,20 +40,17 @@ class Scan(models.Model):
         return f"Scan #{self.id} - {self.start_time.strftime('%Y-%m-%d %H:%M:%S')}"
 
 
-from django.db import models
-from django.utils import timezone
-
 class ScanPoint(models.Model):
-    scan = models.ForeignKey('Scan', on_delete=models.CASCADE, related_name='points')
-    derece = models.FloatField() # Or DecimalField
-    mesafe_cm = models.FloatField() # <-- THIS ONE! Or DecimalField
-    hiz_cm_s = models.FloatField(null=True, blank=True) # If you calculate speed
+    scan = models.ForeignKey(Scan, on_delete=models.CASCADE, related_name='points')
+    derece = models.FloatField() # Or models.DecimalField
+    mesafe_cm = models.FloatField() # <--- THIS MUST BE HERE
     x_cm = models.FloatField()
     y_cm = models.FloatField()
     z_cm = models.FloatField()
-    dikey_aci = models.FloatField(null=True, blank=True)
-    mesafe_cm_2 = models.FloatField(null=True, blank=True)
     timestamp = models.DateTimeField(default=timezone.now)
+    # Add other fields like hiz_cm_s, mesafe_cm_2 if they are in your database schema
+    hiz_cm_s = models.FloatField(null=True, blank=True, default=0.0) # Example: add default
+    mesafe_cm_2 = models.FloatField(null=True, blank=True, default=0.0) # Example: add default
 
     def __str__(self):
-        return f"Point {self.id} at {self.derece}° - {self.mesafe_cm} cm"
+        return f"ScanPoint {self.id} (Scan {self.scan.id}) - {self.derece}° {self.mesafe_cm}cm"
