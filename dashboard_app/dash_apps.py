@@ -213,6 +213,7 @@ visualization_tabs = dbc.Tabs(
                             dcc.Dropdown(
                                 id='graph-selector-dropdown',
                                 options=[
+                                    {'label': '3D Harita', 'value': 'map'},
                                     {'label': '2D Kartezyen Harita', 'value': 'map'},
                                     {'label': 'Regresyon Analizi', 'value': 'regression'},
                                     {'label': 'Polar Grafik', 'value': 'polar'},
