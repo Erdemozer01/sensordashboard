@@ -549,9 +549,8 @@ def yorumla_tablo_verisi_gemini(df, model_name='gemini-1.5-flash-latest'):
 
 def image_generate(prompt_text, model_name):
     """
-    Uses a two-step process to generate an image. First, it asks for the image.
-    If the AI returns a refined text prompt instead, it uses that new prompt
-    to make a second, more accurate attempt.
+    Hata ayıklama eklenmiş iki adımlı resim oluşturma fonksiyonu.
+    İkinci denemeden gelen tam yanıtı ve gönderilen prompt'u yazdırır.
     """
     if not GOOGLE_GENAI_AVAILABLE:
         return dbc.Alert("Hata: Google GenerativeAI kütüphanesi yüklenemedi.", color="danger")
@@ -588,35 +587,46 @@ def image_generate(prompt_text, model_name):
 
         # --- CASE B: Text was returned, use it for a second attempt ---
         elif hasattr(first_part, 'text'):
-            print(">> Model metin döndürdü. Bu metin yeni prompt olarak kullanılarak 2. deneme yapılıyor...")
             refined_prompt = first_part.text
+
+            # --- YENİ HATA AYIKLAMA KODU BAŞLANGICI ---
+            print("\n" + "=" * 50)
+            print(">> Model metin döndürdü. Bu metin yeni prompt olarak kullanılarak 2. deneme yapılıyor...")
+            print(f"--- 2. DENEME İÇİN GÖNDERİLEN PROMPT ---")
+            print(refined_prompt)
+            print("=" * 50 + "\n")
+            # --- YENİ HATA AYIKLAMA KODU SONU ---
 
             # --- ATTEMPT 2: Refined Prompt ---
             second_response = model.generate_content(refined_prompt)
 
-            if not second_response.candidates or not second_response.candidates[0].content.parts:
-                return dbc.Alert("Yapay zeka ikinci denemede boş bir yanıt döndürdü.", color="danger")
+            # --- YENİ HATA AYIKLAMA KODU BAŞLANGICI ---
+            print("\n" + "=" * 50)
+            print(f"--- 2. DENEMEDEN GELEN TAM YANIT ---")
+            print(second_response)
+            print("=" * 50 + "\n")
+            # --- YENİ HATA AYIKLAMA KODU SONU ---
 
-            second_part = second_response.candidates[0].content.parts[0]
+            if second_response.candidates and second_response.candidates[0].content.parts:
+                second_part = second_response.candidates[0].content.parts[0]
+                if hasattr(second_part, 'file_data') and second_part.file_data.file_uri:
+                    print(f"✅ Başarılı (2. Deneme): Resim URI'si bulundu: {second_part.file_data.file_uri}")
+                    return html.Img(
+                        src=second_part.file_data.file_uri,
+                        style={'maxWidth': '100%', 'height': 'auto', 'borderRadius': '10px', 'marginTop': '10px'}
+                    )
 
-            if hasattr(second_part, 'file_data') and second_part.file_data.file_uri:
-                print(f"✅ Başarılı (2. Deneme): Resim URI'si bulundu: {second_part.file_data.file_uri}")
-                return html.Img(
-                    src=second_part.file_data.file_uri,
-                    style={'maxWidth': '100%', 'height': 'auto', 'borderRadius': '10px', 'marginTop': '10px'}
-                )
-            else:
-                # If the second attempt also fails, show the refined prompt text
-                print("❌ Hata: İkinci denemede de resim oluşturulamadı. Modelin metin yanıtı gösteriliyor.")
-                return dbc.Alert([
-                    html.Strong("AI, resim yerine bir metin açıklaması üretti:"),
-                    dcc.Markdown(refined_prompt, className="text-monospace bg-light p-3 border rounded mt-2")
-                ], color="warning")
+            # If the second attempt fails for any reason (e.g., empty candidates)
+            print(
+                "❌ Hata: İkinci denemede resim oluşturulamadı veya boş yanıt alındı. Modelin ilk metin yanıtı gösteriliyor.")
+            return dbc.Alert([
+                html.Strong("AI, resim yerine bir metin açıklaması üretti (İkinci deneme başarısız):"),
+                dcc.Markdown(refined_prompt, className="text-monospace bg-light p-3 border rounded mt-2")
+            ], color="warning")
 
         else:
             return dbc.Alert("Model ne resim ne de metin içeren beklenmedik bir formatta yanıt döndürdü.",
                              color="danger")
-
 
     except Exception as e:
         logging.error(f"Gemini resim/içerik oluşturma hatası: {e}")
