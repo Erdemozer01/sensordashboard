@@ -549,6 +549,34 @@ def yorumla_tablo_verisi_gemini(df, model_name='gemini-1.5-flash-latest'):
         return f"Gemini'den yanıt alınırken bir hata oluştu: {e}"
 
 
+def summarize_analysis_for_image_prompt(analysis_text, model_name):
+    """
+    Verilen uzun metin analizini, resim oluşturma prompt'u için kısa ve
+    etkili bir özete dönüştürür.
+    """
+    try:
+        generativeai.configure(api_key=google_api_key)
+        model = generativeai.GenerativeModel(model_name=model_name)
+
+        # AI'a özetleme görevini veren prompt
+        summarizer_prompt = (
+            "Read the following environment analysis from a sensor. Summarize it into a simple, descriptive phrase of 5-10 words "
+            "suitable for a text-to-image prompt. Describe the main shape of the room and any key objects. "
+            "Example output: 'An L-shaped corridor with a box in the corner.' "
+            f"Here is the text to summarize: '{analysis_text}'"
+        )
+
+        print(">> Uzun analiz, resim prompt'u için özetleniyor...")
+        response = model.generate_content(summarizer_prompt)
+
+        summary = response.text.strip().replace('"', '')
+        print(f">> Oluşturulan özet prompt: {summary}")
+        return summary
+
+    except Exception as e:
+        print(f"Analiz özetlenirken hata oluştu: {e}")
+        return "A top-down view of a room with some objects"  # Hata durumunda varsayılan prompt
+
 def generate_image_from_text(analysis_text, model_name):
     """
     Verilen metin analizine dayanarak, yapay zekadan bir resim oluşturmasını ister.
@@ -998,35 +1026,37 @@ def yorumla_model_secimi(selected_model_value):
     if not scan:
         return [dbc.Alert("Analiz edilecek bir tarama bulunamadı.", color="warning"), no_update]
 
-    # Get the text analysis (this part is the same)
+    # Adım 1: Detaylı metin analizini al (Bu kısım aynı)
     if scan.ai_commentary and scan.ai_commentary.strip():
         yorum_text_from_ai = scan.ai_commentary
         commentary_component = dbc.Alert(
             dcc.Markdown(yorum_text_from_ai, dangerously_allow_html=True, link_target="_blank"), color="info")
     else:
+        # ... (veri çekme, AI'a gönderme ve kaydetme kısımları tamamen aynı)
         points_qs = scan.points.all().values('derece', 'mesafe_cm')
         if not points_qs:
             return [dbc.Alert("Yorumlanacak tarama verisi bulunamadı.", color="warning"), no_update]
-
         df_data_for_ai = pd.DataFrame(list(points_qs))
         if len(df_data_for_ai) > 500:
             df_data_for_ai = df_data_for_ai.sample(n=500, random_state=1)
-
         yorum_text_from_ai = yorumla_tablo_verisi_gemini(df_data_for_ai, selected_model_value)
-        if "Hata:" in yorum_text_from_ai or "hata oluştu" in yorum_text_from_ai:
+        if "Hata:" in yorum_text_from_ai:
             return [dbc.Alert(yorum_text_from_ai, color="danger"),
                     "Metin yorumu alınamadığı için resim oluşturulamadı."]
-
         try:
             scan.ai_commentary = yorum_text_from_ai
             scan.save()
         except Exception as e_db_save:
             print(f"Veritabanına AI yorumu kaydedilemedi: {e_db_save}")
-
         commentary_component = dbc.Alert(
             dcc.Markdown(yorum_text_from_ai, dangerously_allow_html=True, link_target="_blank"), color="success")
 
-    # CORRECTED PART: Call the correct function
-    image_component = generate_image_from_text(yorum_text_from_ai, selected_model_value)
+    # --- YENİ MANTIK ---
+    # Adım 2: Analizi, resim için kısa bir özete çevir
+    image_prompt_summary = summarize_analysis_for_image_prompt(yorum_text_from_ai, selected_model_value)
+
+    # Adım 3: Bu kısa özeti kullanarak resmi üret
+    # (Bu generate_image_from_text fonksiyonu bir önceki adımdaki haliyle kalmalı)
+    image_component = generate_image_from_text(image_prompt_summary, selected_model_value)
 
     return [commentary_component, image_component]
