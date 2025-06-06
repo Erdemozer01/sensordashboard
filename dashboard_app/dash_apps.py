@@ -70,7 +70,6 @@ DEFAULT_UI_STEPS_PER_REVOLUTION = 4096
 app = DjangoDash('RealtimeSensorDashboard', external_stylesheets=[dbc.themes.BOOTSTRAP])
 
 # --- NAVBAR CREATION ---
-# --- NAVBAR CREATION ---
 navbar = dbc.NavbarSimple(
     children=[
         dbc.NavItem(dbc.NavLink("Admin Paneli", href="/admin/", external_link=True, target="_blank")),
@@ -332,7 +331,7 @@ app.layout = html.Div(
 )
 
 # --- HELPER FUNCTIONS ---
-# --- HELPER FUNCTIONS ---
+
 def is_process_running(pid):
     if pid is None: return False
     try:
