@@ -576,6 +576,8 @@ def image_generate(prompt_text, model_name):
 
         response = model.generate_content(final_prompt)
 
+        print(response)
+
         # API'den dönen cevaptan resim adresi (URI) ayıklanıyor
         # Gemini 1.5 modelleri de aynı standart cevabı döndürür
         if response.candidates and response.candidates[0].content.parts:
