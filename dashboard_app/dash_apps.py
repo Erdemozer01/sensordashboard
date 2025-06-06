@@ -550,7 +550,7 @@ def yorumla_tablo_verisi_gemini(df, model_name='gemini-1.5-flash-latest'):
 def image_generate(prompt_text, model_name):
     """
     Verilen metin istemini (prompt) kullanarak Gemini'den bir resim oluşturur
-    ve Dash'te gösterilebilecek bir html.Img bileşeni döndürür.
+    veya metin tabanlı bir cevap döndürürse onu gösterir.
     """
     if not GOOGLE_GENAI_AVAILABLE:
         return dbc.Alert("Hata: Google GenerativeAI kütüphanesi yüklenemedi.", color="danger")
@@ -561,13 +561,8 @@ def image_generate(prompt_text, model_name):
 
     try:
         generativeai.configure(api_key=google_api_key)
-
-        # === DEĞİŞİKLİK BURADA ===
-        # 'imagen-3.0-latest' yerine, resim oluşturmayı da destekleyen daha yaygın
-        # bir Gemini modeli kullanıyoruz.
         model = generativeai.GenerativeModel(model_name=model_name)
 
-        # Gelen yorumdan zengin bir resim istemi oluşturuluyor
         final_prompt = (
             "Create a photorealistic, top-down schematic view of an environment based on the "
             f"following analysis from an ultrasonic sensor scan: '{prompt_text}'. "
@@ -575,28 +570,31 @@ def image_generate(prompt_text, model_name):
         )
 
         response = model.generate_content(final_prompt)
+        print(response)  # Keep this for debugging
 
-        print(response)
-
-        # API'den dönen cevaptan resim adresi (URI) ayıklanıyor
-        # Gemini 1.5 modelleri de aynı standart cevabı döndürür
         if response.candidates and response.candidates[0].content.parts:
-            # Bazen resim URI yerine doğrudan veri gelebilir, bu yüzden kontrol ekleyelim
-            image_part = response.candidates[0].content.parts[0]
-            if hasattr(image_part, 'file_data') and hasattr(image_part.file_data, 'file_uri'):
-                image_uri = image_part.file_data.file_uri
+            part = response.candidates[0].content.parts[0]
+
+            # CHECK 1: Is it an image file? (Ideal case)
+            if hasattr(part, 'file_data') and hasattr(part.file_data, 'file_uri'):
+                image_uri = part.file_data.file_uri
+                print(f"Başarılı: Resim URI'si bulundu: {image_uri}")
                 return html.Img(
                     src=image_uri,
                     style={'maxWidth': '100%', 'height': 'auto', 'borderRadius': '10px', 'marginTop': '10px'}
                 )
 
-        # Eğer beklenen formatta resim gelmezse
-        return dbc.Alert("Yapay zeka bir resim döndürmedi veya cevap formatı beklenmedik.", color="warning")
+            # CHECK 2: Is it a text response? (Fallback for models like Gemma)
+            elif hasattr(part, 'text'):
+                print("Uyarı: Model resim yerine metin döndürdü. Metin gösteriliyor.")
+                return dcc.Markdown(part.text, className="text-monospace bg-light p-3 border rounded")
+
+        # If no valid part is found
+        return dbc.Alert("Yapay zeka bir resim veya metin döndürmedi.", color="warning")
 
     except Exception as e:
-        # Hata durumunda kullanıcıya bilgilendirici bir mesaj gösteriliyor
-        logging.error(f"Gemini resim oluşturma hatası: {e}")
-        return dbc.Alert(f"Resim oluşturulurken bir hata oluştu: {e}", color="danger")
+        logging.error(f"Gemini resim/içerik oluşturma hatası: {e}")
+        return dbc.Alert(f"İçerik oluşturulurken bir hata oluştu: {e}", color="danger")
 
 
 # ==============================================================================
