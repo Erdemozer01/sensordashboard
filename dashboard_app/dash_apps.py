@@ -1023,7 +1023,7 @@ def update_all_graphs(n):
 
 
 @app.callback(
-    Output('container-map-graph-3d', 'style'),  # YENİ
+    Output('container-map-graph-3d', 'style'), # NEW
     Output('container-map-graph', 'style'),
     Output('container-regression-graph', 'style'),
     Output('container-polar-graph', 'style'),
@@ -1031,13 +1031,14 @@ def update_all_graphs(n):
     Input('graph-selector-dropdown', 'value')
 )
 def update_graph_visibility(selected_graph):
-    """Controls the visibility of different graph types based on dropdown selection."""
     style_map = {'display': 'none'}
     style_regression = {'display': 'none'}
     style_polar = {'display': 'none'}
     style_time = {'display': 'none'}
-    style_3d = {'display': 'none'}
-    if selected_graph == 'map':
+    style_3d = {'display': 'none'} # Initialize
+    if selected_graph == '3D Harita': # NEW condition
+        style_3d = {'display': 'block'}
+    elif selected_graph == 'map': # This is likely your 2D map
         style_map = {'display': 'block'}
     elif selected_graph == 'regression':
         style_regression = {'display': 'block'}
