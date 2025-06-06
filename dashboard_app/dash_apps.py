@@ -70,6 +70,7 @@ DEFAULT_UI_STEPS_PER_REVOLUTION = 4096
 app = DjangoDash('RealtimeSensorDashboard', external_stylesheets=[dbc.themes.BOOTSTRAP])
 
 # --- NAVBAR CREATION ---
+# --- NAVBAR CREATION ---
 navbar = dbc.NavbarSimple(
     children=[
         dbc.NavItem(dbc.NavLink("Admin Paneli", href="/admin/", external_link=True, target="_blank")),
@@ -105,9 +106,9 @@ control_panel = dbc.Card([
         html.Hr(),
         dbc.Row([
             dbc.Col(html.Button('Başlat', id='start-scan-button', n_clicks=0,
-                                className="btn btn-success btn-lg w-100 mb-2"), width=6),
+                                 className="btn btn-success btn-lg w-100 mb-2"), width=6),
             dbc.Col(html.Button('Durdur', id='stop-scan-button', n_clicks=0,
-                                className="btn btn-danger btn-lg w-100 mb-2"), width=6)
+                                 className="btn btn-danger btn-lg w-100 mb-2"), width=6)
         ]),
         html.Div(id='scan-status-message', style={'marginTop': '10px', 'minHeight': '40px', 'textAlign': 'center'},
                  className="mb-3"),
@@ -149,23 +150,23 @@ control_panel = dbc.Card([
 
 stats_panel = dbc.Card([dbc.CardHeader("Anlık Sensör Değerleri", className="bg-info text-white"), dbc.CardBody(dbc.Row(
     [dbc.Col(html.Div([html.H6("Mevcut Açı:"), html.H4(id='current-angle', children="--°")]), width=3,
-             className="text-center border-end"),
+               className="text-center border-end"),
      dbc.Col(html.Div([html.H6("Mevcut Mesafe:"), html.H4(id='current-distance', children="-- cm")]),
-             id='current-distance-col', width=3, className="text-center rounded border-end"),
+               id='current-distance-col', width=3, className="text-center rounded border-end"),
      dbc.Col(html.Div([html.H6("Anlık Hız:"), html.H4(id='current-speed', children="-- cm/s")]), width=3,
-             className="text-center border-end"),
+               className="text-center border-end"),
      dbc.Col(html.Div([html.H6("Max. Algılanan Mesafe:"), html.H4(id='max-detected-distance', children="-- cm")]),
-             width=3, className="text-center")]))], className="mb-3")
+               width=3, className="text-center")]))], className="mb-3")
 
 system_card = dbc.Card([dbc.CardHeader("Sistem Durumu", className="bg-secondary text-white"), dbc.CardBody(
     [dbc.Row([dbc.Col(html.Div([html.H6("Sensör Betiği Durumu:"), html.H5(id='script-status', children="Beklemede")]))],
              className="mb-2"),
      dbc.Row([dbc.Col(html.Div([html.H6("Pi CPU Kullanımı:"),
-                                dbc.Progress(id='cpu-usage', value=0, color="success", style={"height": "20px"},
-                                             className="mb-1", label="0%")])),
-              dbc.Col(html.Div([html.H6("Pi RAM Kullanımı:"),
-                                dbc.Progress(id='ram-usage', value=0, color="info", style={"height": "20px"},
-                                             className="mb-1", label="0%")]))])])], className="mb-3")
+                                 dbc.Progress(id='cpu-usage', value=0, color="success", style={"height": "20px"},
+                                              className="mb-1", label="0%")])),
+               dbc.Col(html.Div([html.H6("Pi RAM Kullanımı:"),
+                                 dbc.Progress(id='ram-usage', value=0, color="info", style={"height": "20px"},
+                                              className="mb-1", label="0%")]))])])], className="mb-3")
 
 export_card = dbc.Card([dbc.CardHeader("Veri Dışa Aktarma (En Son Tarama)", className="bg-light"), dbc.CardBody(
     [dbc.Button('En Son Taramayı CSV İndir', id='export-csv-button', color="primary", className="w-100 mb-2"),
@@ -214,14 +215,12 @@ visualization_tabs = dbc.Tabs(
                             dcc.Dropdown(
                                 id='graph-selector-dropdown',
                                 options=[
-                                    {'label': '3D Kartezyen Harita', 'value': 'map_3d'},  # YENİ
-                                    {'label': '2D Kartezyen Harita (Projeksiyon)', 'value': 'map'},  # DEĞİŞTİ
+                                    {'label': '2D Kartezyen Harita', 'value': 'map'},
                                     {'label': 'Regresyon Analizi', 'value': 'regression'},
                                     {'label': 'Polar Grafik', 'value': 'polar'},
                                     {'label': 'Zaman Serisi (Mesafe)', 'value': 'time'},
                                 ],
-                                value='map_3d',  # YENİ varsayılan
-
+                                value='map',
                                 clearable=False,
                                 style={'marginTop': '10px'}
                             ),
@@ -331,7 +330,6 @@ app.layout = html.Div(
         dcc.Interval(id='interval-component-system', interval=3000, n_intervals=0),
     ]
 )
-
 
 # --- HELPER FUNCTIONS ---
 def is_process_running(pid):
@@ -967,7 +965,7 @@ def update_graph_visibility(selected_graph):
     style_regression = {'display': 'none'}
     style_polar = {'display': 'none'}
     style_time = {'display': 'none'}
-    style_3d = {'display': 'none'}  # YENİ
+    style_3d = {'display': 'none'}
     if selected_graph == 'map':
         style_map = {'display': 'block'}
     elif selected_graph == 'regression':
