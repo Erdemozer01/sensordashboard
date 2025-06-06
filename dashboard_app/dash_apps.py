@@ -555,7 +555,7 @@ def image_generate(prompt_text):
         return dbc.Alert("Resim oluşturmak için geçerli bir metin yorumu gerekli.", color="warning")
     try:
         generativeai.configure(api_key=google_api_key)
-        model = generativeai.GenerativeModel(model_name="imagen-3.0-latest")
+        model = generativeai.GenerativeModel(model_name="gemini-2.0-flash-preview-image-generation")
         final_prompt = (
             "Create a photorealistic, top-down schematic view of an environment based on the "
             f"following analysis from an ultrasonic sensor scan: '{prompt_text}'. "
