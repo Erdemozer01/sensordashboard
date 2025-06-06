@@ -547,30 +547,44 @@ def yorumla_tablo_verisi_gemini(df, model_name='gemini-1.5-flash-latest'):
 
 
 def image_generate(prompt_text):
+    """
+    Verilen metin istemini (prompt) kullanarak Gemini'den bir resim oluşturur
+    ve Dash'te gösterilebilecek bir html.Img bileşeni döndürür.
+    """
     if not GOOGLE_GENAI_AVAILABLE:
         return dbc.Alert("Hata: Google GenerativeAI kütüphanesi yüklenemedi.", color="danger")
     if not google_api_key:
         return dbc.Alert("Hata: `GOOGLE_API_KEY` ayarlanmamış.", color="danger")
     if not prompt_text or "Hata:" in prompt_text:
         return dbc.Alert("Resim oluşturmak için geçerli bir metin yorumu gerekli.", color="warning")
+
     try:
         generativeai.configure(api_key=google_api_key)
-        model = generativeai.GenerativeModel(model_name="gemini-2.0-flash-preview-image-generation")
+        # Resim oluşturma için güncel bir model kullanılıyor
+        model = generativeai.GenerativeModel(model_name="imagen-3.0-latest")
+
+        # Gelen yorumdan zengin bir resim istemi oluşturuluyor
         final_prompt = (
             "Create a photorealistic, top-down schematic view of an environment based on the "
             f"following analysis from an ultrasonic sensor scan: '{prompt_text}'. "
             "The image should clearly visualize the detected shapes, walls, and objects like corridors or boxes."
         )
+
         response = model.generate_content(final_prompt)
+
+        # API'den dönen cevaptan resim adresi (URI) ayıklanıyor
         if response.candidates and response.candidates[0].content.parts:
             image_uri = response.candidates[0].content.parts[0].file_data.file_uri
+            # Dash'te gösterilecek bir resim bileşeni döndürülüyor
             return html.Img(
                 src=image_uri,
                 style={'maxWidth': '100%', 'height': 'auto', 'borderRadius': '10px', 'marginTop': '10px'}
             )
         else:
             return dbc.Alert("Yapay zeka bir resim döndürmedi. Lütfen tekrar deneyin.", color="warning")
+
     except Exception as e:
+        # Hata durumunda kullanıcıya bilgilendirici bir mesaj gösteriliyor
         logging.error(f"Gemini resim oluşturma hatası: {e}")
         return dbc.Alert(f"Resim oluşturulurken bir hata oluştu: {e}", color="danger")
 
@@ -910,29 +924,6 @@ def update_all_graphs(n):
     return figs[0], figs[1], figs[2], figs[3], est_text, store_data
 
 
-# EKSİK OLAN VE GERİ EKLENEN CALLBACK
-@app.callback(
-    Output('container-map-graph', 'style'),
-    Output('container-regression-graph', 'style'),
-    Output('container-polar-graph', 'style'),
-    Output('container-time-series-graph', 'style'),
-    Input('graph-selector-dropdown', 'value')
-)
-def update_graph_visibility(selected_graph):
-    style_map = {'display': 'none'}
-    style_regression = {'display': 'none'}
-    style_polar = {'display': 'none'}
-    style_time = {'display': 'none'}
-    if selected_graph == 'map':
-        style_map = {'display': 'block'}
-    elif selected_graph == 'regression':
-        style_regression = {'display': 'block'}
-    elif selected_graph == 'polar':
-        style_polar = {'display': 'block'}
-    elif selected_graph == 'time':
-        style_time = {'display': 'block'}
-    return style_map, style_regression, style_polar, style_time
-
 
 @app.callback(
     [Output("cluster-info-modal", "is_open"), Output("modal-title", "children"), Output("modal-body", "children")],
@@ -982,23 +973,15 @@ def yorumla_model_secimi(selected_model_value):
     if not scan:
         return [dbc.Alert("Analiz edilecek bir tarama bulunamadı.", color="warning"), no_update]
 
-    if scan.ai_commentary and scan.ai_commentary.strip():
-        print(f"Scan ID {scan.id} için mevcut AI metin yorumu kullanılıyor.")
-        yorum_text_from_ai = scan.ai_commentary
-        commentary_component = dbc.Alert(
-            dcc.Markdown(yorum_text_from_ai, dangerously_allow_html=True, link_target="_blank"), color="info")
-        image_component = image_generate(yorum_text_from_ai)
-        return [commentary_component, image_component]
-
     points_qs = scan.points.all().values('derece', 'mesafe_cm')
     if not points_qs:
         return [dbc.Alert("Yorumlanacak tarama verisi bulunamadı.", color="warning"), no_update]
 
     df_data_for_ai = pd.DataFrame(list(points_qs))
     if len(df_data_for_ai) > 500:
-        print(f"AI yorumu için çok fazla nokta ({len(df_data_for_ai)}), 500'e örnekleniyor...")
         df_data_for_ai = df_data_for_ai.sample(n=500, random_state=1)
 
+    # 1. Adım: Metin yorumunu oluştur
     print(f"Scan ID {scan.id} için yeni AI yorumu üretiliyor (Model: {selected_model_value})...")
     yorum_text_from_ai = yorumla_tablo_verisi_gemini(df_data_for_ai, selected_model_value)
 
@@ -1006,16 +989,10 @@ def yorumla_model_secimi(selected_model_value):
         error_alert = dbc.Alert(yorum_text_from_ai, color="danger")
         return [error_alert, "Metin yorumu alınamadığı için resim oluşturulamadı."]
 
-    try:
-        scan.ai_commentary = yorum_text_from_ai
-        scan.save()
-        print(f"Scan ID {scan.id} için yeni AI yorumu veritabanına kaydedildi.")
-    except Exception as e_db_save:
-        print(f"Veritabanına AI yorumu kaydedilemedi: {e_db_save}")
-
     commentary_component = dbc.Alert(
         dcc.Markdown(yorum_text_from_ai, dangerously_allow_html=True, link_target="_blank"), color="success")
 
+    # 2. Adım: Oluşturulan metin yorumunu kullanarak resmi oluştur
     print(f"Scan ID {scan.id} için resim oluşturuluyor...")
     image_component = image_generate(yorum_text_from_ai)
 
