@@ -926,7 +926,7 @@ def render_and_update_data_table(active_tab, n):
 
 @app.callback(
     [
-        Output('scan-map-graph-3d', 'figure'),  # YENİ
+        Output('scan-map-graph-3d', 'figure'),  # NEW: Output for 3D map
         Output('scan-map-graph', 'figure'),
         Output('polar-regression-graph', 'figure'),
         Output('polar-graph', 'figure'),
@@ -943,16 +943,22 @@ def update_all_graphs(n):
     """
     # --- DEBUGGING CODE START ---
     print("\n--- Grafik güncelleme tetiklendi ---")
-    from scanner.models import Scan, ScanPoint  # Local import for safety
+    # Local import for safety, though it's already imported globally
+    from scanner.models import Scan, ScanPoint
 
     scan = get_latest_scan()
     if not scan:
         print(">> DATA_DEBUG: get_latest_scan() fonksiyonu 'None' döndürdü. Veritabanında gösterilecek tarama yok.")
-        # The rest of the function will return empty figures, which is expected.
+        # If no scan, return empty figures and default text
+        # Ensure the number of returned values matches the Outputs
+        empty_figs = [go.Figure() for _ in range(5)] # 5 empty figures
+        empty_text = html.Div([html.P("Tarama başlatın veya verinin gelmesini bekleyin...")])
+        return empty_figs[0], empty_figs[1], empty_figs[2], empty_figs[3], empty_figs[4], empty_text, None
     else:
         print(f">> DATA_DEBUG: Son tarama bulundu. Scan ID: {scan.id}, Durum: {scan.status}")
     # --- DEBUGGING CODE END ---
 
+    # Initialize 5 figures: [0]=3D, [1]=2D, [2]=Regression, [3]=Polar, [4]=TimeSeries
     figs = [go.Figure() for _ in range(5)]
     est_text = html.Div([html.P("Tarama başlatın veya verinin gelmesini bekleyin...")])
     store_data = None
@@ -960,29 +966,37 @@ def update_all_graphs(n):
 
     if scan:
         scan_id_for_revision = str(scan.id)
-        points_qs = ScanPoint.objects.filter(scan=scan).values('x_cm', 'y_cm', 'z_cm', 'derece', 'mesafe_cm',
-                                                               'timestamp')
+        # Fetch all necessary columns, including z_cm for 3D plot
+        points_qs = ScanPoint.objects.filter(scan=scan).values('x_cm', 'y_cm', 'z_cm', 'derece', 'mesafe_cm', 'timestamp')
 
         df_pts = pd.DataFrame(list(points_qs))
+        # Filter out invalid distance readings for analysis
         df_val = df_pts[(df_pts['mesafe_cm'] > 0.1) & (df_pts['mesafe_cm'] < 300.0)].copy()
 
-        # --- YENİ: 3D Scatter Plot ---
+        # --- NEW: 3D Scatter Plot (figs[0]) ---
         if not df_val.empty and all(k in df_val for k in ['x_cm', 'y_cm', 'z_cm']):
             figs[0].add_trace(go.Scatter3d(
-                x=df_val['y_cm'],  # Harita görünümü için X/Y'yi çevirebiliriz
-                y=df_val['x_cm'],
+                x=df_val['y_cm'],  # Use y_cm for Plotly's x-axis to match 2D map orientation (forward is positive X, right is positive Y)
+                y=df_val['x_cm'],  # Use x_cm for Plotly's y-axis
                 z=df_val['z_cm'],
                 mode='markers',
                 marker=dict(
                     size=3,
-                    color=df_val['z_cm'],  # Yüksekliğe göre renklendir
+                    color=df_val['z_cm'],  # Color by height (Z-coordinate)
                     colorscale='Viridis',
                     showscale=True,
                     colorbar_title='Yükseklik (cm)'
                 ),
                 name='3D Noktalar'
             ))
-        # ---------------------------
+            # Sensor position for 3D plot (if desired, though 3D scatter implies origin)
+            figs[0].add_trace(go.Scatter3d(
+                x=[0], y=[0], z=[0],
+                mode='markers',
+                marker=dict(size=8, symbol='circle', color='red'),
+                name='Sensör Konumu'
+            ))
+
 
         # --- DEBUGGING CODE START ---
         print(f">> DATA_DEBUG: Tarama #{scan.id} için {len(points_qs)} adet nokta bulundu.")
@@ -990,15 +1004,16 @@ def update_all_graphs(n):
             print(">> DATA_DEBUG: UYARI! Tarama var ama ilişkili nokta (ScanPoint) yok.")
         # --- DEBUGGING CODE END ---
 
-        if points_qs:
-            df_pts = pd.DataFrame(list(points_qs))
-            df_val = df_pts[(df_pts['mesafe_cm'] > 0.1) & (df_pts['mesafe_cm'] < 300.0)].copy()
+        if not points_qs.empty: # Check if there are any points at all
+            if len(df_val) >= 5: # Enough valid points for meaningful analysis
+                # 2D Map (figs[1]) - Clustering, rays, and sector
+                # Pass figs[1] to analyze_environment_shape as it will add traces to it
+                est_cart, df_clus = analyze_environment_shape(figs[1], df_val.copy())
+                store_data = df_clus.to_json(orient='split') # Store clustered data for modal
+                add_scan_rays(figs[1], df_val) # Add scan rays to 2D map
+                add_sector_area(figs[1], df_val) # Add scanned sector area to 2D map
 
-            if len(df_val) >= 5:
-                est_cart, df_clus = analyze_environment_shape(figs[0], df_val.copy())
-                store_data = df_clus.to_json(orient='split')
-                add_scan_rays(figs[0], df_val)
-                add_sector_area(figs[0], df_val)
+                # Polar Regression (figs[2])
                 line_data, est_polar = analyze_polar_regression(df_val)
                 figs[2].add_trace(
                     go.Scatter(x=df_val['derece'], y=df_val['mesafe_cm'], mode='markers', name='Noktalar'))
@@ -1007,9 +1022,13 @@ def update_all_graphs(n):
                         go.Scatter(x=line_data['x'], y=line_data['y'], mode='lines', name='Regresyon Çizgisi',
                                    line=dict(color='red', width=3)))
 
+                # Polar Graph (figs[3]) - The original polar plot
+                update_polar_graph(figs[3], df_val)
+
+                # Time Series Graph (figs[4])
                 update_time_series_graph(figs[4], df_val)
-                update_polar_graph(figs[2], df_val)
-                update_time_series_graph(figs[3], df_val)
+
+                # Environment estimation text
                 clear_path = find_clearest_path(df_val)
                 shape_estimation = estimate_geometric_shape(df_val)
                 est_text = html.Div([
@@ -1020,30 +1039,47 @@ def update_all_graphs(n):
                 ])
             else:
                 est_text = html.Div([html.P("Analiz için yeterli sayıda geçerli nokta bulunamadı.")])
-        else:
+        else: # No scan points found for the latest scan
             est_text = html.Div([html.P(f"Tarama ID #{scan.id} için nokta verisi bulunamadı.")])
 
-    for fig in figs: add_sensor_position(fig)
-    titles = ['Ortamın 3D Haritası', '2D Harita (Projeksiyon)', 'Açıya Göre Mesafe Regresyonu', 'Polar Grafik',
-              'Zaman Serisi - Mesafe']
+    # Add sensor position to 2D, Regression, Polar, and TimeSeries graphs
+    # (Note: 3D graph already has sensor position added in its specific block)
+    # The add_sensor_position function only adds a 2D marker at (0,0) so it's not suitable for 3D directly.
+    for i in range(1, 5): # Apply to figs[1] (2D), figs[2] (Regression), figs[3] (Polar), figs[4] (Time Series)
+        add_sensor_position(figs[i])
+
+    # Titles for the 5 figures based on their new index
+    titles = [
+        'Ortamın 3D Haritası',
+        '2D Harita (Projeksiyon)',
+        'Açıya Göre Mesafe Regresyonu',
+        'Polar Grafik',
+        'Zaman Serisi - Mesafe'
+    ]
     common_legend = dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+
     for i, fig in enumerate(figs):
         fig.update_layout(title_text=titles[i], uirevision=scan_id_for_revision, legend=common_legend,
                           margin=dict(l=40, r=40, t=80, b=40))
         if i == 0:  # 3D Harita Düzeni
             fig.update_layout(scene=dict(
-                xaxis_title='Y Ekseni (cm)',
-                yaxis_title='X Ekseni (cm)',
+                xaxis_title='Y Ekseni (cm)', # Matching 2D map's Y-axis for forward view
+                yaxis_title='X Ekseni (cm)', # Matching 2D map's X-axis
                 zaxis_title='Z Ekseni (cm)',
-                aspectratio=dict(x=1, y=1, z=0.5)  # Görünümü ayarla
+                aspectratio=dict(x=1, y=1, z=0.5), # Adjust aspect ratio for better visualization
+                camera=dict(
+                    eye=dict(x=1.2, y=1.2, z=0.8) # Adjust camera initial view
+                )
             ))
-        elif i == 1:  # 2D Harita Düzeni
+        elif i == 1:  # 2D Harita Düzeni (This is the original scan-map-graph)
             fig.update_layout(xaxis_title="Yatay Mesafe (cm)", yaxis_title="Dikey Mesafe (cm)", yaxis_scaleanchor="x",
                               yaxis_scaleratio=1)
-        elif i == 2:  # Regresyon
+        elif i == 2:  # Regresyon Analizi (polar-regression-graph)
             fig.update_layout(xaxis_title="Tarama Açısı (Derece)", yaxis_title="Mesafe (cm)")
+        # Polar and Time Series graphs will have their specific layouts set by their update functions.
 
-    return figs[0], figs[1], figs[2], figs[3], figs[4], est_text, store_data  # DEĞİŞTİ: bir figür daha döndür
+    # Return all 7 outputs in the correct order
+    return figs[0], figs[1], figs[2], figs[3], figs[4], est_text, store_data
 
 
 @app.callback(
