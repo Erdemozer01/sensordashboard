@@ -832,20 +832,55 @@ def render_and_update_data_table(active_tab, n):
     ],
     Input('interval-component-main', 'n_intervals')
 )
+@app.callback(
+    [
+        Output('scan-map-graph', 'figure'),
+        Output('polar-regression-graph', 'figure'),
+        Output('polar-graph', 'figure'),
+        Output('time-series-graph', 'figure'),
+        Output('environment-estimation-text', 'children'),
+        Output('clustered-data-store', 'data')
+    ],
+    Input('interval-component-main', 'n_intervals')
+)
 def update_all_graphs(n):
-    from scanner.models import ScanPoint
+    """
+    Tüm grafikleri ve analizleri periyodik olarak güncelleyen ana callback.
+    Bu fonksiyon, uygulamanın görsel kalbidir.
+    """
+    # --- HATA AYIKLAMA KODU BAŞLANGICI ---
+    print("\n--- Grafik güncelleme tetiklendi ---")
+    from scanner.models import Scan, ScanPoint  # Local import for safety
+
+    scan = get_latest_scan()
+    if not scan:
+        print(">> DATA_DEBUG: get_latest_scan() fonksiyonu 'None' döndürdü. Veritabanında gösterilecek tarama yok.")
+        # Fonksiyonun geri kalanı boş figürler döndürecek, bu beklenen bir durum.
+    else:
+        print(f">> DATA_DEBUG: Son tarama bulundu. Scan ID: {scan.id}, Durum: {scan.status}")
+    # --- HATA AYIKLAMA KODU SONU ---
+
     figs = [go.Figure() for _ in range(4)]
     est_text = html.Div([html.P("Tarama başlatın veya verinin gelmesini bekleyin...")])
     store_data = None
     scan_id_for_revision = 'initial_load'
-    scan = get_latest_scan()
+
     if scan:
         scan_id_for_revision = str(scan.id)
         points_qs = ScanPoint.objects.filter(scan=scan).values('x_cm', 'y_cm', 'derece', 'mesafe_cm', 'timestamp')
+
+        # --- HATA AYIKLAMA KODU BAŞLANGICI ---
+        print(f">> DATA_DEBUG: Tarama #{scan.id} için {len(points_qs)} adet nokta bulundu.")
+        if not points_qs:
+            print(">> DATA_DEBUG: UYARI! Tarama var ama ilişkili nokta (ScanPoint) yok.")
+        # --- HATA AYIKLAMA KODU SONU ---
+
         if points_qs:
             df_pts = pd.DataFrame(list(points_qs))
             df_val = df_pts[(df_pts['mesafe_cm'] > 0.1) & (df_pts['mesafe_cm'] < 300.0)].copy()
+
             if len(df_val) >= 5:
+                # ... (mevcut analiz kodunuz)
                 est_cart, df_clus = analyze_environment_shape(figs[0], df_val.copy())
                 store_data = df_clus.to_json(orient='split')
                 add_scan_rays(figs[0], df_val)
@@ -853,9 +888,10 @@ def update_all_graphs(n):
                 line_data, est_polar = analyze_polar_regression(df_val)
                 figs[1].add_trace(
                     go.Scatter(x=df_val['derece'], y=df_val['mesafe_cm'], mode='markers', name='Noktalar'))
-                if line_data: figs[1].add_trace(
-                    go.Scatter(x=line_data['x'], y=line_data['y'], mode='lines', name='Regresyon Çizgisi',
-                               line=dict(color='red', width=3)))
+                if line_data:
+                    figs[1].add_trace(
+                        go.Scatter(x=line_data['x'], y=line_data['y'], mode='lines', name='Regresyon Çizgisi',
+                                   line=dict(color='red', width=3)))
                 update_polar_graph(figs[2], df_val)
                 update_time_series_graph(figs[3], df_val)
                 clear_path = find_clearest_path(df_val)
@@ -870,6 +906,7 @@ def update_all_graphs(n):
                 est_text = html.Div([html.P("Analiz için yeterli sayıda geçerli nokta bulunamadı.")])
         else:
             est_text = html.Div([html.P(f"Tarama ID #{scan.id} için nokta verisi bulunamadı.")])
+
     for fig in figs: add_sensor_position(fig)
     titles = ['Ortamın 2D Haritası', 'Açıya Göre Mesafe Regresyonu', 'Polar Grafik', 'Zaman Serisi - Mesafe']
     common_legend = dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
@@ -881,6 +918,7 @@ def update_all_graphs(n):
                               yaxis_scaleratio=1)
         elif i == 1:
             fig.update_layout(xaxis_title="Tarama Açısı (Derece)", yaxis_title="Mesafe (cm)")
+
     return figs[0], figs[1], figs[2], figs[3], est_text, store_data
 
 
