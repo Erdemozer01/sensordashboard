@@ -549,50 +549,61 @@ def yorumla_tablo_verisi_gemini(df, model_name='gemini-1.5-flash-latest'):
         return f"Gemini'den yanıt alınırken bir hata oluştu: {e}"
 
 
-import plotly.io as pio  # Bu satırı fonksiyonun hemen üstüne veya dosyanın en başına ekleyin
-from PIL import Image
-import io  # Bu import'un da olduğundan emin olun
-
-
 def generate_image_from_map(map_figure, model_name):
     """
-    Verilen Plotly harita figürünü resme çevirir ve bu resmi kullanarak
-    yapay zekadan yeni bir fotogerçekçi resim oluşturmasını ister.
-    (Sandbox devre dışı bırakıldı)
+    Verilen Plotly figürünü Matplotlib kullanarak bir resme dönüştürür ve
+    bu resmi kullanarak yapay zekadan yeni bir fotogerçekçi resim oluşturmasını ister.
+    Bu fonksiyon Kaleido'ya bağımlı DEĞİLDİR.
     """
-    # --- YENİ EKLENEN SATIRLAR ---
-    # Kaleido'nun sandbox modunu devre dışı bırakarak uyumluluk sorununu aşmayı dene
-    pio.kaleido.scope.chromium_args = ("--disable-sandbox", "--no-sandbox")
-    # ---------------------------
-
     if not GOOGLE_GENAI_AVAILABLE or not map_figure:
         return dbc.Alert("AI için gerekli kütüphane veya harita verisi eksik.", color="warning")
 
     try:
-        # Figürü PNG formatında bir byte dizisine çevir
-        print(">> Kaleido ile harita figürü resme dönüştürülüyor (sandbox kapalı)...")
-        img_bytes = map_figure.to_image(format="png", width=800, height=600, scale=2)
-        print(">> Harita resmi başarıyla oluşturuldu.")
+        # --- Adım 1: Plotly Figürünü Matplotlib ile Resme Çevirme ---
+        print(">> Matplotlib ile harita figürü resme dönüştürülüyor...")
 
-        # Byte dizisinden bir resim nesnesi oluştur
+        # Yeni bir Matplotlib figürü oluştur
+        fig, ax = plt.subplots(figsize=(8, 6))
+
+        # Plotly figüründeki her bir "trace" (çizim katmanı) için döngü kur
+        for trace in map_figure.get('data', []):
+            if trace.get('mode') == 'markers':
+                ax.scatter(trace.get('x', []), trace.get('y', []), s=15, alpha=0.7)
+            elif trace.get('mode') == 'lines':
+                ax.plot(trace.get('x', []), trace.get('y', []), alpha=0.5)
+
+        ax.set_xlabel("Yatay Mesafe (cm)")
+        ax.set_ylabel("Dikey Mesafe (cm)")
+        ax.set_title("Sensör Verisi 2D Haritası")
+        ax.grid(True, linestyle='--', alpha=0.6)
+        ax.set_aspect('equal', adjustable='box')  # Eksenleri eşit ölçekle
+
+        # Figürü hafızada bir byte tamponuna kaydet
+        buf = io.BytesIO()
+        fig.savefig(buf, format='png', dpi=150)
+        plt.close(fig)  # Figürü hafızadan temizle
+        buf.seek(0)
+
+        img_bytes = buf.read()
+        buf.close()
+        print(">> Harita resmi Matplotlib ile başarıyla oluşturuldu.")
+
+        # --- Adım 2: Resmi Yapay Zekaya Gönderme ---
         map_image = Image.open(io.BytesIO(img_bytes))
 
         generativeai.configure(api_key=google_api_key)
         model = generativeai.GenerativeModel(model_name=model_name)
 
         prompt = [
-            "You are an expert interior designer and architect. "
-            "Analyze the attached image, which is a 2D schematic from an ultrasonic sensor scan. "
-            "Based *only* on the shapes, walls, and detected points in this schematic, "
-            "create a single, clean, photorealistic top-down rendering of what this room or environment might actually look like. "
-            "Do not include any text, labels, or grid lines from the original schematic in your final image.",
+            "You are an expert interior designer. Analyze the attached 2D schematic from a sensor scan. "
+            "Based on the shapes in this schematic, create a single, clean, photorealistic top-down rendering of what this room might look like.",
             map_image,
         ]
 
         print(">> Harita resmi ve yeni prompt ile AI'dan resim isteniyor...")
         response = model.generate_content(prompt)
 
-        # ... fonksiyonun geri kalanı aynı ...
+        # ... (fonksiyonun geri kalanı aynı) ...
         if response.candidates and response.candidates[0].content.parts:
             part = response.candidates[0].content.parts[0]
             if hasattr(part, 'file_data') and hasattr(part.file_data, 'file_uri') and part.file_data.file_uri:
