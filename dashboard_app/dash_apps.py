@@ -8,11 +8,11 @@ import signal
 import psutil
 import pandas as pd
 import numpy as np
-from matplotlib.pyplot import figure
+
 from scipy.spatial import ConvexHull
 from sklearn.cluster import DBSCAN
 from sklearn.linear_model import RANSACRegressor
-from PIL import Image
+import google.generativeai as genai
 
 
 try:
