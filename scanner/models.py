@@ -40,24 +40,20 @@ class Scan(models.Model):
         return f"Scan #{self.id} - {self.start_time.strftime('%Y-%m-%d %H:%M:%S')}"
 
 
+from django.db import models
+from django.utils import timezone
+
 class ScanPoint(models.Model):
-    scan = models.ForeignKey(Scan, related_name='points', on_delete=models.CASCADE)
+    scan = models.ForeignKey('Scan', on_delete=models.CASCADE, related_name='points')
+    derece = models.FloatField() # Or DecimalField
+    mesafe_cm = models.FloatField() # <-- THIS ONE! Or DecimalField
+    hiz_cm_s = models.FloatField(null=True, blank=True) # If you calculate speed
+    x_cm = models.FloatField()
+    y_cm = models.FloatField()
+    z_cm = models.FloatField()
+    dikey_aci = models.FloatField(null=True, blank=True)
+    mesafe_cm_2 = models.FloatField(null=True, blank=True)
     timestamp = models.DateTimeField(default=timezone.now)
 
-    derece = models.FloatField(help_text="Step motorun yatay açısı (pan)")
-    mesafe_cm = models.FloatField(help_text="Ana sensörün mesafesi (cm)")
-
-    # Servo ve ikinci sensör için yeni alanlar
-    dikey_aci = models.FloatField(default=0.0, help_text="Servonun dikey açısı (tilt)")
-    mesafe_cm_2 = models.FloatField(null=True, blank=True, help_text="İkinci ultrasonik sensörün mesafesi (cm)")
-
-    # 3D koordinatlar
-    x_cm = models.FloatField(null=True, blank=True)
-    y_cm = models.FloatField(null=True, blank=True)
-    z_cm = models.FloatField(null=True, blank=True)
-
-    # İsteğe bağlı
-    hiz_cm_s = models.FloatField(null=True, blank=True)
-
     def __str__(self):
-        return f"Point at Pan:{self.derece}°/Tilt:{self.dikey_aci}° -> {self.mesafe_cm} cm"
+        return f"Point {self.id} at {self.derece}° - {self.mesafe_cm} cm"
