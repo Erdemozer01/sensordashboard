@@ -25,10 +25,11 @@ except ModuleNotFoundError:
     print("UYARI: 'scanner.models' import edilemedi. Django proje yapınızı ve PYTHONPATH'ı kontrol edin.")
     print("Django entegrasyonu olmadan devam edilecek, veritabanı işlemleri çalışmayabilir.")
     DJANGO_MODELS_AVAILABLE = False
+    Scan, ScanPoint = None, None
 except Exception as e:
     print(f"Django modelleri import edilirken bir hata oluştu: {e}")
     DJANGO_MODELS_AVAILABLE = False
-Scan, ScanPoint = None, None
+    Scan, ScanPoint = None, None
 
 # Dash and Plotly Libraries
 from django_plotly_dash import DjangoDash
