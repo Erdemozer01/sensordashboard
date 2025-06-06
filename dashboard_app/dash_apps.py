@@ -81,8 +81,7 @@ def get_latest_scan():
 # Özellikle AI kısmını butonla tetiklenecek şekilde değiştirelim.
 
 app.layout = html.Div(style={'padding': '20px'}, children=[
-    dbc.NavbarSimple(brand="Dream Pi", brand_href="/", color="primary", dark=True, sticky="top", fluid=True,
-                     className="mb-4"),
+    dbc.NavbarSimple(brand="Dream Pi", brand_href="/", color="primary", dark=True, sticky="top", fluid=True, className="mb-4"),
     dbc.Row([
         # --- KONTROL KOLONU ---
         dbc.Col(md=4, children=[
@@ -91,15 +90,16 @@ app.layout = html.Div(style={'padding': '20px'}, children=[
                 dbc.CardBody([
                     html.H6("Tarama Betiğini Kontrol Et"),
                     dbc.Row([
-                        dbc.Col(html.Button('Yeni Tarama Başlat', id='start-scan-button', color="success",
-                                            className="w-100")),
-                        dbc.Col(html.Button('Çalışan Taramayı Durdur', id='stop-scan-button', color="danger",
-                                            className="w-100")),
+                        # --- DEĞİŞİKLİK BURADA ---
+                        dbc.Col(dbc.Button('Yeni Tarama Başlat', id='start-scan-button', color="success", className="w-100")),
+                        # --- DEĞİŞİKLİK BURADA ---
+                        dbc.Col(dbc.Button('Çalışan Taramayı Durdur', id='stop-scan-button', color="danger", className="w-100")),
                     ]),
                     html.Div(id='scan-status-message', className="text-center mt-2", style={'minHeight': '40px'}),
                     html.Hr(),
                     html.H6("Yapay Zeka Analizi (Son Tarama İçin)"),
-                    html.Button('Yorum ve Resim Oluştur', id='run-ai-button', color="info", className="w-100 mt-2"),
+                    # --- DEĞİŞİKLİK BURADA ---
+                    dbc.Button('Yorum ve Resim Oluştur', id='run-ai-button', color="info", className="w-100 mt-2"),
                 ])
             ]),
             dbc.Card(id='system-card', className="mt-3"),
